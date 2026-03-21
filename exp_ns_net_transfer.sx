@@ -1,0 +1,374 @@
+// NET ENERGY TRANSFER: Does k=1 accumulate energy or lose it?
+//
+// The continuum coupling experiment showed S_stretch(k=1, N) grows
+// with N. But stretching is only HALF the picture. The NS nonlinear
+// term conserves energy: sum_k T(k) = 0, where T(k) is the net
+// energy transfer into mode k.
+//
+// This experiment computes T(k) = S_in(k) - S_out(k):
+//   S_in(k)  = energy received by mode k from all other modes
+//   S_out(k) = energy donated by mode k to all other modes
+//
+// KEY INSIGHT: Energy conservation means sum_k T(k) = 0.
+// If T(k=1) > 0 (net inflow), then sum_{k>=2} T(k) < 0 (net outflow
+// at high k), and diffusion at high k dissipates it.
+// If T(k=1) < 0 (net outflow), then k=1 LOSES energy — no blow-up
+// possible.
+//
+// For NS on T^3, the triadic interaction transfers energy via:
+//   T(k) = sum_{p+q=k} Re[ c_{kpq} * conj(û_k) * û_p * û_q ]
+//
+// The sign of T(k) determines the CASCADE DIRECTION:
+//   T(k) > 0 for small k → inverse cascade (energy flows to large scales)
+//   T(k) < 0 for small k → forward cascade (energy flows to small scales)
+//
+// In 3D NS, the forward cascade is expected (Kolmogorov 1941).
+// If T(k=1) <= 0 for all N, the proof chain closes: k=1 never
+// accumulates energy, regardless of how many modes interact with it.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn my_sqrt(x: f64) -> f64 {
+    if x <= 0.0 { return 0.0; }
+    var g: f64 = x;
+    var i: i64 = 0;
+    while i < 30 {
+        g = 0.5 * (g + x / g);
+        i = i + 1;
+    }
+    g
+}
+
+// |k|^2 for 3D wavevector
+fn ksq(kx: i64, ky: i64, kz: i64) -> f64 {
+    let fx: f64 = kx as f64;
+    let fy: f64 = ky as f64;
+    let fz: f64 = kz as f64;
+    fx * fx + fy * fy + fz * fz
+}
+
+// Dot product of integer 3-vectors
+fn dot3(ax: i64, ay: i64, az: i64, bx: i64, by: i64, bz: i64) -> f64 {
+    (ax * bx + ay * by + az * bz) as f64
+}
+
+// For a triad k = p + q in incompressible NS:
+//
+// The energy transfer TO mode k FROM the interaction of p and q is:
+//   T_{k<-pq} = |q| * |û_p| * |û_k| * cos(angle between û_p and q)
+//                * sin(angle between result and k) [Leray projection]
+//
+// For the NET transfer, we need both directions:
+//   T_{k<-pq} (energy INTO k from p,q interaction)
+//   T_{p<-kq} (energy OUT of k via k,q interaction → p)
+//
+// In the isotropic Kolmogorov picture with |û_k|^2 ~ k^(-5/3):
+//   Transfer is predominantly forward (small k → large k)
+//   Because high-k modes have weaker amplitudes, they receive
+//   energy from stronger low-k modes.
+//
+// We compute:
+//   For each mode k, sum INCOMING coupling (all triads p+q=k)
+//   For each mode k, sum OUTGOING coupling (all triads k+q=p)
+//   Net = incoming - outgoing
+//
+// Using unit energy spectrum |û_k|^2 = 1 for s=0 (worst case)
+// and Kolmogorov spectrum |û_k|^2 = k^(-5/3) for physical case.
+
+// Compute incoming coupling for mode k:
+// Sum over all (p,q) with p+q = k of |q|^2 * |û_p|^2 * sin^2(q,k)
+fn incoming(kx: i64, ky: i64, kz: i64, n_max: i64, s: f64) -> f64 {
+    var total: f64 = 0.0;
+    let nf: f64 = n_max as f64;
+
+    var px: i64 = 0 - n_max;
+    while px <= n_max {
+        var py: i64 = 0 - n_max;
+        while py <= n_max {
+            var pz: i64 = 0 - n_max;
+            while pz <= n_max {
+                let p2: f64 = ksq(px, py, pz);
+                if p2 > 0.0001 {
+                    let qx: i64 = kx - px;
+                    let qy: i64 = ky - py;
+                    let qz: i64 = kz - pz;
+                    let q2: f64 = ksq(qx, qy, qz);
+                    if q2 > 0.0001 {
+                        if q2 <= nf * nf {
+                            // Energy spectrum of source mode p
+                            var u_p_sq: f64 = 1.0;
+                            if s > 0.5 {
+                                // Kolmogorov: |û|^2 ~ |k|^(-2s)
+                                // For s = 5/6 ≈ 0.833: gives k^(-5/3) spectrum
+                                var p_mag: f64 = my_sqrt(p2);
+                                var denom: f64 = 1.0;
+                                var si: i64 = 0;
+                                while si < (2.0 * s) as i64 {
+                                    denom = denom * p_mag;
+                                    si = si + 1;
+                                }
+                                if denom > 0.0001 {
+                                    u_p_sq = 1.0 / denom;
+                                }
+                            }
+
+                            // Leray projection: sin^2(q, k)
+                            let qk: f64 = dot3(qx, qy, qz, kx, ky, kz);
+                            let k2: f64 = ksq(kx, ky, kz);
+                            var sin2: f64 = 1.0;
+                            if q2 * k2 > 0.0001 {
+                                let cos2: f64 = (qk * qk) / (q2 * k2);
+                                if cos2 < 1.0 {
+                                    sin2 = 1.0 - cos2;
+                                } else {
+                                    sin2 = 0.0;
+                                }
+                            }
+
+                            total = total + q2 * u_p_sq * sin2;
+                        }
+                    }
+                }
+                pz = pz + 1;
+            }
+            py = py + 1;
+        }
+        px = px + 1;
+    }
+    total
+}
+
+// Compute outgoing coupling FROM mode k:
+// Sum over all (q) such that k+q = p (i.e., p = k+q) with |q|,|p| <= N
+// of |q|^2 * |û_k|^2 * sin^2(q, p)
+// This represents energy transferred FROM k (as source) TO p (as target)
+fn outgoing(kx: i64, ky: i64, kz: i64, n_max: i64, s: f64) -> f64 {
+    var total: f64 = 0.0;
+    let nf: f64 = n_max as f64;
+    let k2: f64 = ksq(kx, ky, kz);
+
+    // Energy spectrum of mode k (the source)
+    var u_k_sq: f64 = 1.0;
+    if s > 0.5 {
+        var k_mag: f64 = my_sqrt(k2);
+        var denom: f64 = 1.0;
+        var si: i64 = 0;
+        while si < (2.0 * s) as i64 {
+            denom = denom * k_mag;
+            si = si + 1;
+        }
+        if denom > 0.0001 {
+            u_k_sq = 1.0 / denom;
+        }
+    }
+
+    // Enumerate all q with |q| <= N
+    var qx: i64 = 0 - n_max;
+    while qx <= n_max {
+        var qy: i64 = 0 - n_max;
+        while qy <= n_max {
+            var qz: i64 = 0 - n_max;
+            while qz <= n_max {
+                let q2: f64 = ksq(qx, qy, qz);
+                if q2 > 0.0001 {
+                    // Target mode p = k + q
+                    let px: i64 = kx + qx;
+                    let py: i64 = ky + qy;
+                    let pz: i64 = kz + qz;
+                    let p2: f64 = ksq(px, py, pz);
+                    if p2 > 0.0001 {
+                        if p2 <= nf * nf {
+                            // Leray projection: sin^2(q, p)
+                            let qp: f64 = dot3(qx, qy, qz, px, py, pz);
+                            var sin2: f64 = 1.0;
+                            if q2 * p2 > 0.0001 {
+                                let cos2: f64 = (qp * qp) / (q2 * p2);
+                                if cos2 < 1.0 {
+                                    sin2 = 1.0 - cos2;
+                                } else {
+                                    sin2 = 0.0;
+                                }
+                            }
+
+                            total = total + q2 * u_k_sq * sin2;
+                        }
+                    }
+                }
+                qz = qz + 1;
+            }
+            qy = qy + 1;
+        }
+        qx = qx + 1;
+    }
+    total
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  NET ENERGY TRANSFER: Forward vs Inverse Cascade         #");
+    println("#                                                          #");
+    println("#  T(k) = S_in(k) - S_out(k)                              #");
+    println("#                                                          #");
+    println("#  T(k) < 0 at low k → forward cascade → k=1 safe        #");
+    println("#  T(k) > 0 at low k → inverse cascade → k=1 at risk     #");
+    println("#                                                          #");
+    println("#  Energy conservation: sum_k T(k) = 0                    #");
+    println("############################################################");
+    println("");
+
+    // ============================================================
+    // Phase 1: Net transfer per wavenumber (N=6, flat spectrum s=0)
+    // ============================================================
+    println("  === Phase 1: Net transfer per |k| (N=6, s=0, flat spectrum) ===");
+    println("");
+    println("  |k|    S_in           S_out          T(k)=In-Out    Direction");
+    println("  ----   ----------     ----------     ----------     ---------");
+
+    let n_test: i64 = 6;
+    var k_val: i64 = 1;
+
+    var sum_t: f64 = 0.0;
+
+    while k_val <= 6 {
+        let s_in: f64 = incoming(k_val, 0, 0, n_test, 0.0);
+        let s_out: f64 = outgoing(k_val, 0, 0, n_test, 0.0);
+        let t_net: f64 = s_in - s_out;
+        sum_t = sum_t + t_net;
+
+        print("  ");
+        print_i64(k_val);
+        print("    ");
+        print_f64(s_in);
+        print("   ");
+        print_f64(s_out);
+        print("   ");
+        print_f64(t_net);
+
+        if t_net < 0.0 {
+            println("   FORWARD (loses energy)");
+        } else {
+            if t_net > 0.0 {
+                println("   INVERSE (gains energy)");
+            } else {
+                println("   NEUTRAL");
+            }
+        }
+
+        k_val = k_val + 1;
+    }
+
+    println("");
+    print("  Sum T(k) = ");
+    print_f64(sum_t);
+    println(" (should be ~0 by energy conservation)");
+
+    // ============================================================
+    // Phase 2: Net transfer with Kolmogorov spectrum (s=1)
+    // ============================================================
+    println("");
+    println("  === Phase 2: Net transfer per |k| (N=6, s=1, H1 spectrum) ===");
+    println("");
+    println("  |k|    S_in           S_out          T(k)=In-Out    Direction");
+    println("  ----   ----------     ----------     ----------     ---------");
+
+    k_val = 1;
+    sum_t = 0.0;
+
+    while k_val <= 6 {
+        let s_in: f64 = incoming(k_val, 0, 0, n_test, 1.0);
+        let s_out: f64 = outgoing(k_val, 0, 0, n_test, 1.0);
+        let t_net: f64 = s_in - s_out;
+        sum_t = sum_t + t_net;
+
+        print("  ");
+        print_i64(k_val);
+        print("    ");
+        print_f64(s_in);
+        print("   ");
+        print_f64(s_out);
+        print("   ");
+        print_f64(t_net);
+
+        if t_net < 0.0 {
+            println("   FORWARD (loses energy)");
+        } else {
+            if t_net > 0.0 {
+                println("   INVERSE (gains energy)");
+            } else {
+                println("   NEUTRAL");
+            }
+        }
+
+        k_val = k_val + 1;
+    }
+
+    println("");
+    print("  Sum T(k) = ");
+    print_f64(sum_t);
+    println(" (should be ~0 by energy conservation)");
+
+    // ============================================================
+    // Phase 3: N-dependence of T(k=1)
+    // Does k=1 gain or lose energy as N increases?
+    // ============================================================
+    println("");
+    println("  === Phase 3: T(k=1) vs N (does k=1 accumulate energy?) ===");
+    println("");
+    println("  N      S_in(1)        S_out(1)       T(1)           Direction");
+    println("  ----   ----------     ----------     ----------     ---------");
+
+    var n_val: i64 = 2;
+    while n_val <= 8 {
+        let s_in: f64 = incoming(1, 0, 0, n_val, 0.0);
+        let s_out: f64 = outgoing(1, 0, 0, n_val, 0.0);
+        let t_net: f64 = s_in - s_out;
+
+        print("  ");
+        print_i64(n_val);
+        print("    ");
+        print_f64(s_in);
+        print("   ");
+        print_f64(s_out);
+        print("   ");
+        print_f64(t_net);
+
+        if t_net < 0.0 {
+            println("   FORWARD");
+        } else {
+            if t_net > 0.0 {
+                println("   INVERSE");
+            } else {
+                println("   NEUTRAL");
+            }
+        }
+
+        n_val = n_val + 1;
+    }
+
+    // ============================================================
+    // Phase 4: Assessment
+    // ============================================================
+    println("");
+    println("  === Phase 4: Assessment ===");
+    println("");
+    println("  If T(k=1) <= 0 for all N:");
+    println("    → k=1 NEVER accumulates energy");
+    println("    → Forward cascade confirmed in exact Fourier basis");
+    println("    → The growing S_stretch(k=1) is offset by growing S_out(k=1)");
+    println("    → k=1 blow-up is impossible");
+    println("    → Combined with R(k) decay, the proof chain CLOSES");
+    println("");
+    println("  If T(k=1) > 0 for some N:");
+    println("    → Inverse cascade at large scales");
+    println("    → k=1 accumulates energy from nonlinear interactions");
+    println("    → Must check if diffusion at k=1 (nu*k^2) absorbs it");
+    println("    → The H/H'/H'' scaffold measures this balance");
+    println("");
+    println("############################################################");
+    println("#  NET TRANSFER COMPLETE                                   #");
+    println("############################################################");
+
+    0
+}

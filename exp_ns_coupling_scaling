@@ -1,0 +1,2440 @@
+; ModuleID = 'simplex_program'
+target triple = "x86_64-apple-macosx14.0.0"
+
+declare ptr @malloc(i64)
+declare void @free(ptr)
+declare void @intrinsic_println(ptr)
+declare void @intrinsic_print(ptr)
+declare void @"print_i64"(i64)
+declare ptr @intrinsic_int_to_string(i64)
+declare ptr @intrinsic_string_new(ptr)
+declare ptr @intrinsic_string_from_char(i64)
+declare i64 @intrinsic_string_len(ptr)
+declare ptr @intrinsic_string_concat(ptr, ptr)
+declare ptr @intrinsic_string_slice(ptr, i64, i64)
+declare i64 @intrinsic_string_char_at(ptr, i64)
+declare i1 @intrinsic_string_eq(ptr, ptr)
+declare i64 @intrinsic_string_to_int(ptr)
+declare i64 @"String_from"(i64)
+declare i64 @"String_len"(i64)
+declare ptr @intrinsic_vec_new()
+declare void @intrinsic_vec_push(ptr, ptr)
+declare ptr @intrinsic_vec_get(ptr, i64)
+declare i64 @intrinsic_vec_len(ptr)
+declare void @intrinsic_vec_set(ptr, i64, ptr)
+declare ptr @intrinsic_vec_pop(ptr)
+declare void @intrinsic_vec_clear(ptr)
+declare void @intrinsic_vec_remove(ptr, i64)
+declare ptr @intrinsic_get_args()
+declare ptr @intrinsic_read_file(ptr)
+declare void @intrinsic_write_file(ptr, ptr)
+declare ptr @store_ptr(ptr, i64, ptr)
+declare ptr @store_i64(ptr, i64, i64)
+declare ptr @load_ptr(ptr, i64)
+declare i64 @load_i64(ptr, i64)
+; Timing intrinsics
+declare i64 @intrinsic_get_time_ms()
+declare i64 @intrinsic_get_time_us()
+declare i64 @intrinsic_get_time_ns()
+; Float bit conversion intrinsics
+declare i64 @"f64_to_bits"(double)
+declare i64 @"bits_to_f64"(i64)
+; Arena allocator intrinsics
+declare ptr @intrinsic_arena_create(i64)
+declare ptr @intrinsic_arena_alloc(ptr, i64)
+declare void @intrinsic_arena_reset(ptr)
+declare void @intrinsic_arena_free(ptr)
+declare i64 @intrinsic_arena_used(ptr)
+; StringBuilder intrinsics
+declare ptr @intrinsic_sb_new()
+declare ptr @intrinsic_sb_new_cap(i64)
+declare void @intrinsic_sb_append(ptr, ptr)
+declare void @intrinsic_sb_append_char(ptr, i64)
+declare void @intrinsic_sb_append_i64(ptr, i64)
+declare ptr @intrinsic_sb_to_string(ptr)
+declare void @intrinsic_sb_clear(ptr)
+declare void @intrinsic_sb_free(ptr)
+declare i64 @intrinsic_sb_len(ptr)
+; File I/O intrinsics
+declare ptr @intrinsic_getenv(ptr)
+declare i64 @intrinsic_file_exists(ptr)
+declare i64 @intrinsic_is_file(ptr)
+declare i64 @intrinsic_is_directory(ptr)
+declare i64 @intrinsic_file_size(ptr)
+declare i64 @intrinsic_file_mtime(ptr)
+declare i64 @intrinsic_remove_path(ptr)
+declare i64 @intrinsic_mkdir_p(ptr)
+declare ptr @intrinsic_get_cwd()
+declare i64 @intrinsic_set_cwd(ptr)
+declare ptr @intrinsic_list_dir(ptr)
+declare ptr @intrinsic_path_join(ptr, ptr)
+declare ptr @intrinsic_path_dirname(ptr)
+declare ptr @intrinsic_path_basename(ptr)
+declare ptr @intrinsic_path_extension(ptr)
+declare i64 @file_copy(ptr, ptr)
+declare i64 @file_rename(ptr, ptr)
+declare void @stderr_write(ptr)
+declare void @stderr_writeln(ptr)
+; Error handling intrinsics
+declare void @intrinsic_panic(ptr)
+declare void @intrinsic_print_stack_trace()
+; Process intrinsics
+declare i64 @intrinsic_process_run(ptr)
+declare ptr @intrinsic_process_output(ptr)
+; Phase 20: REPL/I/O intrinsics
+declare ptr @intrinsic_read_line()
+declare i64 @intrinsic_is_tty()
+declare i64 @intrinsic_stdin_has_data()
+declare i64 @intrinsic_string_hash(ptr)
+declare i64 @intrinsic_string_find(ptr, ptr, i64)
+declare ptr @intrinsic_string_trim(ptr)
+declare ptr @intrinsic_string_split(ptr, ptr)
+declare i64 @intrinsic_string_starts_with(ptr, ptr)
+declare i64 @intrinsic_string_ends_with(ptr, ptr)
+declare i64 @intrinsic_string_contains(ptr, ptr)
+declare ptr @intrinsic_string_replace(ptr, ptr, ptr)
+declare ptr @intrinsic_string_lines(ptr)
+declare ptr @intrinsic_string_join(ptr, ptr)
+declare ptr @intrinsic_string_to_lowercase(ptr)
+declare ptr @intrinsic_string_to_uppercase(ptr)
+declare i64 @intrinsic_string_compare(ptr, ptr)
+declare i64 @intrinsic_copy_file(ptr, ptr)
+declare ptr @intrinsic_get_home_dir()
+declare i64 @cli_getenv(i64)
+declare i64 @"env_get"(i64)
+declare i64 @file_read(i64)
+declare void @file_write(i64, i64)
+declare i64 @remove_path(i64)
+declare i64 @f64_parse(ptr)
+declare i64 @"make_sx_string"(i64)
+; SLM native bindings
+declare i64 @"slm_native_load"(i64, i64, i64)
+declare i64 @"slm_native_unload"(i64)
+declare i64 @"slm_native_create_context"(i64, i64)
+declare i64 @"slm_native_destroy_context"(i64)
+declare i64 @"slm_native_tokenize"(i64, i64)
+declare i64 @"slm_native_infer"(i64, i64, i64)
+declare i64 @"slm_native_generate"(i64, i64, i64, i64)
+declare i64 @"slm_native_embed"(i64, i64)
+declare i64 @"slm_native_similarity"(i64, i64)
+declare i64 @"slm_native_context_size"(i64)
+declare i64 @"slm_native_embedding_size"(i64)
+declare i64 @"slm_native_get_model_info"(i64)
+; Generator intrinsics
+declare i64 @generator_yield(i64)
+declare i64 @generator_new(i64)
+declare i64 @generator_next(i64)
+declare i64 @generator_done(i64)
+; Belief guard intrinsics
+declare i64 @belief_guard_get_confidence(i64)
+declare i64 @belief_guard_get_derivative(i64)
+declare i64 @belief_register(i64, double, double)
+declare i64 @belief_update(i64, double)
+declare i64 @belief_update_dual(i64, double, double)
+declare double @belief_get_value(i64)
+declare i64 @belief_register_i64(i64, i64, i64)
+declare i64 @belief_update_i64(i64, i64)
+declare i64 @belief_update_dual_i64(i64, i64, i64)
+; Belief suspend/wake intrinsics
+declare i64 @belief_suspend_receive(i64, i64, i64, i64, i64, double, i64, i64)
+declare i64 @belief_cancel_suspend(i64)
+declare i64 @belief_suspended_count()
+declare i64 @belief_get_actor_suspends(i64)
+declare i64 @belief_clear_actor_suspends(i64)
+declare i64 @belief_suspend_get_belief(i64)
+declare i64 @belief_suspend_get_actor(i64)
+declare i64 @belief_suspend_get_duration_ms(i64)
+declare i64 @future_poll(i64)
+declare i64 @future_ready(i64)
+declare i64 @future_pending()
+declare i64 @executor_run(i64)
+declare i64 @executor_spawn(i64)
+declare i64 @block_on(i64)
+declare i64 @async_join(i64, i64)
+declare i64 @join_result1(i64)
+declare i64 @join_result2(i64)
+declare i64 @async_select(i64, i64)
+declare i64 @select_result(i64)
+declare i64 @select_which(i64)
+declare i64 @async_timeout(i64, i64)
+declare i64 @timeout_result(i64)
+declare i64 @timeout_expired(i64)
+declare i64 @time_now_ms()
+declare i64 @pin_new(i64, i64)
+declare i64 @pin_new_uninit(i64)
+declare i64 @pin_get(i64)
+declare i64 @pin_get_mut(i64)
+declare i64 @pin_is_pinned(i64)
+declare void @pin_ref(i64)
+declare void @pin_unref(i64)
+declare void @pin_set_self_ref(i64, i64)
+declare i64 @pin_check_self_ref(i64, i64)
+declare i64 @intrinsic_call0(i64)
+declare i64 @intrinsic_call1(i64, i64)
+declare i64 @intrinsic_call2(i64, i64, i64)
+declare i64 @intrinsic_call3(i64, i64, i64, i64)
+declare i64 @scope_new()
+declare i64 @scope_spawn(i64, i64)
+declare i64 @scope_poll(i64)
+declare i64 @scope_join(i64)
+declare i64 @scope_get_result(i64, i64)
+declare void @scope_cancel(i64)
+declare i64 @scope_count(i64)
+declare i64 @scope_completed(i64)
+declare void @scope_free(i64)
+declare i64 @nursery_run(i64, i64)
+declare i64 @actor_get_status(i64)
+declare i64 @actor_get_exit_reason(i64)
+declare i64 @actor_get_error_code(i64)
+declare void @actor_set_error(i64, i64, i64)
+declare void @actor_stop(i64)
+declare void @actor_kill(i64)
+declare void @actor_crash(i64, i64, i64)
+declare void @actor_set_on_error(i64, i64)
+declare void @actor_set_on_exit(i64, i64)
+declare void @actor_set_supervisor(i64, i64)
+declare i64 @actor_get_supervisor(i64)
+declare i64 @actor_get_restart_count(i64)
+declare void @actor_increment_restart(i64)
+declare i64 @actor_is_alive(i64)
+declare i64 @circuit_breaker_new(i64, i64, i64)
+declare i64 @circuit_breaker_allow(i64)
+declare void @circuit_breaker_success(i64)
+declare void @circuit_breaker_failure(i64)
+declare i64 @circuit_breaker_state(i64)
+declare void @circuit_breaker_reset(i64)
+declare i64 @retry_policy_new(i64, i64, i64, i64)
+declare void @retry_policy_set_jitter(i64, i64)
+declare i64 @retry_policy_should_retry(i64)
+declare i64 @retry_policy_next_delay(i64)
+declare void @retry_policy_reset(i64)
+declare i64 @retry_policy_count(i64)
+declare i64 @actor_link(i64, i64)
+declare void @actor_unlink(i64, i64)
+declare i64 @actor_monitor(i64, i64)
+declare void @actor_demonitor(i64)
+declare void @actor_propagate_exit(i64, i64)
+declare i64 @actor_is_linked(i64, i64)
+declare i64 @actor_spawn_link(i64, i64, i64)
+declare i64 @actor_get_links_count(i64)
+declare i64 @actor_send_down(i64, i64, i64)
+; Phase 23.1: Supervision Trees
+declare i64 @supervisor_new(i64, i64, i64)
+declare i64 @supervisor_add_child(i64, i64, i64, i64, i64)
+declare i64 @supervisor_start(i64)
+declare void @supervisor_stop(i64)
+declare i64 @supervisor_handle_exit(i64, i64, i64)
+declare i64 @supervisor_child_count(i64)
+declare i64 @supervisor_child_status(i64, i64)
+declare i64 @supervisor_child_handle(i64, i64)
+declare void @supervisor_free(i64)
+declare i64 @strategy_one_for_one()
+declare i64 @strategy_one_for_all()
+declare i64 @strategy_rest_for_one()
+declare i64 @child_permanent()
+declare i64 @child_temporary()
+declare i64 @child_transient()
+; Phase 23.2: Work-Stealing Scheduler
+declare i64 @scheduler_new(i64)
+declare i64 @scheduler_start(i64)
+declare i64 @scheduler_submit(i64, i64, i64)
+declare i64 @scheduler_submit_local(i64, i64, i64, i64)
+declare void @scheduler_stop(i64)
+declare void @scheduler_free(i64)
+declare i64 @scheduler_worker_count(i64)
+declare i64 @scheduler_queue_size(i64)
+declare i64 @scheduler_worker_idle(i64, i64)
+; Phase 23.3: Lock-Free Mailbox
+declare i64 @mailbox_new(i64)
+declare i64 @mailbox_send(i64, i64)
+declare i64 @mailbox_ask(i64, i64)
+declare i64 @mailbox_recv(i64)
+declare i64 @mailbox_try_recv(i64)
+declare i64 @mailbox_size(i64)
+declare i64 @mailbox_empty(i64)
+declare i64 @mailbox_full(i64)
+declare void @mailbox_close(i64)
+declare i64 @mailbox_is_closed(i64)
+declare void @mailbox_free(i64)
+; Phase 23.6: Actor Discovery and Registry
+declare i64 @registry_register(i64, i64)
+declare void @registry_unregister(i64)
+declare i64 @registry_lookup(i64)
+declare i64 @registry_count()
+declare i64 @registry_set_metadata(i64, i64)
+declare i64 @registry_get_metadata(i64)
+; Phase 23.7: Backpressure and Flow Control
+declare i64 @flow_controller_new(i64, i64, i64)
+declare i64 @flow_check(i64)
+declare i64 @flow_acquire(i64)
+declare void @flow_release(i64)
+declare i64 @flow_is_signaling(i64)
+declare i64 @flow_current(i64)
+declare i64 @flow_high_watermark(i64)
+declare i64 @flow_low_watermark(i64)
+declare void @flow_reset(i64)
+declare void @flow_free(i64)
+declare i64 @flow_mode_drop()
+declare i64 @flow_mode_block()
+declare i64 @flow_mode_signal()
+declare void @intrinsic_exit(i64)
+; Phase 1 Stdlib: Option
+declare i64 @"option_some"(i64)
+declare i64 @"option_none"()
+declare i64 @"option_is_some"(i64)
+declare i64 @"option_is_none"(i64)
+declare i64 @"option_unwrap"(i64)
+declare i64 @"option_expect"(i64, i64)
+declare i64 @"option_unwrap_or"(i64, i64)
+declare i64 @"option_map"(i64, i64)
+; Phase 1 Stdlib: Result
+declare i64 @"result_ok"(i64)
+declare i64 @"result_err"(i64)
+declare i64 @"result_is_ok"(i64)
+declare i64 @"result_is_err"(i64)
+declare i64 @"result_unwrap"(i64)
+declare i64 @"result_unwrap_err"(i64)
+declare i64 @"result_unwrap_or"(i64, i64)
+declare i64 @"result_ok_or"(i64, i64)
+; Phase 1 Stdlib: Vec extensions
+declare i64 @"vec_sum"(i64)
+declare i64 @"vec_find"(i64, i64)
+declare i64 @"vec_contains"(i64, i64)
+declare i64 @"vec_reverse"(i64)
+declare i64 @"vec_clone"(i64)
+declare i64 @"vec_first"(i64)
+declare i64 @"vec_last"(i64)
+declare i64 @"vec_pop"(i64)
+declare i64 @"vec_set"(i64, i64, i64)
+declare i64 @"vec_clear"(i64)
+declare i64 @"vec_remove"(i64, i64)
+; Phase 1 Stdlib: HashMap
+declare i64 @"hashmap_new"()
+declare i64 @"hashmap_insert"(i64, i64, i64)
+declare i64 @"hashmap_get"(i64, i64)
+declare i64 @"hashmap_remove"(i64, i64)
+declare i64 @"hashmap_contains"(i64, i64)
+declare i64 @"hashmap_len"(i64)
+declare i64 @"hashmap_clear"(i64)
+declare i64 @"hashmap_keys"(i64)
+declare i64 @"hashmap_values"(i64)
+; Phase 1 Stdlib: HashSet
+declare i64 @"hashset_new"()
+declare i64 @"hashset_insert"(i64, i64)
+declare i64 @"hashset_remove"(i64, i64)
+declare i64 @"hashset_contains"(i64, i64)
+declare i64 @"hashset_len"(i64)
+declare i64 @"hashset_clear"(i64)
+; Phase 1 Stdlib: JSON
+declare i64 @"json_parse_simple"(i64)
+declare i64 @"json_stringify"(i64)
+declare i64 @"json_get_sx"(i64, i64)
+declare i64 @"json_keys"(i64)
+declare i64 @"json_is_string"(i64)
+declare i64 @"json_is_object"(i64)
+declare i64 @"json_is_array"(i64)
+declare i64 @"json_as_string"(i64)
+declare i64 @"json_as_array"(i64)
+declare i64 @"json_object_new"()
+declare i64 @"json_array_new"()
+declare i64 @"json_object_set"(i64, i64, i64)
+declare i64 @"json_array_push"(i64, i64)
+declare i64 @"json_string"(i64)
+declare i64 @"json_string_sx"(i64)
+declare i64 @"json_array_len"(i64)
+declare i64 @"json_object_len"(i64)
+declare i64 @"json_as_i64"(i64)
+declare i64 @"json_get_index"(i64, i64)
+declare i64 @"json_is_null"(i64)
+declare i64 @"json_object_key_at"(i64, i64)
+declare i64 @"json_object_value_at"(i64, i64)
+declare i64 @"json_object_set_sx"(i64, i64, i64)
+; Phase 3: HTTP Client/Server
+declare i64 @"http_request_new"(i64, i64)
+declare i64 @"http_request_header"(i64, i64, i64)
+declare i64 @"http_request_body"(i64, i64)
+declare i64 @"http_request_send"(i64)
+declare i64 @"http_request_free"(i64)
+declare i64 @"http_response_status"(i64)
+declare i64 @"http_response_body"(i64)
+declare i64 @"http_response_header"(i64, i64)
+declare i64 @"http_response_free"(i64)
+declare i64 @"http_server_new"(i64)
+declare i64 @"http_server_route"(i64, i64, i64, i64)
+declare i64 @"http_server_start"(i64)
+declare i64 @"http_server_stop"(i64)
+declare i64 @"http_server_free"(i64)
+; Phase 3: SQL Database
+declare i64 @"sql_open"(i64)
+declare void @"sql_close"(i64)
+declare i64 @"sql_exec"(i64, i64)
+declare i64 @"sql_query"(i64, i64)
+declare i64 @"sql_prepare"(i64, i64)
+declare i64 @"sql_bind_int"(i64, i64, i64)
+declare i64 @"sql_bind_text"(i64, i64, i64)
+declare i64 @"sql_bind_float"(i64, i64, double)
+declare i64 @"sql_bind_null"(i64, i64)
+declare i64 @"sql_bind_blob"(i64, i64, i64, i64)
+declare i64 @"sql_step"(i64)
+declare i64 @"sql_column_int"(i64, i64)
+declare i64 @"sql_column_text"(i64, i64)
+declare double @"sql_column_float"(i64, i64)
+declare i64 @"sql_column_blob"(i64, i64)
+declare i64 @"sql_column_blob_len"(i64, i64)
+declare i64 @"sql_column_is_null"(i64, i64)
+declare void @"sql_finalize"(i64)
+declare i64 @"sql_begin"(i64)
+declare i64 @"sql_commit"(i64)
+declare i64 @"sql_rollback"(i64)
+declare i64 @"sql_last_insert_id"(i64)
+; Phase 3: UUID
+declare i64 @"uuid_v4"()
+declare i64 @"uuid_nil"()
+declare i64 @"uuid_is_nil"(i64)
+declare i64 @"uuid_is_valid"(i64)
+; Phase 3: TOML
+declare i64 @"toml_parse"(i64)
+declare i64 @"toml_get"(i64, i64)
+declare i64 @"toml_get_string"(i64, i64)
+declare i64 @"toml_get_int"(i64, i64)
+declare double @"toml_get_float"(i64, i64)
+declare i64 @"toml_get_bool"(i64, i64)
+declare i64 @"toml_get_array"(i64, i64)
+declare i64 @"toml_get_table"(i64, i64)
+declare i64 @"toml_set_string"(i64, i64, i64)
+declare i64 @"toml_set_int"(i64, i64, i64)
+declare i64 @"toml_set_float"(i64, i64, double)
+declare i64 @"toml_set_bool"(i64, i64, i64)
+declare i64 @"toml_stringify"(i64)
+declare i64 @"toml_table_new"()
+declare i64 @"toml_free"(i64)
+; Phase G: AI Features
+declare i64 @model_infer(i64)
+declare i64 @model_load(i64)
+declare i64 @model_embed(i64, i64)
+declare i64 @model_classify(i64, i64)
+declare void @model_unload(i64)
+; AI Vector Operations
+declare i64 @vector_new(i64, i64)
+declare i64 @vector_len(i64)
+declare double @vector_get(i64, i64)
+declare void @vector_set(i64, i64, double)
+declare double @vector_dot(i64, i64)
+declare i64 @vector_add(i64, i64)
+declare i64 @vector_sub(i64, i64)
+declare i64 @vector_scale(i64, double)
+declare double @vector_norm(i64)
+declare i64 @vector_normalize(i64)
+declare double @vector_cosine_similarity(i64, i64)
+; AI Tensor Operations
+declare i64 @tensor_new(i64, i64)
+declare i64 @tensor_shape(i64)
+declare i64 @tensor_rank(i64)
+declare double @tensor_get(i64, i64)
+declare void @tensor_set(i64, i64, double)
+declare i64 @tensor_matmul(i64, i64)
+declare i64 @tensor_add(i64, i64)
+declare i64 @tensor_transpose(i64)
+declare i64 @tensor_reshape(i64, i64)
+; Specialist Operations
+declare i64 @specialist_query(i64, i64)
+declare i64 @specialist_stream(i64, i64)
+declare void @specialist_set_context(i64, i64)
+declare i64 @specialist_get_context(i64)
+; Hive Operations
+declare i64 @hive_route(i64, i64)
+declare void @hive_add_specialist(i64, i64)
+declare void @hive_remove_specialist(i64, i64)
+declare i64 @hive_consensus(i64, i64)
+declare i64 @"sx_int_to_f64"(i64)
+declare i64 @"sx_f64_to_int"(i64)
+declare i64 @"sx_f64_add"(i64, i64)
+declare i64 @"sx_f64_sub"(i64, i64)
+declare i64 @"sx_f64_mul"(i64, i64)
+declare i64 @"sx_f64_div"(i64, i64)
+declare i64 @"sx_f64_mod"(i64, i64)
+declare i64 @"sx_f64_gt"(i64, i64)
+declare i64 @"sx_f64_lt"(i64, i64)
+declare i64 @"sx_f64_ge"(i64, i64)
+declare i64 @"sx_f64_le"(i64, i64)
+declare i64 @"sx_f64_eq"(i64, i64)
+declare i64 @"sx_f64_ne"(i64, i64)
+declare i64 @"f64_neg"(i64)
+declare i64 @"json_parse"(i64)
+declare i64 @"json_get"(i64, i64)
+declare i64 @"json_set"(i64, i64, i64)
+declare i64 @"string_from"(i64)
+declare i64 @"infer"(i64, i64)
+declare i64 @"path_exists"(i64)
+declare i64 @"tanh_f64"(i64)
+declare i64 @"contract_result_violation_type"(i64)
+declare i64 @"activation_record"(i64, i64)
+declare i64 @"neural_reset_pruning"()
+declare i64 @"device_type"(i64)
+declare i64 @"lazy_branch_count"(i64)
+declare i64 @"lazy_context_new"()
+declare i64 @"lazy_context_free"(i64)
+declare i64 @"lazy_dominant_branch"(i64)
+declare i64 @"lazy_executed_count"(i64)
+declare i64 @"lazy_mark_executed"(i64, i64)
+declare i64 @"lazy_should_execute"(i64, i64)
+declare i64 @"activation_tracker_init"()
+declare i64 @"activation_tracking_enabled"()
+declare i64 @"neural_gate_new"(i64, i64, i64, i64)
+declare i64 @"neural_gate_with_contract"(i64, i64, i64, i64, i64)
+declare i64 @"neural_gate_execute_on_device"(i64, i64, i64)
+declare i64 @"gate_bind_device"(i64, i64)
+declare i64 @"gate_get_device"(i64)
+declare i64 @"gate_has_explicit_binding"(i64)
+declare i64 @"dead_path_analyzer_new"()
+declare i64 @"dead_path_analyzer_free"(i64)
+declare i64 @"dead_path_add_edge"(i64, i64, i64)
+declare i64 @"dead_path_mark_entry"(i64, i64)
+declare i64 @"dead_path_propagate"(i64)
+declare i64 @"dead_path_reachable_count"(i64)
+declare i64 @"graph_new"()
+declare i64 @"graph_free"(i64)
+declare i64 @"graph_add_node"(i64, i64)
+declare i64 @"graph_add_edge"(i64, i64, i64)
+declare i64 @"graph_partition"(i64, i64)
+declare i64 @"graph_partition_count"(i64)
+declare i64 @"graph_partition_device"(i64, i64)
+declare i64 @"pruning_context_new"()
+declare i64 @"pruning_context_free"(i64)
+declare i64 @"pruning_add_gate"(i64, i64, i64)
+declare i64 @"pruning_execute"(i64)
+declare i64 @"pruning_is_pruned"(i64, i64)
+declare i64 @"pruning_ratio"(i64)
+declare i64 @"pruning_reason"(i64, i64)
+declare i64 @"pruning_total_count"(i64)
+declare i64 @"structured_pruner_new"()
+declare i64 @"structured_pruner_free"(i64)
+declare i64 @"speculative_context_new"()
+declare i64 @"speculative_context_free"(i64)
+declare i64 @"speculative_add_branch"(i64, i64, i64)
+declare i64 @"speculative_get_result"(i64, i64)
+declare i64 @"speculative_set_result"(i64, i64, i64)
+declare i64 @"speculative_weighted_result"(i64)
+declare i64 @"speculative_memory_used"(i64)
+declare i64 @"speculative_gc"(i64)
+declare i64 @"optimization_stats_calculate"(i64, i64)
+declare i64 @"optimization_stats_free"(i64)
+declare i64 @"optimization_speedup"(i64)
+declare i64 @"optimization_size_reduction"(i64)
+declare i64 @"dual_variable"(i64)
+declare i64 @"dual_constant"(i64)
+declare i64 @"dual_add"(i64, i64)
+declare i64 @"dual_mul"(i64, i64)
+declare i64 @"dual_div"(i64, i64)
+declare i64 @"dual_mul_scalar"(i64, i64)
+declare i64 @"dual_sin"(i64)
+declare i64 @"dual_cos"(i64)
+declare i64 @"dual_exp"(i64)
+declare i64 @"dual_ln"(i64)
+declare i64 @"dual_sqrt"(i64)
+declare i64 @"dual_tanh"(i64)
+declare i64 @"dual_sigmoid"(i64)
+declare i64 @"dual_powi"(i64, i64)
+declare i64 @"int_hashset_new"()
+declare i64 @"int_hashset_insert"(i64, i64)
+declare i64 @"int_hashset_contains"(i64, i64)
+declare i64 @"int_hashset_len"(i64)
+declare i64 @"not_approx_eq"(i64, i64, i64)
+declare i64 @"transfer_queue_init"(i64)
+declare i64 @"sxiter_from_vec"(i64)
+declare i64 @"sxiter_collect_vec"(i64)
+declare i64 @"sxiter_filter"(i64, i64)
+declare i64 @"wref_registry_init"()
+declare i64 @"wref_new"(i64, i64, i64)
+declare i64 @"wref_ptr"(i64)
+declare i64 @"wref_weight"(i64)
+declare i64 @"wref_count"()
+declare i64 @"wref_state"(i64)
+declare i64 @"wref_retain"(i64)
+declare i64 @"wref_release"(i64)
+declare i64 @"wref_is_allocated"(i64)
+declare i64 @"wref_collapse"(i64)
+declare i64 @"wref_set_weight"(i64, i64)
+declare i64 @"wref_set_mode"(i64)
+declare i64 @"wref_get_mode"()
+declare i64 @"wref_set_weight_threshold"(i64)
+declare i64 @"wref_get_weight_threshold"()
+declare i64 @"wref_gc"()
+declare i64 @"wref_gc_total_runs"()
+declare i64 @"wref_gc_total_collected"()
+declare i64 @"wref_gc_last_collected"()
+declare i64 @"wref_bytes_allocated"()
+declare i64 @"device_registry_init"()
+declare i64 @"contract_violation_count"()
+declare i64 @"contract_set_violation_handler"(i64)
+declare i64 @"neural_gate_weight"(i64)
+declare i64 @"lazy_eval"(i64)
+declare i64 @"lazy_best_branch"(i64)
+declare i64 @"print_f64"(i64)
+declare i64 @"device_register"(i64, i64, i64, i64, i64, i64)
+declare i64 @"lazy_add_branch"(i64, i64)
+declare i64 @"contract_result_satisfied"(i64)
+declare i64 @"neural_set_temperature"(i64)
+declare i64 @"activation_rate_get"(i64)
+declare i64 @"neural_register_gate_weight"(i64, i64, i64)
+declare i64 @"ckpt_context_fork"(i64)
+declare i64 @"ckpt_context_merge"(i64, i64)
+declare i64 @"ckpt_save"(i64)
+declare i64 @"contract_result_ok"()
+declare i64 @"neural_get_temperature"()
+declare i64 @"activation_mean_get"(i64)
+declare i64 @"neural_prune_by_weight_magnitude"(i64)
+declare i64 @"activation_gate_count"()
+declare i64 @"ckpt_restore"(i64)
+declare i64 @"contract_result_new"(i64, i64)
+declare i64 @"contract_result_free"(i64)
+declare i64 @"device_get_default"()
+declare i64 @"grad_tape_temperature"(i64)
+declare i64 @"json_object_has"(i64, i64)
+declare i64 @"neural_is_gate_pruned"(i64)
+declare i64 @"ln_f64"(i64)
+declare i64 @"device_get"(i64)
+declare i64 @"ckpt_count"()
+declare i64 @"contract_in_range"(i64, i64, i64)
+declare i64 @"grad_tape_set_training"(i64, i64)
+declare i64 @"activation_epoch_current"()
+declare i64 @"neural_get_pruned_gate_count"()
+declare i64 @"exp_f64"(i64)
+declare i64 @"sin_f64"(i64)
+declare i64 @"json_is_number"(i64)
+declare i64 @"string_to_lowercase"(i64)
+declare i64 @"string_split_whitespace"(i64)
+declare i64 @"device_count"()
+declare i64 @"ckpt_context_new"()
+declare i64 @"ckpt_context_free"(i64)
+declare i64 @"ckpt_context_save"(i64)
+declare i64 @"ckpt_context_restore"(i64)
+declare i64 @"contract_get_panic_mode"()
+declare i64 @"contract_set_panic_mode"(i64)
+declare i64 @"grad_tape_set_temperature"(i64, i64)
+declare i64 @"activation_epoch_advance"(i64)
+declare i64 @"neural_get_gate_count"()
+declare i64 @"json_is_bool"(i64)
+; v0.13.0 Runtime
+declare i64 @"print_string"(i64)
+declare i64 @"file_delete"(i64)
+declare i64 @"cos_f64"(i64)
+declare i64 @"pow_f64"(i64, i64)
+declare i64 @"neural_set_training_mode"(i64)
+declare i64 @"neural_get_training_mode"()
+declare i64 @"neural_sigmoid"(i64)
+declare i64 @"neural_register_gate"(i64)
+declare i64 @"neural_clear_gate_registry"()
+declare i64 @"neural_gate_count"()
+declare i64 @"grad_tape_new"()
+declare i64 @"grad_tape_free"(i64)
+declare i64 @"grad_tape_len"(i64)
+declare i64 @"grad_tape_record"(i64, i64)
+declare i64 @"contract_check_requires"(i64, i64, i64)
+declare i64 @"contract_check_ensures"(i64, i64, i64)
+declare i64 @"contract_check_invariant"(i64, i64, i64)
+declare i64 @"device_available"(i64)
+declare i64 @"activation_count_inc"(i64)
+declare i64 @"activation_count_get"(i64)
+declare i64 @"ckpt_branch_start"()
+declare i64 @"ckpt_branch_end"(i64)
+declare i64 @"anneal_exponential"(i64, i64)
+declare i64 @"anneal_linear"(i64, i64)
+declare i64 @"json_null"()
+declare i64 @"json_bool"(i64)
+declare i64 @"json_number_i64"(i64)
+declare i64 @"json_number_f64"(i64)
+declare i64 @"json_array"()
+declare i64 @"json_object"()
+declare i64 @"json_as_bool"(i64)
+declare i64 @"HashMap_new"()
+declare i64 @"hashmap_is_empty"(i64)
+declare i64 @"timer_start"()
+declare i64 @"timer_elapsed_us"(i64)
+declare i64 @"timer_elapsed_ms"(i64)
+declare i64 @"timer_elapsed_s"(i64)
+declare i64 @"timer_close"(i64)
+declare i64 @"timer_record_to"(i64, i64)
+declare i64 @"logger_new"()
+declare i64 @"logger_global"()
+declare i64 @"logger_set_level"(i64, i64)
+declare i64 @"logger_set_console"(i64, i64)
+declare i64 @"logger_set_file"(i64, i64)
+declare i64 @"logger_set_json"(i64, i64)
+declare i64 @"logger_add_context"(i64, i64, i64)
+declare i64 @"logger_close"(i64)
+declare i64 @"log_debug"(i64)
+declare i64 @"log_info"(i64)
+declare i64 @"log_warn"(i64)
+declare i64 @"log_error"(i64)
+declare i64 @"log_fatal"(i64)
+declare i64 @"log_with_field"(i64, i64, i64)
+declare i64 @"log_with_span"(i64, i64)
+declare i64 @"counter_new"(i64)
+declare i64 @"counter_inc"(i64)
+declare i64 @"counter_add"(i64, i64)
+declare i64 @"counter_add_label"(i64, i64, i64)
+declare i64 @"counter_value"(i64)
+declare i64 @"gauge_new"(i64)
+declare i64 @"gauge_set"(i64, i64)
+declare i64 @"gauge_inc"(i64)
+declare i64 @"gauge_dec"(i64)
+declare i64 @"gauge_add"(i64, i64)
+declare i64 @"gauge_value"(i64)
+declare i64 @"histogram_new"(i64)
+declare i64 @"histogram_observe"(i64, i64)
+declare i64 @"histogram_count"(i64)
+declare i64 @"histogram_sum"(i64)
+declare i64 @"histogram_mean"(i64)
+declare i64 @"histogram_min"(i64)
+declare i64 @"histogram_max"(i64)
+declare i64 @"histogram_to_json"(i64)
+declare i64 @"metrics_registry_new"()
+declare i64 @"metrics_registry_global"()
+declare i64 @"metrics_registry_count"(i64)
+declare i64 @"metrics_registry_close"(i64)
+declare i64 @"metrics_export_json"(i64)
+declare i64 @"metrics_export_prometheus"(i64)
+declare i64 @"span_start"(i64)
+declare i64 @"span_start_child"(i64, i64)
+declare i64 @"span_end"(i64)
+declare i64 @"span_close"(i64)
+declare i64 @"span_id"(i64)
+declare i64 @"span_trace_id"(i64)
+declare i64 @"span_duration_us"(i64)
+declare i64 @"span_set_attribute"(i64, i64, i64)
+declare i64 @"span_set_status"(i64, i64)
+declare i64 @"span_add_event"(i64, i64)
+declare i64 @"span_to_json"(i64)
+declare i64 @"tracer_new"()
+declare i64 @"tracer_active_spans"(i64)
+declare i64 @"tracer_close"(i64)
+
+define i64 @"abs_f64"(i64 %x) nounwind {
+entry:
+  %local.x = alloca i64
+  store i64 %x, ptr %local.x
+  %t0 = load i64, ptr %local.x
+  %t1 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.0)
+  %t2 = call i64 @"sx_f64_ge"(i64 %t0, i64 %t1)
+  %t3 = icmp ne i64 %t2, 0
+  br i1 %t3, label %then0, label %else0
+then0:
+  %t4 = load i64, ptr %local.x
+  br label %then0_end
+then0_end:
+  br label %endif0
+else0:
+  %t5 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.1)
+  %t6 = load i64, ptr %local.x
+  %t7 = call i64 @"sx_f64_sub"(i64 %t5, i64 %t6)
+  br label %else0_end
+else0_end:
+  br label %endif0
+endif0:
+  %t8 = phi i64 [ %t4, %then0_end ], [ %t7, %else0_end ]
+  ret i64 %t8
+}
+
+define i64 @"sqrt_f64"(i64 %x) nounwind {
+entry:
+  %local.g.9 = alloca i64
+  %local.i.10 = alloca i64
+  %local.x = alloca i64
+  store i64 %x, ptr %local.x
+  %t11 = load i64, ptr %local.x
+  %t12 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.2)
+  %t13 = call i64 @"sx_f64_le"(i64 %t11, i64 %t12)
+  %t14 = icmp ne i64 %t13, 0
+  br i1 %t14, label %then1, label %else1
+then1:
+  %t15 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.3)
+  ret i64 %t15
+else1:
+  br label %else1_end
+else1_end:
+  br label %endif1
+endif1:
+  %t16 = phi i64 [ 0, %else1_end ]
+  %t17 = load i64, ptr %local.x
+  store i64 %t17, ptr %local.g.9
+  store i64 0, ptr %local.i.10
+  br label %loop2
+loop2:
+  %t18 = load i64, ptr %local.i.10
+  %t19 = icmp slt i64 %t18, 30
+  %t20 = zext i1 %t19 to i64
+  %t21 = icmp ne i64 %t20, 0
+  br i1 %t21, label %body2, label %endloop2
+body2:
+  %t22 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.4)
+  %t23 = load i64, ptr %local.g.9
+  %t24 = load i64, ptr %local.x
+  %t25 = load i64, ptr %local.g.9
+  %t26 = call i64 @"sx_f64_div"(i64 %t24, i64 %t25)
+  %t27 = call i64 @"sx_f64_add"(i64 %t23, i64 %t26)
+  %t28 = call i64 @"sx_f64_mul"(i64 %t22, i64 %t27)
+  store i64 %t28, ptr %local.g.9
+  %t29 = load i64, ptr %local.i.10
+  %t30 = add i64 %t29, 1
+  store i64 %t30, ptr %local.i.10
+  br label %loop2
+endloop2:
+  %t31 = load i64, ptr %local.g.9
+  ret i64 %t31
+}
+
+define i64 @"pow_07"(i64 %n) nounwind {
+entry:
+  %local.r.32 = alloca i64
+  %local.i.33 = alloca i64
+  %local.n = alloca i64
+  store i64 %n, ptr %local.n
+  %t34 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.5)
+  store i64 %t34, ptr %local.r.32
+  store i64 0, ptr %local.i.33
+  br label %loop3
+loop3:
+  %t35 = load i64, ptr %local.i.33
+  %t36 = load i64, ptr %local.n
+  %t37 = icmp slt i64 %t35, %t36
+  %t38 = zext i1 %t37 to i64
+  %t39 = icmp ne i64 %t38, 0
+  br i1 %t39, label %body3, label %endloop3
+body3:
+  %t40 = load i64, ptr %local.r.32
+  %t41 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.6)
+  %t42 = call i64 @"sx_f64_mul"(i64 %t40, i64 %t41)
+  store i64 %t42, ptr %local.r.32
+  %t43 = load i64, ptr %local.i.33
+  %t44 = add i64 %t43, 1
+  store i64 %t44, ptr %local.i.33
+  br label %loop3
+endloop3:
+  %t45 = load i64, ptr %local.r.32
+  ret i64 %t45
+}
+
+define i64 @"pow_065"(i64 %n) nounwind {
+entry:
+  %local.r.46 = alloca i64
+  %local.i.47 = alloca i64
+  %local.n = alloca i64
+  store i64 %n, ptr %local.n
+  %t48 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.7)
+  store i64 %t48, ptr %local.r.46
+  store i64 0, ptr %local.i.47
+  br label %loop4
+loop4:
+  %t49 = load i64, ptr %local.i.47
+  %t50 = load i64, ptr %local.n
+  %t51 = icmp slt i64 %t49, %t50
+  %t52 = zext i1 %t51 to i64
+  %t53 = icmp ne i64 %t52, 0
+  br i1 %t53, label %body4, label %endloop4
+body4:
+  %t54 = load i64, ptr %local.r.46
+  %t55 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.8)
+  %t56 = call i64 @"sx_f64_mul"(i64 %t54, i64 %t55)
+  store i64 %t56, ptr %local.r.46
+  %t57 = load i64, ptr %local.i.47
+  %t58 = add i64 %t57, 1
+  store i64 %t58, ptr %local.i.47
+  br label %loop4
+endloop4:
+  %t59 = load i64, ptr %local.r.46
+  ret i64 %t59
+}
+
+define i64 @"compute_s_stretch"(i64 %max_k, i64 %beta) nounwind {
+entry:
+  %local.total.60 = alloca i64
+  %local.i.61 = alloca i64
+  %local.j.62 = alloca i64
+  %local.k.63 = alloca i64
+  %local.c.64 = alloca i64
+  %local.gap.65 = alloca i64
+  %local.max_k = alloca i64
+  store i64 %max_k, ptr %local.max_k
+  %local.beta = alloca i64
+  store i64 %beta, ptr %local.beta
+  %t66 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.9)
+  store i64 %t66, ptr %local.total.60
+  store i64 1, ptr %local.i.61
+  br label %loop5
+loop5:
+  %t67 = load i64, ptr %local.i.61
+  %t68 = load i64, ptr %local.max_k
+  %t69 = icmp slt i64 %t67, %t68
+  %t70 = zext i1 %t69 to i64
+  %t71 = icmp ne i64 %t70, 0
+  br i1 %t71, label %body5, label %endloop5
+body5:
+  %t72 = load i64, ptr %local.i.61
+  store i64 %t72, ptr %local.j.62
+  br label %loop6
+loop6:
+  %t73 = load i64, ptr %local.j.62
+  %t74 = load i64, ptr %local.max_k
+  %t75 = icmp sle i64 %t73, %t74
+  %t76 = zext i1 %t75 to i64
+  %t77 = icmp ne i64 %t76, 0
+  br i1 %t77, label %body6, label %endloop6
+body6:
+  %t78 = load i64, ptr %local.i.61
+  %t79 = load i64, ptr %local.j.62
+  %t80 = add i64 %t78, %t79
+  store i64 %t80, ptr %local.k.63
+  %t81 = load i64, ptr %local.k.63
+  %t82 = load i64, ptr %local.max_k
+  %t83 = icmp sle i64 %t81, %t82
+  %t84 = zext i1 %t83 to i64
+  %t85 = icmp ne i64 %t84, 0
+  br i1 %t85, label %then7, label %else7
+then7:
+  %t86 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.10)
+  store i64 %t86, ptr %local.c.64
+  %t87 = load i64, ptr %local.j.62
+  %t88 = load i64, ptr %local.i.61
+  %t89 = add i64 %t88, 1
+  %t90 = icmp eq i64 %t87, %t89
+  %t91 = zext i1 %t90 to i64
+  %t92 = icmp ne i64 %t91, 0
+  br i1 %t92, label %then8, label %else8
+then8:
+  %t93 = load i64, ptr %local.beta
+  %t94 = load i64, ptr %local.i.61
+  %t95 = sub i64 %t94, 1
+  %t96 = call i64 @"pow_07"(i64 %t95)
+  %t97 = call i64 @"sx_f64_mul"(i64 %t93, i64 %t96)
+  store i64 %t97, ptr %local.c.64
+  br label %then8_end
+then8_end:
+  br label %endif8
+else8:
+  %t98 = load i64, ptr %local.i.61
+  %t99 = load i64, ptr %local.j.62
+  %t100 = icmp eq i64 %t98, %t99
+  %t101 = zext i1 %t100 to i64
+  %t102 = icmp ne i64 %t101, 0
+  br i1 %t102, label %then9, label %else9
+then9:
+  %t103 = load i64, ptr %local.beta
+  %t104 = load i64, ptr %local.i.61
+  %t105 = sub i64 %t104, 1
+  %t106 = call i64 @"pow_07"(i64 %t105)
+  %t107 = call i64 @"sx_f64_mul"(i64 %t103, i64 %t106)
+  store i64 %t107, ptr %local.c.64
+  br label %then9_end
+then9_end:
+  br label %endif9
+else9:
+  %t108 = load i64, ptr %local.j.62
+  %t109 = load i64, ptr %local.i.61
+  %t110 = sub i64 %t108, %t109
+  %t111 = sub i64 %t110, 1
+  store i64 %t111, ptr %local.gap.65
+  %t112 = load i64, ptr %local.beta
+  %t113 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.11)
+  %t114 = call i64 @"sx_f64_mul"(i64 %t112, i64 %t113)
+  %t115 = load i64, ptr %local.gap.65
+  %t116 = call i64 @"pow_065"(i64 %t115)
+  %t117 = call i64 @"sx_f64_mul"(i64 %t114, i64 %t116)
+  store i64 %t117, ptr %local.c.64
+  br label %else9_end
+else9_end:
+  br label %endif9
+endif9:
+  %t118 = phi i64 [ 0, %then9_end ], [ 0, %else9_end ]
+  br label %else8_end
+else8_end:
+  br label %endif8
+endif8:
+  %t119 = phi i64 [ 0, %then8_end ], [ %t118, %else8_end ]
+  %t120 = load i64, ptr %local.total.60
+  %t121 = load i64, ptr %local.c.64
+  %t122 = load i64, ptr %local.c.64
+  %t123 = call i64 @"sx_f64_mul"(i64 %t121, i64 %t122)
+  %t124 = call i64 @"sx_f64_add"(i64 %t120, i64 %t123)
+  store i64 %t124, ptr %local.total.60
+  br label %then7_end
+then7_end:
+  br label %endif7
+else7:
+  br label %else7_end
+else7_end:
+  br label %endif7
+endif7:
+  %t125 = phi i64 [ 0, %then7_end ], [ 0, %else7_end ]
+  %t126 = load i64, ptr %local.j.62
+  %t127 = add i64 %t126, 1
+  store i64 %t127, ptr %local.j.62
+  br label %loop6
+endloop6:
+  %t128 = load i64, ptr %local.i.61
+  %t129 = add i64 %t128, 1
+  store i64 %t129, ptr %local.i.61
+  br label %loop5
+endloop5:
+  %t130 = load i64, ptr %local.total.60
+  ret i64 %t130
+}
+
+define i64 @"compute_s_diffuse"(i64 %max_k, i64 %nu) nounwind {
+entry:
+  %local.total.131 = alloca i64
+  %local.k.132 = alloca i64
+  %local.k2.133 = alloca i64
+  %local.k4.134 = alloca i64
+  %local.max_k = alloca i64
+  store i64 %max_k, ptr %local.max_k
+  %local.nu = alloca i64
+  store i64 %nu, ptr %local.nu
+  %t135 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.12)
+  store i64 %t135, ptr %local.total.131
+  store i64 1, ptr %local.k.132
+  br label %loop10
+loop10:
+  %t136 = load i64, ptr %local.k.132
+  %t137 = load i64, ptr %local.max_k
+  %t138 = icmp sle i64 %t136, %t137
+  %t139 = zext i1 %t138 to i64
+  %t140 = icmp ne i64 %t139, 0
+  br i1 %t140, label %body10, label %endloop10
+body10:
+  %t141 = load i64, ptr %local.k.132
+  %t142 = load i64, ptr %local.k.132
+  %t143 = mul i64 %t141, %t142
+  %t144 = call i64 @"sx_int_to_f64"(i64 %t143)
+  store i64 %t144, ptr %local.k2.133
+  %t145 = load i64, ptr %local.k2.133
+  %t146 = load i64, ptr %local.k2.133
+  %t147 = call i64 @"sx_f64_mul"(i64 %t145, i64 %t146)
+  store i64 %t147, ptr %local.k4.134
+  %t148 = load i64, ptr %local.total.131
+  %t149 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.13)
+  %t150 = load i64, ptr %local.k4.134
+  %t151 = call i64 @"sx_f64_mul"(i64 %t149, i64 %t150)
+  %t152 = call i64 @"sx_f64_add"(i64 %t148, i64 %t151)
+  store i64 %t152, ptr %local.total.131
+  %t153 = load i64, ptr %local.k.132
+  %t154 = add i64 %t153, 1
+  store i64 %t154, ptr %local.k.132
+  br label %loop10
+endloop10:
+  %t155 = load i64, ptr %local.nu
+  %t156 = load i64, ptr %local.total.131
+  %t157 = call i64 @"sx_f64_mul"(i64 %t155, i64 %t156)
+  ret i64 %t157
+}
+
+define i64 @"count_triads"(i64 %max_k) nounwind {
+entry:
+  %local.count.158 = alloca i64
+  %local.i.159 = alloca i64
+  %local.j.160 = alloca i64
+  %local.k.161 = alloca i64
+  %local.max_k = alloca i64
+  store i64 %max_k, ptr %local.max_k
+  store i64 0, ptr %local.count.158
+  store i64 1, ptr %local.i.159
+  br label %loop11
+loop11:
+  %t162 = load i64, ptr %local.i.159
+  %t163 = load i64, ptr %local.max_k
+  %t164 = icmp slt i64 %t162, %t163
+  %t165 = zext i1 %t164 to i64
+  %t166 = icmp ne i64 %t165, 0
+  br i1 %t166, label %body11, label %endloop11
+body11:
+  %t167 = load i64, ptr %local.i.159
+  store i64 %t167, ptr %local.j.160
+  br label %loop12
+loop12:
+  %t168 = load i64, ptr %local.j.160
+  %t169 = load i64, ptr %local.max_k
+  %t170 = icmp sle i64 %t168, %t169
+  %t171 = zext i1 %t170 to i64
+  %t172 = icmp ne i64 %t171, 0
+  br i1 %t172, label %body12, label %endloop12
+body12:
+  %t173 = load i64, ptr %local.i.159
+  %t174 = load i64, ptr %local.j.160
+  %t175 = add i64 %t173, %t174
+  store i64 %t175, ptr %local.k.161
+  %t176 = load i64, ptr %local.k.161
+  %t177 = load i64, ptr %local.max_k
+  %t178 = icmp sle i64 %t176, %t177
+  %t179 = zext i1 %t178 to i64
+  %t180 = icmp ne i64 %t179, 0
+  br i1 %t180, label %then13, label %else13
+then13:
+  %t181 = load i64, ptr %local.count.158
+  %t182 = add i64 %t181, 1
+  store i64 %t182, ptr %local.count.158
+  br label %then13_end
+then13_end:
+  br label %endif13
+else13:
+  br label %else13_end
+else13_end:
+  br label %endif13
+endif13:
+  %t183 = phi i64 [ 0, %then13_end ], [ 0, %else13_end ]
+  %t184 = load i64, ptr %local.j.160
+  %t185 = add i64 %t184, 1
+  store i64 %t185, ptr %local.j.160
+  br label %loop12
+endloop12:
+  %t186 = load i64, ptr %local.i.159
+  %t187 = add i64 %t186, 1
+  store i64 %t187, ptr %local.i.159
+  br label %loop11
+endloop11:
+  %t188 = load i64, ptr %local.count.158
+  ret i64 %t188
+}
+
+define i64 @"simplex_main"() nounwind {
+entry:
+  %local.nu.189 = alloca i64
+  %local.beta.190 = alloca i64
+  %local.log_n1.191 = alloca i64
+  %local.log_r1.192 = alloca i64
+  %local.log_n2.193 = alloca i64
+  %local.log_r2.194 = alloca i64
+  %local.log_n_first.195 = alloca i64
+  %local.log_r_first.196 = alloca i64
+  %local.log_n_last.197 = alloca i64
+  %local.log_r_last.198 = alloca i64
+  %local.prev_r.199 = alloca i64
+  %local.r_increasing.200 = alloca i64
+  %local.r_decreasing.201 = alloca i64
+  %local.sum_x.202 = alloca i64
+  %local.sum_y.203 = alloca i64
+  %local.sum_xx.204 = alloca i64
+  %local.sum_xy.205 = alloca i64
+  %local.n_pts.206 = alloca i64
+  %local.ni.207 = alloca i64
+  %local.max_k.208 = alloca i64
+  %local.n_modes.209 = alloca i64
+  %local.n_triads.210 = alloca i64
+  %local.s_str.211 = alloca i64
+  %local.s_dif.212 = alloca i64
+  %local.ratio.213 = alloca i64
+  %local.log_n.214 = alloca i64
+  %local.log_r.215 = alloca i64
+  %local.mean_x.216 = alloca i64
+  %local.mean_y.217 = alloca i64
+  %local.ss_xx.218 = alloca i64
+  %local.ss_xy.219 = alloca i64
+  %local.slope.220 = alloca i64
+  %local.intercept.221 = alloca i64
+  %local.local_slope.222 = alloca i64
+  %local.max_k.223 = alloca i64
+  %local.n_modes.224 = alloca i64
+  %local.s_adj.225 = alloca i64
+  %local.s_skip.226 = alloca i64
+  %local.i.227 = alloca i64
+  %local.j.228 = alloca i64
+  %local.k.229 = alloca i64
+  %local.c.230 = alloca i64
+  %local.gap.231 = alloca i64
+  %local.s_total.232 = alloca i64
+  %local.frac_adj.233 = alloca i64
+  %local.frac_skip.234 = alloca i64
+  %t235 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.14)
+  %t236 = ptrtoint ptr %t235 to i64
+  %t237 = inttoptr i64 %t236 to ptr
+  call void @intrinsic_println(ptr %t237)
+  %t238 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.15)
+  %t239 = ptrtoint ptr %t238 to i64
+  %t240 = inttoptr i64 %t239 to ptr
+  call void @intrinsic_println(ptr %t240)
+  %t241 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.16)
+  %t242 = ptrtoint ptr %t241 to i64
+  %t243 = inttoptr i64 %t242 to ptr
+  call void @intrinsic_println(ptr %t243)
+  %t244 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.17)
+  %t245 = ptrtoint ptr %t244 to i64
+  %t246 = inttoptr i64 %t245 to ptr
+  call void @intrinsic_println(ptr %t246)
+  %t247 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.18)
+  %t248 = ptrtoint ptr %t247 to i64
+  %t249 = inttoptr i64 %t248 to ptr
+  call void @intrinsic_println(ptr %t249)
+  %t250 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.19)
+  %t251 = ptrtoint ptr %t250 to i64
+  %t252 = inttoptr i64 %t251 to ptr
+  call void @intrinsic_println(ptr %t252)
+  %t253 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.20)
+  %t254 = ptrtoint ptr %t253 to i64
+  %t255 = inttoptr i64 %t254 to ptr
+  call void @intrinsic_println(ptr %t255)
+  %t256 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.21)
+  %t257 = ptrtoint ptr %t256 to i64
+  %t258 = inttoptr i64 %t257 to ptr
+  call void @intrinsic_println(ptr %t258)
+  %t259 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.22)
+  %t260 = ptrtoint ptr %t259 to i64
+  %t261 = inttoptr i64 %t260 to ptr
+  call void @intrinsic_println(ptr %t261)
+  %t262 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.23)
+  store i64 %t262, ptr %local.nu.189
+  %t263 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.24)
+  store i64 %t263, ptr %local.beta.190
+  %t264 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.25)
+  %t265 = ptrtoint ptr %t264 to i64
+  %t266 = inttoptr i64 %t265 to ptr
+  call void @intrinsic_println(ptr %t266)
+  %t267 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.26)
+  %t268 = ptrtoint ptr %t267 to i64
+  %t269 = inttoptr i64 %t268 to ptr
+  call void @intrinsic_println(ptr %t269)
+  %t270 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.27)
+  %t271 = ptrtoint ptr %t270 to i64
+  %t272 = inttoptr i64 %t271 to ptr
+  call void @intrinsic_println(ptr %t272)
+  %t273 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.28)
+  %t274 = ptrtoint ptr %t273 to i64
+  %t275 = inttoptr i64 %t274 to ptr
+  call void @intrinsic_println(ptr %t275)
+  %t276 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.29)
+  store i64 %t276, ptr %local.log_n1.191
+  %t277 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.30)
+  store i64 %t277, ptr %local.log_r1.192
+  %t278 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.31)
+  store i64 %t278, ptr %local.log_n2.193
+  %t279 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.32)
+  store i64 %t279, ptr %local.log_r2.194
+  %t280 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.33)
+  store i64 %t280, ptr %local.log_n_first.195
+  %t281 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.34)
+  store i64 %t281, ptr %local.log_r_first.196
+  %t282 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.35)
+  store i64 %t282, ptr %local.log_n_last.197
+  %t283 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.36)
+  store i64 %t283, ptr %local.log_r_last.198
+  %t284 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.37)
+  store i64 %t284, ptr %local.prev_r.199
+  store i64 0, ptr %local.r_increasing.200
+  store i64 0, ptr %local.r_decreasing.201
+  %t285 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.38)
+  store i64 %t285, ptr %local.sum_x.202
+  %t286 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.39)
+  store i64 %t286, ptr %local.sum_y.203
+  %t287 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.40)
+  store i64 %t287, ptr %local.sum_xx.204
+  %t288 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.41)
+  store i64 %t288, ptr %local.sum_xy.205
+  %t289 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.42)
+  store i64 %t289, ptr %local.n_pts.206
+  store i64 0, ptr %local.ni.207
+  br label %loop14
+loop14:
+  %t290 = load i64, ptr %local.ni.207
+  %t291 = icmp slt i64 %t290, 10
+  %t292 = zext i1 %t291 to i64
+  %t293 = icmp ne i64 %t292, 0
+  br i1 %t293, label %body14, label %endloop14
+body14:
+  store i64 3, ptr %local.max_k.208
+  %t294 = load i64, ptr %local.ni.207
+  %t295 = icmp eq i64 %t294, 1
+  %t296 = zext i1 %t295 to i64
+  %t297 = icmp ne i64 %t296, 0
+  br i1 %t297, label %then15, label %else15
+then15:
+  store i64 4, ptr %local.max_k.208
+  br label %then15_end
+then15_end:
+  br label %endif15
+else15:
+  br label %else15_end
+else15_end:
+  br label %endif15
+endif15:
+  %t298 = phi i64 [ 0, %then15_end ], [ 0, %else15_end ]
+  %t299 = load i64, ptr %local.ni.207
+  %t300 = icmp eq i64 %t299, 2
+  %t301 = zext i1 %t300 to i64
+  %t302 = icmp ne i64 %t301, 0
+  br i1 %t302, label %then16, label %else16
+then16:
+  store i64 5, ptr %local.max_k.208
+  br label %then16_end
+then16_end:
+  br label %endif16
+else16:
+  br label %else16_end
+else16_end:
+  br label %endif16
+endif16:
+  %t303 = phi i64 [ 0, %then16_end ], [ 0, %else16_end ]
+  %t304 = load i64, ptr %local.ni.207
+  %t305 = icmp eq i64 %t304, 3
+  %t306 = zext i1 %t305 to i64
+  %t307 = icmp ne i64 %t306, 0
+  br i1 %t307, label %then17, label %else17
+then17:
+  store i64 6, ptr %local.max_k.208
+  br label %then17_end
+then17_end:
+  br label %endif17
+else17:
+  br label %else17_end
+else17_end:
+  br label %endif17
+endif17:
+  %t308 = phi i64 [ 0, %then17_end ], [ 0, %else17_end ]
+  %t309 = load i64, ptr %local.ni.207
+  %t310 = icmp eq i64 %t309, 4
+  %t311 = zext i1 %t310 to i64
+  %t312 = icmp ne i64 %t311, 0
+  br i1 %t312, label %then18, label %else18
+then18:
+  store i64 8, ptr %local.max_k.208
+  br label %then18_end
+then18_end:
+  br label %endif18
+else18:
+  br label %else18_end
+else18_end:
+  br label %endif18
+endif18:
+  %t313 = phi i64 [ 0, %then18_end ], [ 0, %else18_end ]
+  %t314 = load i64, ptr %local.ni.207
+  %t315 = icmp eq i64 %t314, 5
+  %t316 = zext i1 %t315 to i64
+  %t317 = icmp ne i64 %t316, 0
+  br i1 %t317, label %then19, label %else19
+then19:
+  store i64 10, ptr %local.max_k.208
+  br label %then19_end
+then19_end:
+  br label %endif19
+else19:
+  br label %else19_end
+else19_end:
+  br label %endif19
+endif19:
+  %t318 = phi i64 [ 0, %then19_end ], [ 0, %else19_end ]
+  %t319 = load i64, ptr %local.ni.207
+  %t320 = icmp eq i64 %t319, 6
+  %t321 = zext i1 %t320 to i64
+  %t322 = icmp ne i64 %t321, 0
+  br i1 %t322, label %then20, label %else20
+then20:
+  store i64 12, ptr %local.max_k.208
+  br label %then20_end
+then20_end:
+  br label %endif20
+else20:
+  br label %else20_end
+else20_end:
+  br label %endif20
+endif20:
+  %t323 = phi i64 [ 0, %then20_end ], [ 0, %else20_end ]
+  %t324 = load i64, ptr %local.ni.207
+  %t325 = icmp eq i64 %t324, 7
+  %t326 = zext i1 %t325 to i64
+  %t327 = icmp ne i64 %t326, 0
+  br i1 %t327, label %then21, label %else21
+then21:
+  store i64 16, ptr %local.max_k.208
+  br label %then21_end
+then21_end:
+  br label %endif21
+else21:
+  br label %else21_end
+else21_end:
+  br label %endif21
+endif21:
+  %t328 = phi i64 [ 0, %then21_end ], [ 0, %else21_end ]
+  %t329 = load i64, ptr %local.ni.207
+  %t330 = icmp eq i64 %t329, 8
+  %t331 = zext i1 %t330 to i64
+  %t332 = icmp ne i64 %t331, 0
+  br i1 %t332, label %then22, label %else22
+then22:
+  store i64 24, ptr %local.max_k.208
+  br label %then22_end
+then22_end:
+  br label %endif22
+else22:
+  br label %else22_end
+else22_end:
+  br label %endif22
+endif22:
+  %t333 = phi i64 [ 0, %then22_end ], [ 0, %else22_end ]
+  %t334 = load i64, ptr %local.ni.207
+  %t335 = icmp eq i64 %t334, 9
+  %t336 = zext i1 %t335 to i64
+  %t337 = icmp ne i64 %t336, 0
+  br i1 %t337, label %then23, label %else23
+then23:
+  store i64 32, ptr %local.max_k.208
+  br label %then23_end
+then23_end:
+  br label %endif23
+else23:
+  br label %else23_end
+else23_end:
+  br label %endif23
+endif23:
+  %t338 = phi i64 [ 0, %then23_end ], [ 0, %else23_end ]
+  %t339 = load i64, ptr %local.max_k.208
+  %t340 = mul i64 2, %t339
+  store i64 %t340, ptr %local.n_modes.209
+  %t341 = load i64, ptr %local.max_k.208
+  %t342 = call i64 @"count_triads"(i64 %t341)
+  store i64 %t342, ptr %local.n_triads.210
+  %t343 = load i64, ptr %local.max_k.208
+  %t344 = load i64, ptr %local.beta.190
+  %t345 = call i64 @"compute_s_stretch"(i64 %t343, i64 %t344)
+  store i64 %t345, ptr %local.s_str.211
+  %t346 = load i64, ptr %local.max_k.208
+  %t347 = load i64, ptr %local.nu.189
+  %t348 = call i64 @"compute_s_diffuse"(i64 %t346, i64 %t347)
+  store i64 %t348, ptr %local.s_dif.212
+  %t349 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.43)
+  store i64 %t349, ptr %local.ratio.213
+  %t350 = load i64, ptr %local.s_dif.212
+  %t351 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.44)
+  %t352 = call i64 @"sx_f64_gt"(i64 %t350, i64 %t351)
+  %t353 = icmp ne i64 %t352, 0
+  br i1 %t353, label %then24, label %else24
+then24:
+  %t354 = load i64, ptr %local.s_str.211
+  %t355 = load i64, ptr %local.s_dif.212
+  %t356 = call i64 @"sx_f64_div"(i64 %t354, i64 %t355)
+  store i64 %t356, ptr %local.ratio.213
+  br label %then24_end
+then24_end:
+  br label %endif24
+else24:
+  br label %else24_end
+else24_end:
+  br label %endif24
+endif24:
+  %t357 = phi i64 [ 0, %then24_end ], [ 0, %else24_end ]
+  %t358 = load i64, ptr %local.ni.207
+  %t359 = icmp sgt i64 %t358, 0
+  %t360 = zext i1 %t359 to i64
+  %t361 = icmp ne i64 %t360, 0
+  br i1 %t361, label %then25, label %else25
+then25:
+  %t362 = load i64, ptr %local.ratio.213
+  %t363 = load i64, ptr %local.prev_r.199
+  %t364 = call i64 @"sx_f64_gt"(i64 %t362, i64 %t363)
+  %t365 = icmp ne i64 %t364, 0
+  br i1 %t365, label %then26, label %else26
+then26:
+  %t366 = load i64, ptr %local.r_increasing.200
+  %t367 = add i64 %t366, 1
+  store i64 %t367, ptr %local.r_increasing.200
+  br label %then26_end
+then26_end:
+  br label %endif26
+else26:
+  %t368 = load i64, ptr %local.r_decreasing.201
+  %t369 = add i64 %t368, 1
+  store i64 %t369, ptr %local.r_decreasing.201
+  br label %else26_end
+else26_end:
+  br label %endif26
+endif26:
+  %t370 = phi i64 [ 0, %then26_end ], [ 0, %else26_end ]
+  br label %then25_end
+then25_end:
+  br label %endif25
+else25:
+  br label %else25_end
+else25_end:
+  br label %endif25
+endif25:
+  %t371 = phi i64 [ %t370, %then25_end ], [ 0, %else25_end ]
+  %t372 = load i64, ptr %local.ratio.213
+  store i64 %t372, ptr %local.prev_r.199
+  %t373 = load i64, ptr %local.n_modes.209
+  %t374 = call i64 @"sx_int_to_f64"(i64 %t373)
+  %t375 = call i64 @"ln_f64"(i64 %t374)
+  %t376 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.45)
+  %t377 = call i64 @"ln_f64"(i64 %t376)
+  %t378 = call i64 @"sx_f64_div"(i64 %t375, i64 %t377)
+  store i64 %t378, ptr %local.log_n.214
+  %t379 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.46)
+  store i64 %t379, ptr %local.log_r.215
+  %t380 = load i64, ptr %local.ratio.213
+  %t381 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.47)
+  %t382 = call i64 @"sx_f64_gt"(i64 %t380, i64 %t381)
+  %t383 = icmp ne i64 %t382, 0
+  br i1 %t383, label %then27, label %else27
+then27:
+  %t384 = load i64, ptr %local.ratio.213
+  %t385 = call i64 @"ln_f64"(i64 %t384)
+  %t386 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.48)
+  %t387 = call i64 @"ln_f64"(i64 %t386)
+  %t388 = call i64 @"sx_f64_div"(i64 %t385, i64 %t387)
+  store i64 %t388, ptr %local.log_r.215
+  br label %then27_end
+then27_end:
+  br label %endif27
+else27:
+  br label %else27_end
+else27_end:
+  br label %endif27
+endif27:
+  %t389 = phi i64 [ 0, %then27_end ], [ 0, %else27_end ]
+  %t390 = load i64, ptr %local.sum_x.202
+  %t391 = load i64, ptr %local.log_n.214
+  %t392 = call i64 @"sx_f64_add"(i64 %t390, i64 %t391)
+  store i64 %t392, ptr %local.sum_x.202
+  %t393 = load i64, ptr %local.sum_y.203
+  %t394 = load i64, ptr %local.log_r.215
+  %t395 = call i64 @"sx_f64_add"(i64 %t393, i64 %t394)
+  store i64 %t395, ptr %local.sum_y.203
+  %t396 = load i64, ptr %local.sum_xx.204
+  %t397 = load i64, ptr %local.log_n.214
+  %t398 = load i64, ptr %local.log_n.214
+  %t399 = call i64 @"sx_f64_mul"(i64 %t397, i64 %t398)
+  %t400 = call i64 @"sx_f64_add"(i64 %t396, i64 %t399)
+  store i64 %t400, ptr %local.sum_xx.204
+  %t401 = load i64, ptr %local.sum_xy.205
+  %t402 = load i64, ptr %local.log_n.214
+  %t403 = load i64, ptr %local.log_r.215
+  %t404 = call i64 @"sx_f64_mul"(i64 %t402, i64 %t403)
+  %t405 = call i64 @"sx_f64_add"(i64 %t401, i64 %t404)
+  store i64 %t405, ptr %local.sum_xy.205
+  %t406 = load i64, ptr %local.n_pts.206
+  %t407 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.49)
+  %t408 = call i64 @"sx_f64_add"(i64 %t406, i64 %t407)
+  store i64 %t408, ptr %local.n_pts.206
+  %t409 = load i64, ptr %local.ni.207
+  %t410 = icmp eq i64 %t409, 0
+  %t411 = zext i1 %t410 to i64
+  %t412 = icmp ne i64 %t411, 0
+  br i1 %t412, label %then28, label %else28
+then28:
+  %t413 = load i64, ptr %local.log_n.214
+  store i64 %t413, ptr %local.log_n_first.195
+  %t414 = load i64, ptr %local.log_r.215
+  store i64 %t414, ptr %local.log_r_first.196
+  br label %then28_end
+then28_end:
+  br label %endif28
+else28:
+  br label %else28_end
+else28_end:
+  br label %endif28
+endif28:
+  %t415 = phi i64 [ 0, %then28_end ], [ 0, %else28_end ]
+  %t416 = load i64, ptr %local.ni.207
+  %t417 = icmp eq i64 %t416, 4
+  %t418 = zext i1 %t417 to i64
+  %t419 = icmp ne i64 %t418, 0
+  br i1 %t419, label %then29, label %else29
+then29:
+  %t420 = load i64, ptr %local.log_n.214
+  store i64 %t420, ptr %local.log_n1.191
+  %t421 = load i64, ptr %local.log_r.215
+  store i64 %t421, ptr %local.log_r1.192
+  br label %then29_end
+then29_end:
+  br label %endif29
+else29:
+  br label %else29_end
+else29_end:
+  br label %endif29
+endif29:
+  %t422 = phi i64 [ 0, %then29_end ], [ 0, %else29_end ]
+  %t423 = load i64, ptr %local.ni.207
+  %t424 = icmp eq i64 %t423, 9
+  %t425 = zext i1 %t424 to i64
+  %t426 = icmp ne i64 %t425, 0
+  br i1 %t426, label %then30, label %else30
+then30:
+  %t427 = load i64, ptr %local.log_n.214
+  store i64 %t427, ptr %local.log_n_last.197
+  %t428 = load i64, ptr %local.log_r.215
+  store i64 %t428, ptr %local.log_r_last.198
+  %t429 = load i64, ptr %local.log_n.214
+  store i64 %t429, ptr %local.log_n2.193
+  %t430 = load i64, ptr %local.log_r.215
+  store i64 %t430, ptr %local.log_r2.194
+  br label %then30_end
+then30_end:
+  br label %endif30
+else30:
+  br label %else30_end
+else30_end:
+  br label %endif30
+endif30:
+  %t431 = phi i64 [ 0, %then30_end ], [ 0, %else30_end ]
+  %t432 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.50)
+  %t433 = ptrtoint ptr %t432 to i64
+  %t434 = inttoptr i64 %t433 to ptr
+  call void @intrinsic_print(ptr %t434)
+  %t435 = load i64, ptr %local.n_modes.209
+  call void @print_i64(i64 %t435)
+  %t436 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.51)
+  %t437 = ptrtoint ptr %t436 to i64
+  %t438 = inttoptr i64 %t437 to ptr
+  call void @intrinsic_print(ptr %t438)
+  %t439 = load i64, ptr %local.max_k.208
+  call void @print_i64(i64 %t439)
+  %t440 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.52)
+  %t441 = ptrtoint ptr %t440 to i64
+  %t442 = inttoptr i64 %t441 to ptr
+  call void @intrinsic_print(ptr %t442)
+  %t443 = load i64, ptr %local.n_triads.210
+  call void @print_i64(i64 %t443)
+  %t444 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.53)
+  %t445 = ptrtoint ptr %t444 to i64
+  %t446 = inttoptr i64 %t445 to ptr
+  call void @intrinsic_print(ptr %t446)
+  %t447 = load i64, ptr %local.s_str.211
+  %t448 = call i64 @"print_f64"(i64 %t447)
+  %t449 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.54)
+  %t450 = ptrtoint ptr %t449 to i64
+  %t451 = inttoptr i64 %t450 to ptr
+  call void @intrinsic_print(ptr %t451)
+  %t452 = load i64, ptr %local.s_dif.212
+  %t453 = call i64 @"print_f64"(i64 %t452)
+  %t454 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.55)
+  %t455 = ptrtoint ptr %t454 to i64
+  %t456 = inttoptr i64 %t455 to ptr
+  call void @intrinsic_print(ptr %t456)
+  %t457 = load i64, ptr %local.ratio.213
+  %t458 = call i64 @"print_f64"(i64 %t457)
+  %t459 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.56)
+  %t460 = ptrtoint ptr %t459 to i64
+  %t461 = inttoptr i64 %t460 to ptr
+  call void @intrinsic_println(ptr %t461)
+  %t462 = load i64, ptr %local.ni.207
+  %t463 = add i64 %t462, 1
+  store i64 %t463, ptr %local.ni.207
+  br label %loop14
+endloop14:
+  %t464 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.57)
+  %t465 = ptrtoint ptr %t464 to i64
+  %t466 = inttoptr i64 %t465 to ptr
+  call void @intrinsic_println(ptr %t466)
+  %t467 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.58)
+  %t468 = ptrtoint ptr %t467 to i64
+  %t469 = inttoptr i64 %t468 to ptr
+  call void @intrinsic_println(ptr %t469)
+  %t470 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.59)
+  %t471 = ptrtoint ptr %t470 to i64
+  %t472 = inttoptr i64 %t471 to ptr
+  call void @intrinsic_println(ptr %t472)
+  %t473 = load i64, ptr %local.sum_x.202
+  %t474 = load i64, ptr %local.n_pts.206
+  %t475 = call i64 @"sx_f64_div"(i64 %t473, i64 %t474)
+  store i64 %t475, ptr %local.mean_x.216
+  %t476 = load i64, ptr %local.sum_y.203
+  %t477 = load i64, ptr %local.n_pts.206
+  %t478 = call i64 @"sx_f64_div"(i64 %t476, i64 %t477)
+  store i64 %t478, ptr %local.mean_y.217
+  %t479 = load i64, ptr %local.sum_xx.204
+  %t480 = load i64, ptr %local.n_pts.206
+  %t481 = load i64, ptr %local.mean_x.216
+  %t482 = call i64 @"sx_f64_mul"(i64 %t480, i64 %t481)
+  %t483 = load i64, ptr %local.mean_x.216
+  %t484 = call i64 @"sx_f64_mul"(i64 %t482, i64 %t483)
+  %t485 = call i64 @"sx_f64_sub"(i64 %t479, i64 %t484)
+  store i64 %t485, ptr %local.ss_xx.218
+  %t486 = load i64, ptr %local.sum_xy.205
+  %t487 = load i64, ptr %local.n_pts.206
+  %t488 = load i64, ptr %local.mean_x.216
+  %t489 = call i64 @"sx_f64_mul"(i64 %t487, i64 %t488)
+  %t490 = load i64, ptr %local.mean_y.217
+  %t491 = call i64 @"sx_f64_mul"(i64 %t489, i64 %t490)
+  %t492 = call i64 @"sx_f64_sub"(i64 %t486, i64 %t491)
+  store i64 %t492, ptr %local.ss_xy.219
+  %t493 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.60)
+  store i64 %t493, ptr %local.slope.220
+  %t494 = load i64, ptr %local.ss_xx.218
+  %t495 = call i64 @"abs_f64"(i64 %t494)
+  %t496 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.61)
+  %t497 = call i64 @"sx_f64_gt"(i64 %t495, i64 %t496)
+  %t498 = icmp ne i64 %t497, 0
+  br i1 %t498, label %then31, label %else31
+then31:
+  %t499 = load i64, ptr %local.ss_xy.219
+  %t500 = load i64, ptr %local.ss_xx.218
+  %t501 = call i64 @"sx_f64_div"(i64 %t499, i64 %t500)
+  store i64 %t501, ptr %local.slope.220
+  br label %then31_end
+then31_end:
+  br label %endif31
+else31:
+  br label %else31_end
+else31_end:
+  br label %endif31
+endif31:
+  %t502 = phi i64 [ 0, %then31_end ], [ 0, %else31_end ]
+  %t503 = load i64, ptr %local.mean_y.217
+  %t504 = load i64, ptr %local.slope.220
+  %t505 = load i64, ptr %local.mean_x.216
+  %t506 = call i64 @"sx_f64_mul"(i64 %t504, i64 %t505)
+  %t507 = call i64 @"sx_f64_sub"(i64 %t503, i64 %t506)
+  store i64 %t507, ptr %local.intercept.221
+  %t508 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.62)
+  %t509 = ptrtoint ptr %t508 to i64
+  %t510 = inttoptr i64 %t509 to ptr
+  call void @intrinsic_print(ptr %t510)
+  %t511 = load i64, ptr %local.intercept.221
+  %t512 = call i64 @"print_f64"(i64 %t511)
+  %t513 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.63)
+  %t514 = ptrtoint ptr %t513 to i64
+  %t515 = inttoptr i64 %t514 to ptr
+  call void @intrinsic_print(ptr %t515)
+  %t516 = load i64, ptr %local.slope.220
+  %t517 = call i64 @"print_f64"(i64 %t516)
+  %t518 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.64)
+  %t519 = ptrtoint ptr %t518 to i64
+  %t520 = inttoptr i64 %t519 to ptr
+  call void @intrinsic_println(ptr %t520)
+  %t521 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.65)
+  %t522 = ptrtoint ptr %t521 to i64
+  %t523 = inttoptr i64 %t522 to ptr
+  call void @intrinsic_println(ptr %t523)
+  %t524 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.66)
+  %t525 = ptrtoint ptr %t524 to i64
+  %t526 = inttoptr i64 %t525 to ptr
+  call void @intrinsic_print(ptr %t526)
+  %t527 = load i64, ptr %local.slope.220
+  %t528 = call i64 @"print_f64"(i64 %t527)
+  %t529 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.67)
+  %t530 = ptrtoint ptr %t529 to i64
+  %t531 = inttoptr i64 %t530 to ptr
+  call void @intrinsic_println(ptr %t531)
+  %t532 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.68)
+  store i64 %t532, ptr %local.local_slope.222
+  %t533 = load i64, ptr %local.log_n2.193
+  %t534 = load i64, ptr %local.log_n1.191
+  %t535 = call i64 @"sx_f64_sub"(i64 %t533, i64 %t534)
+  %t536 = call i64 @"abs_f64"(i64 %t535)
+  %t537 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.69)
+  %t538 = call i64 @"sx_f64_gt"(i64 %t536, i64 %t537)
+  %t539 = icmp ne i64 %t538, 0
+  br i1 %t539, label %then32, label %else32
+then32:
+  %t540 = load i64, ptr %local.log_r2.194
+  %t541 = load i64, ptr %local.log_r1.192
+  %t542 = call i64 @"sx_f64_sub"(i64 %t540, i64 %t541)
+  %t543 = load i64, ptr %local.log_n2.193
+  %t544 = load i64, ptr %local.log_n1.191
+  %t545 = call i64 @"sx_f64_sub"(i64 %t543, i64 %t544)
+  %t546 = call i64 @"sx_f64_div"(i64 %t542, i64 %t545)
+  store i64 %t546, ptr %local.local_slope.222
+  br label %then32_end
+then32_end:
+  br label %endif32
+else32:
+  br label %else32_end
+else32_end:
+  br label %endif32
+endif32:
+  %t547 = phi i64 [ 0, %then32_end ], [ 0, %else32_end ]
+  %t548 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.70)
+  %t549 = ptrtoint ptr %t548 to i64
+  %t550 = inttoptr i64 %t549 to ptr
+  call void @intrinsic_print(ptr %t550)
+  %t551 = load i64, ptr %local.local_slope.222
+  %t552 = call i64 @"print_f64"(i64 %t551)
+  %t553 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.71)
+  %t554 = ptrtoint ptr %t553 to i64
+  %t555 = inttoptr i64 %t554 to ptr
+  call void @intrinsic_println(ptr %t555)
+  %t556 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.72)
+  %t557 = ptrtoint ptr %t556 to i64
+  %t558 = inttoptr i64 %t557 to ptr
+  call void @intrinsic_println(ptr %t558)
+  %t559 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.73)
+  %t560 = ptrtoint ptr %t559 to i64
+  %t561 = inttoptr i64 %t560 to ptr
+  call void @intrinsic_println(ptr %t561)
+  %t562 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.74)
+  %t563 = ptrtoint ptr %t562 to i64
+  %t564 = inttoptr i64 %t563 to ptr
+  call void @intrinsic_println(ptr %t564)
+  %t565 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.75)
+  %t566 = ptrtoint ptr %t565 to i64
+  %t567 = inttoptr i64 %t566 to ptr
+  call void @intrinsic_println(ptr %t567)
+  %t568 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.76)
+  %t569 = ptrtoint ptr %t568 to i64
+  %t570 = inttoptr i64 %t569 to ptr
+  call void @intrinsic_println(ptr %t570)
+  store i64 0, ptr %local.ni.207
+  br label %loop33
+loop33:
+  %t571 = load i64, ptr %local.ni.207
+  %t572 = icmp slt i64 %t571, 10
+  %t573 = zext i1 %t572 to i64
+  %t574 = icmp ne i64 %t573, 0
+  br i1 %t574, label %body33, label %endloop33
+body33:
+  store i64 3, ptr %local.max_k.223
+  %t575 = load i64, ptr %local.ni.207
+  %t576 = icmp eq i64 %t575, 1
+  %t577 = zext i1 %t576 to i64
+  %t578 = icmp ne i64 %t577, 0
+  br i1 %t578, label %then34, label %else34
+then34:
+  store i64 4, ptr %local.max_k.223
+  br label %then34_end
+then34_end:
+  br label %endif34
+else34:
+  br label %else34_end
+else34_end:
+  br label %endif34
+endif34:
+  %t579 = phi i64 [ 0, %then34_end ], [ 0, %else34_end ]
+  %t580 = load i64, ptr %local.ni.207
+  %t581 = icmp eq i64 %t580, 2
+  %t582 = zext i1 %t581 to i64
+  %t583 = icmp ne i64 %t582, 0
+  br i1 %t583, label %then35, label %else35
+then35:
+  store i64 5, ptr %local.max_k.223
+  br label %then35_end
+then35_end:
+  br label %endif35
+else35:
+  br label %else35_end
+else35_end:
+  br label %endif35
+endif35:
+  %t584 = phi i64 [ 0, %then35_end ], [ 0, %else35_end ]
+  %t585 = load i64, ptr %local.ni.207
+  %t586 = icmp eq i64 %t585, 3
+  %t587 = zext i1 %t586 to i64
+  %t588 = icmp ne i64 %t587, 0
+  br i1 %t588, label %then36, label %else36
+then36:
+  store i64 6, ptr %local.max_k.223
+  br label %then36_end
+then36_end:
+  br label %endif36
+else36:
+  br label %else36_end
+else36_end:
+  br label %endif36
+endif36:
+  %t589 = phi i64 [ 0, %then36_end ], [ 0, %else36_end ]
+  %t590 = load i64, ptr %local.ni.207
+  %t591 = icmp eq i64 %t590, 4
+  %t592 = zext i1 %t591 to i64
+  %t593 = icmp ne i64 %t592, 0
+  br i1 %t593, label %then37, label %else37
+then37:
+  store i64 8, ptr %local.max_k.223
+  br label %then37_end
+then37_end:
+  br label %endif37
+else37:
+  br label %else37_end
+else37_end:
+  br label %endif37
+endif37:
+  %t594 = phi i64 [ 0, %then37_end ], [ 0, %else37_end ]
+  %t595 = load i64, ptr %local.ni.207
+  %t596 = icmp eq i64 %t595, 5
+  %t597 = zext i1 %t596 to i64
+  %t598 = icmp ne i64 %t597, 0
+  br i1 %t598, label %then38, label %else38
+then38:
+  store i64 10, ptr %local.max_k.223
+  br label %then38_end
+then38_end:
+  br label %endif38
+else38:
+  br label %else38_end
+else38_end:
+  br label %endif38
+endif38:
+  %t599 = phi i64 [ 0, %then38_end ], [ 0, %else38_end ]
+  %t600 = load i64, ptr %local.ni.207
+  %t601 = icmp eq i64 %t600, 6
+  %t602 = zext i1 %t601 to i64
+  %t603 = icmp ne i64 %t602, 0
+  br i1 %t603, label %then39, label %else39
+then39:
+  store i64 12, ptr %local.max_k.223
+  br label %then39_end
+then39_end:
+  br label %endif39
+else39:
+  br label %else39_end
+else39_end:
+  br label %endif39
+endif39:
+  %t604 = phi i64 [ 0, %then39_end ], [ 0, %else39_end ]
+  %t605 = load i64, ptr %local.ni.207
+  %t606 = icmp eq i64 %t605, 7
+  %t607 = zext i1 %t606 to i64
+  %t608 = icmp ne i64 %t607, 0
+  br i1 %t608, label %then40, label %else40
+then40:
+  store i64 16, ptr %local.max_k.223
+  br label %then40_end
+then40_end:
+  br label %endif40
+else40:
+  br label %else40_end
+else40_end:
+  br label %endif40
+endif40:
+  %t609 = phi i64 [ 0, %then40_end ], [ 0, %else40_end ]
+  %t610 = load i64, ptr %local.ni.207
+  %t611 = icmp eq i64 %t610, 8
+  %t612 = zext i1 %t611 to i64
+  %t613 = icmp ne i64 %t612, 0
+  br i1 %t613, label %then41, label %else41
+then41:
+  store i64 24, ptr %local.max_k.223
+  br label %then41_end
+then41_end:
+  br label %endif41
+else41:
+  br label %else41_end
+else41_end:
+  br label %endif41
+endif41:
+  %t614 = phi i64 [ 0, %then41_end ], [ 0, %else41_end ]
+  %t615 = load i64, ptr %local.ni.207
+  %t616 = icmp eq i64 %t615, 9
+  %t617 = zext i1 %t616 to i64
+  %t618 = icmp ne i64 %t617, 0
+  br i1 %t618, label %then42, label %else42
+then42:
+  store i64 32, ptr %local.max_k.223
+  br label %then42_end
+then42_end:
+  br label %endif42
+else42:
+  br label %else42_end
+else42_end:
+  br label %endif42
+endif42:
+  %t619 = phi i64 [ 0, %then42_end ], [ 0, %else42_end ]
+  %t620 = load i64, ptr %local.max_k.223
+  %t621 = mul i64 2, %t620
+  store i64 %t621, ptr %local.n_modes.224
+  %t622 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.77)
+  store i64 %t622, ptr %local.s_adj.225
+  %t623 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.78)
+  store i64 %t623, ptr %local.s_skip.226
+  store i64 1, ptr %local.i.227
+  br label %loop43
+loop43:
+  %t624 = load i64, ptr %local.i.227
+  %t625 = load i64, ptr %local.max_k.223
+  %t626 = icmp slt i64 %t624, %t625
+  %t627 = zext i1 %t626 to i64
+  %t628 = icmp ne i64 %t627, 0
+  br i1 %t628, label %body43, label %endloop43
+body43:
+  %t629 = load i64, ptr %local.i.227
+  store i64 %t629, ptr %local.j.228
+  br label %loop44
+loop44:
+  %t630 = load i64, ptr %local.j.228
+  %t631 = load i64, ptr %local.max_k.223
+  %t632 = icmp sle i64 %t630, %t631
+  %t633 = zext i1 %t632 to i64
+  %t634 = icmp ne i64 %t633, 0
+  br i1 %t634, label %body44, label %endloop44
+body44:
+  %t635 = load i64, ptr %local.i.227
+  %t636 = load i64, ptr %local.j.228
+  %t637 = add i64 %t635, %t636
+  store i64 %t637, ptr %local.k.229
+  %t638 = load i64, ptr %local.k.229
+  %t639 = load i64, ptr %local.max_k.223
+  %t640 = icmp sle i64 %t638, %t639
+  %t641 = zext i1 %t640 to i64
+  %t642 = icmp ne i64 %t641, 0
+  br i1 %t642, label %then45, label %else45
+then45:
+  %t643 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.79)
+  store i64 %t643, ptr %local.c.230
+  %t644 = load i64, ptr %local.j.228
+  %t645 = load i64, ptr %local.i.227
+  %t646 = add i64 %t645, 1
+  %t647 = icmp eq i64 %t644, %t646
+  %t648 = zext i1 %t647 to i64
+  %t649 = icmp ne i64 %t648, 0
+  br i1 %t649, label %then46, label %else46
+then46:
+  %t650 = load i64, ptr %local.beta.190
+  %t651 = load i64, ptr %local.i.227
+  %t652 = sub i64 %t651, 1
+  %t653 = call i64 @"pow_07"(i64 %t652)
+  %t654 = call i64 @"sx_f64_mul"(i64 %t650, i64 %t653)
+  store i64 %t654, ptr %local.c.230
+  %t655 = load i64, ptr %local.s_adj.225
+  %t656 = load i64, ptr %local.c.230
+  %t657 = load i64, ptr %local.c.230
+  %t658 = call i64 @"sx_f64_mul"(i64 %t656, i64 %t657)
+  %t659 = call i64 @"sx_f64_add"(i64 %t655, i64 %t658)
+  store i64 %t659, ptr %local.s_adj.225
+  br label %then46_end
+then46_end:
+  br label %endif46
+else46:
+  %t660 = load i64, ptr %local.i.227
+  %t661 = load i64, ptr %local.j.228
+  %t662 = icmp eq i64 %t660, %t661
+  %t663 = zext i1 %t662 to i64
+  %t664 = icmp ne i64 %t663, 0
+  br i1 %t664, label %then47, label %else47
+then47:
+  %t665 = load i64, ptr %local.beta.190
+  %t666 = load i64, ptr %local.i.227
+  %t667 = sub i64 %t666, 1
+  %t668 = call i64 @"pow_07"(i64 %t667)
+  %t669 = call i64 @"sx_f64_mul"(i64 %t665, i64 %t668)
+  store i64 %t669, ptr %local.c.230
+  %t670 = load i64, ptr %local.s_adj.225
+  %t671 = load i64, ptr %local.c.230
+  %t672 = load i64, ptr %local.c.230
+  %t673 = call i64 @"sx_f64_mul"(i64 %t671, i64 %t672)
+  %t674 = call i64 @"sx_f64_add"(i64 %t670, i64 %t673)
+  store i64 %t674, ptr %local.s_adj.225
+  br label %then47_end
+then47_end:
+  br label %endif47
+else47:
+  %t675 = load i64, ptr %local.j.228
+  %t676 = load i64, ptr %local.i.227
+  %t677 = sub i64 %t675, %t676
+  %t678 = sub i64 %t677, 1
+  store i64 %t678, ptr %local.gap.231
+  %t679 = load i64, ptr %local.beta.190
+  %t680 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.80)
+  %t681 = call i64 @"sx_f64_mul"(i64 %t679, i64 %t680)
+  %t682 = load i64, ptr %local.gap.231
+  %t683 = call i64 @"pow_065"(i64 %t682)
+  %t684 = call i64 @"sx_f64_mul"(i64 %t681, i64 %t683)
+  store i64 %t684, ptr %local.c.230
+  %t685 = load i64, ptr %local.s_skip.226
+  %t686 = load i64, ptr %local.c.230
+  %t687 = load i64, ptr %local.c.230
+  %t688 = call i64 @"sx_f64_mul"(i64 %t686, i64 %t687)
+  %t689 = call i64 @"sx_f64_add"(i64 %t685, i64 %t688)
+  store i64 %t689, ptr %local.s_skip.226
+  br label %else47_end
+else47_end:
+  br label %endif47
+endif47:
+  %t690 = phi i64 [ 0, %then47_end ], [ 0, %else47_end ]
+  br label %else46_end
+else46_end:
+  br label %endif46
+endif46:
+  %t691 = phi i64 [ 0, %then46_end ], [ %t690, %else46_end ]
+  br label %then45_end
+then45_end:
+  br label %endif45
+else45:
+  br label %else45_end
+else45_end:
+  br label %endif45
+endif45:
+  %t692 = phi i64 [ %t691, %then45_end ], [ 0, %else45_end ]
+  %t693 = load i64, ptr %local.j.228
+  %t694 = add i64 %t693, 1
+  store i64 %t694, ptr %local.j.228
+  br label %loop44
+endloop44:
+  %t695 = load i64, ptr %local.i.227
+  %t696 = add i64 %t695, 1
+  store i64 %t696, ptr %local.i.227
+  br label %loop43
+endloop43:
+  %t697 = load i64, ptr %local.s_adj.225
+  %t698 = load i64, ptr %local.s_skip.226
+  %t699 = call i64 @"sx_f64_add"(i64 %t697, i64 %t698)
+  store i64 %t699, ptr %local.s_total.232
+  %t700 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.81)
+  store i64 %t700, ptr %local.frac_adj.233
+  %t701 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.82)
+  store i64 %t701, ptr %local.frac_skip.234
+  %t702 = load i64, ptr %local.s_total.232
+  %t703 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.83)
+  %t704 = call i64 @"sx_f64_gt"(i64 %t702, i64 %t703)
+  %t705 = icmp ne i64 %t704, 0
+  br i1 %t705, label %then48, label %else48
+then48:
+  %t706 = load i64, ptr %local.s_adj.225
+  %t707 = load i64, ptr %local.s_total.232
+  %t708 = call i64 @"sx_f64_div"(i64 %t706, i64 %t707)
+  store i64 %t708, ptr %local.frac_adj.233
+  %t709 = load i64, ptr %local.s_skip.226
+  %t710 = load i64, ptr %local.s_total.232
+  %t711 = call i64 @"sx_f64_div"(i64 %t709, i64 %t710)
+  store i64 %t711, ptr %local.frac_skip.234
+  br label %then48_end
+then48_end:
+  br label %endif48
+else48:
+  br label %else48_end
+else48_end:
+  br label %endif48
+endif48:
+  %t712 = phi i64 [ 0, %then48_end ], [ 0, %else48_end ]
+  %t713 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.84)
+  %t714 = ptrtoint ptr %t713 to i64
+  %t715 = inttoptr i64 %t714 to ptr
+  call void @intrinsic_print(ptr %t715)
+  %t716 = load i64, ptr %local.n_modes.224
+  call void @print_i64(i64 %t716)
+  %t717 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.85)
+  %t718 = ptrtoint ptr %t717 to i64
+  %t719 = inttoptr i64 %t718 to ptr
+  call void @intrinsic_print(ptr %t719)
+  %t720 = load i64, ptr %local.s_adj.225
+  %t721 = call i64 @"print_f64"(i64 %t720)
+  %t722 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.86)
+  %t723 = ptrtoint ptr %t722 to i64
+  %t724 = inttoptr i64 %t723 to ptr
+  call void @intrinsic_print(ptr %t724)
+  %t725 = load i64, ptr %local.s_skip.226
+  %t726 = call i64 @"print_f64"(i64 %t725)
+  %t727 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.87)
+  %t728 = ptrtoint ptr %t727 to i64
+  %t729 = inttoptr i64 %t728 to ptr
+  call void @intrinsic_print(ptr %t729)
+  %t730 = load i64, ptr %local.frac_adj.233
+  %t731 = call i64 @"print_f64"(i64 %t730)
+  %t732 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.88)
+  %t733 = ptrtoint ptr %t732 to i64
+  %t734 = inttoptr i64 %t733 to ptr
+  call void @intrinsic_print(ptr %t734)
+  %t735 = load i64, ptr %local.frac_skip.234
+  %t736 = call i64 @"print_f64"(i64 %t735)
+  %t737 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.89)
+  %t738 = ptrtoint ptr %t737 to i64
+  %t739 = inttoptr i64 %t738 to ptr
+  call void @intrinsic_println(ptr %t739)
+  %t740 = load i64, ptr %local.ni.207
+  %t741 = add i64 %t740, 1
+  store i64 %t741, ptr %local.ni.207
+  br label %loop33
+endloop33:
+  %t742 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.90)
+  %t743 = ptrtoint ptr %t742 to i64
+  %t744 = inttoptr i64 %t743 to ptr
+  call void @intrinsic_println(ptr %t744)
+  %t745 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.91)
+  %t746 = ptrtoint ptr %t745 to i64
+  %t747 = inttoptr i64 %t746 to ptr
+  call void @intrinsic_println(ptr %t747)
+  %t748 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.92)
+  %t749 = ptrtoint ptr %t748 to i64
+  %t750 = inttoptr i64 %t749 to ptr
+  call void @intrinsic_println(ptr %t750)
+  %t751 = load i64, ptr %local.slope.220
+  %t752 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.93)
+  %t753 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.94)
+  %t754 = call i64 @"sx_f64_sub"(i64 %t752, i64 %t753)
+  %t755 = call i64 @"sx_f64_lt"(i64 %t751, i64 %t754)
+  %t756 = icmp ne i64 %t755, 0
+  br i1 %t756, label %then49, label %else49
+then49:
+  %t757 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.95)
+  %t758 = ptrtoint ptr %t757 to i64
+  %t759 = inttoptr i64 %t758 to ptr
+  call void @intrinsic_println(ptr %t759)
+  %t760 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.96)
+  %t761 = ptrtoint ptr %t760 to i64
+  %t762 = inttoptr i64 %t761 to ptr
+  call void @intrinsic_println(ptr %t762)
+  %t763 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.97)
+  %t764 = ptrtoint ptr %t763 to i64
+  %t765 = inttoptr i64 %t764 to ptr
+  call void @intrinsic_println(ptr %t765)
+  %t766 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.98)
+  %t767 = ptrtoint ptr %t766 to i64
+  %t768 = inttoptr i64 %t767 to ptr
+  call void @intrinsic_println(ptr %t768)
+  %t769 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.99)
+  %t770 = ptrtoint ptr %t769 to i64
+  %t771 = inttoptr i64 %t770 to ptr
+  call void @intrinsic_print(ptr %t771)
+  %t772 = load i64, ptr %local.slope.220
+  %t773 = call i64 @"print_f64"(i64 %t772)
+  %t774 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.100)
+  %t775 = ptrtoint ptr %t774 to i64
+  %t776 = inttoptr i64 %t775 to ptr
+  call void @intrinsic_println(ptr %t776)
+  br label %then49_end
+then49_end:
+  br label %endif49
+else49:
+  %t777 = load i64, ptr %local.slope.220
+  %t778 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.101)
+  %t779 = call i64 @"sx_f64_lt"(i64 %t777, i64 %t778)
+  %t780 = icmp ne i64 %t779, 0
+  br i1 %t780, label %then50, label %else50
+then50:
+  %t781 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.102)
+  %t782 = ptrtoint ptr %t781 to i64
+  %t783 = inttoptr i64 %t782 to ptr
+  call void @intrinsic_println(ptr %t783)
+  %t784 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.103)
+  %t785 = ptrtoint ptr %t784 to i64
+  %t786 = inttoptr i64 %t785 to ptr
+  call void @intrinsic_print(ptr %t786)
+  %t787 = load i64, ptr %local.prev_r.199
+  %t788 = call i64 @"print_f64"(i64 %t787)
+  %t789 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.104)
+  %t790 = ptrtoint ptr %t789 to i64
+  %t791 = inttoptr i64 %t790 to ptr
+  call void @intrinsic_println(ptr %t791)
+  %t792 = load i64, ptr %local.prev_r.199
+  %t793 = call i64 @f64_parse(ptr @.str.exp_ns_coupling_scaling.105)
+  %t794 = call i64 @"sx_f64_lt"(i64 %t792, i64 %t793)
+  %t795 = icmp ne i64 %t794, 0
+  br i1 %t795, label %then51, label %else51
+then51:
+  %t796 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.106)
+  %t797 = ptrtoint ptr %t796 to i64
+  %t798 = inttoptr i64 %t797 to ptr
+  call void @intrinsic_println(ptr %t798)
+  br label %then51_end
+then51_end:
+  br label %endif51
+else51:
+  %t799 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.107)
+  %t800 = ptrtoint ptr %t799 to i64
+  %t801 = inttoptr i64 %t800 to ptr
+  call void @intrinsic_println(ptr %t801)
+  br label %else51_end
+else51_end:
+  br label %endif51
+endif51:
+  %t802 = phi i64 [ 0, %then51_end ], [ 0, %else51_end ]
+  br label %then50_end
+then50_end:
+  br label %endif50
+else50:
+  %t803 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.108)
+  %t804 = ptrtoint ptr %t803 to i64
+  %t805 = inttoptr i64 %t804 to ptr
+  call void @intrinsic_println(ptr %t805)
+  %t806 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.109)
+  %t807 = ptrtoint ptr %t806 to i64
+  %t808 = inttoptr i64 %t807 to ptr
+  call void @intrinsic_print(ptr %t808)
+  %t809 = load i64, ptr %local.slope.220
+  %t810 = call i64 @"print_f64"(i64 %t809)
+  %t811 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.110)
+  %t812 = ptrtoint ptr %t811 to i64
+  %t813 = inttoptr i64 %t812 to ptr
+  call void @intrinsic_println(ptr %t813)
+  %t814 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.111)
+  %t815 = ptrtoint ptr %t814 to i64
+  %t816 = inttoptr i64 %t815 to ptr
+  call void @intrinsic_println(ptr %t816)
+  %t817 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.112)
+  %t818 = ptrtoint ptr %t817 to i64
+  %t819 = inttoptr i64 %t818 to ptr
+  call void @intrinsic_println(ptr %t819)
+  br label %else50_end
+else50_end:
+  br label %endif50
+endif50:
+  %t820 = phi i64 [ %t802, %then50_end ], [ 0, %else50_end ]
+  br label %else49_end
+else49_end:
+  br label %endif49
+endif49:
+  %t821 = phi i64 [ 0, %then49_end ], [ %t820, %else49_end ]
+  %t822 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.113)
+  %t823 = ptrtoint ptr %t822 to i64
+  %t824 = inttoptr i64 %t823 to ptr
+  call void @intrinsic_println(ptr %t824)
+  %t825 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.114)
+  %t826 = ptrtoint ptr %t825 to i64
+  %t827 = inttoptr i64 %t826 to ptr
+  call void @intrinsic_println(ptr %t827)
+  %t828 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.115)
+  %t829 = ptrtoint ptr %t828 to i64
+  %t830 = inttoptr i64 %t829 to ptr
+  call void @intrinsic_print(ptr %t830)
+  %t831 = load i64, ptr %local.r_increasing.200
+  call void @print_i64(i64 %t831)
+  %t832 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.116)
+  %t833 = ptrtoint ptr %t832 to i64
+  %t834 = inttoptr i64 %t833 to ptr
+  call void @intrinsic_println(ptr %t834)
+  %t835 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.117)
+  %t836 = ptrtoint ptr %t835 to i64
+  %t837 = inttoptr i64 %t836 to ptr
+  call void @intrinsic_print(ptr %t837)
+  %t838 = load i64, ptr %local.r_decreasing.201
+  call void @print_i64(i64 %t838)
+  %t839 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.118)
+  %t840 = ptrtoint ptr %t839 to i64
+  %t841 = inttoptr i64 %t840 to ptr
+  call void @intrinsic_println(ptr %t841)
+  %t842 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.119)
+  %t843 = ptrtoint ptr %t842 to i64
+  %t844 = inttoptr i64 %t843 to ptr
+  call void @intrinsic_println(ptr %t844)
+  %t845 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.120)
+  %t846 = ptrtoint ptr %t845 to i64
+  %t847 = inttoptr i64 %t846 to ptr
+  call void @intrinsic_println(ptr %t847)
+  %t848 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.121)
+  %t849 = ptrtoint ptr %t848 to i64
+  %t850 = inttoptr i64 %t849 to ptr
+  call void @intrinsic_println(ptr %t850)
+  %t851 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.122)
+  %t852 = ptrtoint ptr %t851 to i64
+  %t853 = inttoptr i64 %t852 to ptr
+  call void @intrinsic_println(ptr %t853)
+  %t854 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.123)
+  %t855 = ptrtoint ptr %t854 to i64
+  %t856 = inttoptr i64 %t855 to ptr
+  call void @intrinsic_println(ptr %t856)
+  %t857 = call ptr @intrinsic_string_new(ptr @.str.exp_ns_coupling_scaling.124)
+  %t858 = ptrtoint ptr %t857 to i64
+  %t859 = inttoptr i64 %t858 to ptr
+  call void @intrinsic_println(ptr %t859)
+  ret i64 0
+}
+
+
+; String constants
+@.str.exp_ns_coupling_scaling.0 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.1 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.2 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.3 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.4 = private unnamed_addr constant [4 x i8] c"0.5\00"
+@.str.exp_ns_coupling_scaling.5 = private unnamed_addr constant [4 x i8] c"1.0\00"
+@.str.exp_ns_coupling_scaling.6 = private unnamed_addr constant [4 x i8] c"0.7\00"
+@.str.exp_ns_coupling_scaling.7 = private unnamed_addr constant [4 x i8] c"1.0\00"
+@.str.exp_ns_coupling_scaling.8 = private unnamed_addr constant [5 x i8] c"0.65\00"
+@.str.exp_ns_coupling_scaling.9 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.10 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.11 = private unnamed_addr constant [4 x i8] c"0.3\00"
+@.str.exp_ns_coupling_scaling.12 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.13 = private unnamed_addr constant [4 x i8] c"2.0\00"
+@.str.exp_ns_coupling_scaling.14 = private unnamed_addr constant [61 x i8] c"############################################################\00"
+@.str.exp_ns_coupling_scaling.15 = private unnamed_addr constant [61 x i8] c"#  COUPLING SCALING: S_stretch(N) vs S_diffuse(N)          #\00"
+@.str.exp_ns_coupling_scaling.16 = private unnamed_addr constant [61 x i8] c"#                                                          #\00"
+@.str.exp_ns_coupling_scaling.17 = private unnamed_addr constant [61 x i8] c"#  R(N) = S_stretch / S_diffuse                            #\00"
+@.str.exp_ns_coupling_scaling.18 = private unnamed_addr constant [63 x i8] c"#  If R(N) → const < 1 as N → inf: PROOF                 #\00"
+@.str.exp_ns_coupling_scaling.19 = private unnamed_addr constant [62 x i8] c"#  If R(N) → 0: STRONG PROOF (diffusion dominates)        #\00"
+@.str.exp_ns_coupling_scaling.20 = private unnamed_addr constant [62 x i8] c"#  If R(N) → inf: stretching wins (no regularity)         #\00"
+@.str.exp_ns_coupling_scaling.21 = private unnamed_addr constant [61 x i8] c"############################################################\00"
+@.str.exp_ns_coupling_scaling.22 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.23 = private unnamed_addr constant [6 x i8] c"0.005\00"
+@.str.exp_ns_coupling_scaling.24 = private unnamed_addr constant [4 x i8] c"0.5\00"
+@.str.exp_ns_coupling_scaling.25 = private unnamed_addr constant [62 x i8] c"  === Phase 1: Compute S_stretch, S_diffuse, R for each N ===\00"
+@.str.exp_ns_coupling_scaling.26 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.27 = private unnamed_addr constant [59 x i8] c"  N     max_k  #triads  S_stretch      S_diffuse      R(N)\00"
+@.str.exp_ns_coupling_scaling.28 = private unnamed_addr constant [63 x i8] c"  ---   -----  -------  -----------    -----------    --------\00"
+@.str.exp_ns_coupling_scaling.29 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.30 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.31 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.32 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.33 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.34 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.35 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.36 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.37 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.38 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.39 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.40 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.41 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.42 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.43 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.44 = private unnamed_addr constant [13 x i8] c"0.0000000001\00"
+@.str.exp_ns_coupling_scaling.45 = private unnamed_addr constant [4 x i8] c"2.0\00"
+@.str.exp_ns_coupling_scaling.46 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.47 = private unnamed_addr constant [13 x i8] c"0.0000000001\00"
+@.str.exp_ns_coupling_scaling.48 = private unnamed_addr constant [4 x i8] c"2.0\00"
+@.str.exp_ns_coupling_scaling.49 = private unnamed_addr constant [4 x i8] c"1.0\00"
+@.str.exp_ns_coupling_scaling.50 = private unnamed_addr constant [3 x i8] c"  \00"
+@.str.exp_ns_coupling_scaling.51 = private unnamed_addr constant [5 x i8] c"    \00"
+@.str.exp_ns_coupling_scaling.52 = private unnamed_addr constant [6 x i8] c"     \00"
+@.str.exp_ns_coupling_scaling.53 = private unnamed_addr constant [5 x i8] c"    \00"
+@.str.exp_ns_coupling_scaling.54 = private unnamed_addr constant [4 x i8] c"   \00"
+@.str.exp_ns_coupling_scaling.55 = private unnamed_addr constant [4 x i8] c"   \00"
+@.str.exp_ns_coupling_scaling.56 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.57 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.58 = private unnamed_addr constant [51 x i8] c"  === Phase 2: Log-log regression of R(N) vs N ===\00"
+@.str.exp_ns_coupling_scaling.59 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.60 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.61 = private unnamed_addr constant [10 x i8] c"0.0000001\00"
+@.str.exp_ns_coupling_scaling.62 = private unnamed_addr constant [13 x i8] c"  log2(R) = \00"
+@.str.exp_ns_coupling_scaling.63 = private unnamed_addr constant [4 x i8] c" + \00"
+@.str.exp_ns_coupling_scaling.64 = private unnamed_addr constant [11 x i8] c" * log2(N)\00"
+@.str.exp_ns_coupling_scaling.65 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.66 = private unnamed_addr constant [31 x i8] c"  Slope (power law exponent): \00"
+@.str.exp_ns_coupling_scaling.67 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.68 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.69 = private unnamed_addr constant [5 x i8] c"0.01\00"
+@.str.exp_ns_coupling_scaling.70 = private unnamed_addr constant [31 x i8] c"  Local slope (N=16 to N=64): \00"
+@.str.exp_ns_coupling_scaling.71 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.72 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.73 = private unnamed_addr constant [46 x i8] c"  === Phase 3: Component scaling analysis ===\00"
+@.str.exp_ns_coupling_scaling.74 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.75 = private unnamed_addr constant [66 x i8] c"  N     S_adjacent    S_skip        S_adj/S_total  S_skip/S_total\00"
+@.str.exp_ns_coupling_scaling.76 = private unnamed_addr constant [63 x i8] c"  ---   ----------    ----------    -----------    -----------\00"
+@.str.exp_ns_coupling_scaling.77 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.78 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.79 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.80 = private unnamed_addr constant [4 x i8] c"0.3\00"
+@.str.exp_ns_coupling_scaling.81 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.82 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.83 = private unnamed_addr constant [10 x i8] c"0.0000001\00"
+@.str.exp_ns_coupling_scaling.84 = private unnamed_addr constant [3 x i8] c"  \00"
+@.str.exp_ns_coupling_scaling.85 = private unnamed_addr constant [5 x i8] c"    \00"
+@.str.exp_ns_coupling_scaling.86 = private unnamed_addr constant [4 x i8] c"   \00"
+@.str.exp_ns_coupling_scaling.87 = private unnamed_addr constant [4 x i8] c"   \00"
+@.str.exp_ns_coupling_scaling.88 = private unnamed_addr constant [4 x i8] c"   \00"
+@.str.exp_ns_coupling_scaling.89 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.90 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.91 = private unnamed_addr constant [30 x i8] c"  === Phase 4: Assessment ===\00"
+@.str.exp_ns_coupling_scaling.92 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.93 = private unnamed_addr constant [4 x i8] c"0.0\00"
+@.str.exp_ns_coupling_scaling.94 = private unnamed_addr constant [4 x i8] c"0.1\00"
+@.str.exp_ns_coupling_scaling.95 = private unnamed_addr constant [36 x i8] c"  R(N) DECREASES with N (slope < 0)\00"
+@.str.exp_ns_coupling_scaling.96 = private unnamed_addr constant [45 x i8] c"  → Diffusion grows faster than stretching\00"
+@.str.exp_ns_coupling_scaling.97 = private unnamed_addr constant [35 x i8] c"  → R(N) → 0 as N → infinity\00"
+@.str.exp_ns_coupling_scaling.98 = private unnamed_addr constant [37 x i8] c"  → STRONG EVIDENCE FOR REGULARITY\00"
+@.str.exp_ns_coupling_scaling.99 = private unnamed_addr constant [17 x i8] c"  → R(N) ~ N^(\00"
+@.str.exp_ns_coupling_scaling.100 = private unnamed_addr constant [2 x i8] c")\00"
+@.str.exp_ns_coupling_scaling.101 = private unnamed_addr constant [4 x i8] c"0.1\00"
+@.str.exp_ns_coupling_scaling.102 = private unnamed_addr constant [46 x i8] c"  R(N) approximately CONSTANT (|slope| < 0.1)\00"
+@.str.exp_ns_coupling_scaling.103 = private unnamed_addr constant [26 x i8] c"  → R converges to ≈ \00"
+@.str.exp_ns_coupling_scaling.104 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.105 = private unnamed_addr constant [4 x i8] c"1.0\00"
+@.str.exp_ns_coupling_scaling.106 = private unnamed_addr constant [60 x i8] c"  → R < 1: stretching bounded by diffusion → REGULARITY\00"
+@.str.exp_ns_coupling_scaling.107 = private unnamed_addr constant [62 x i8] c"  → R > 1: stretching exceeds diffusion (needs A* analysis)\00"
+@.str.exp_ns_coupling_scaling.108 = private unnamed_addr constant [36 x i8] c"  R(N) INCREASES with N (slope > 0)\00"
+@.str.exp_ns_coupling_scaling.109 = private unnamed_addr constant [17 x i8] c"  → R(N) ~ N^(\00"
+@.str.exp_ns_coupling_scaling.110 = private unnamed_addr constant [2 x i8] c")\00"
+@.str.exp_ns_coupling_scaling.111 = private unnamed_addr constant [45 x i8] c"  → Stretching grows faster than diffusion\00"
+@.str.exp_ns_coupling_scaling.112 = private unnamed_addr constant [49 x i8] c"  → Regularity depends on A* threshold holding\00"
+@.str.exp_ns_coupling_scaling.113 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.114 = private unnamed_addr constant [22 x i8] c"  Monotonicity check:\00"
+@.str.exp_ns_coupling_scaling.115 = private unnamed_addr constant [19 x i8] c"    R increasing: \00"
+@.str.exp_ns_coupling_scaling.116 = private unnamed_addr constant [13 x i8] c" transitions\00"
+@.str.exp_ns_coupling_scaling.117 = private unnamed_addr constant [19 x i8] c"    R decreasing: \00"
+@.str.exp_ns_coupling_scaling.118 = private unnamed_addr constant [13 x i8] c" transitions\00"
+@.str.exp_ns_coupling_scaling.119 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.exp_ns_coupling_scaling.120 = private unnamed_addr constant [62 x i8] c"  The coupling structure (geometric decay 0.7^n for adjacent,\00"
+@.str.exp_ns_coupling_scaling.121 = private unnamed_addr constant [62 x i8] c"  0.3*0.65^n for skip) ensures that distant triads contribute\00"
+@.str.exp_ns_coupling_scaling.122 = private unnamed_addr constant [60 x i8] c"  exponentially less. This geometric suppression is the key\00"
+@.str.exp_ns_coupling_scaling.123 = private unnamed_addr constant [53 x i8] c"  mechanism that could bound R(N) as N → infinity.\00"
+@.str.exp_ns_coupling_scaling.124 = private unnamed_addr constant [1 x i8] c"\00"

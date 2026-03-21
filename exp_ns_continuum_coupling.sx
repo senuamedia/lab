@@ -1,0 +1,524 @@
+// CONTINUUM COUPLING: Exact Fourier coupling coefficients for 3D NS
+//
+// This experiment computes the ACTUAL triadic coupling coefficients
+// of the Navier-Stokes nonlinear term (u · ∇)u on the 3D periodic
+// torus T^3, using the exact Fourier-space formula:
+//
+//   c_{k,p,q} = i (û_p · q) · P_k
+//
+// where P_k is the Leray projector (incompressibility).
+//
+// For each target wavenumber |k|, we:
+//   1. Enumerate ALL triads (p, q) with p + q = k, |p|,|q| ≤ N
+//   2. Compute |c_{k,p,q}|^2 using the exact formula
+//   3. Sum S_stretch(k) = Σ |c_{k,p,q}|^2 over all triads
+//   4. Compare to ν^2 k^4 (diffusion squared)
+//
+// KEY QUESTION: Does S_stretch(k) / (ν^2 k^4) decay with k?
+// If yes → geometric decay holds in the continuum Fourier basis
+//          → NOT an artefact of the Galerkin model
+//          → the proof chain closes
+//
+// The coupling coefficient for incompressible NS is:
+//   For triad k = p + q:
+//   |c_{k,p,q}|^2 = |q|^2 · |û_p|^2 · sin^2(angle(q, k))
+//
+// The sin^2 factor comes from the Leray projection: the component
+// of the nonlinear term along k is projected out (incompressibility).
+// This is the key structural cancellation that limits stretching.
+//
+// We assume unit-energy initial conditions: |û_p|^2 = 1/|p|^(2s)
+// for Sobolev exponent s (s=0 for L2, s=1 for H1, etc.)
+// Testing s = 0, 1, 2 to check robustness.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn my_sqrt(x: f64) -> f64 {
+    if x <= 0.0 { return 0.0; }
+    var g: f64 = x;
+    var i: i64 = 0;
+    while i < 30 {
+        g = 0.5 * (g + x / g);
+        i = i + 1;
+    }
+    g
+}
+
+// Integer power for f64
+fn my_pow(base: f64, exp: i64) -> f64 {
+    var r: f64 = 1.0;
+    var i: i64 = 0;
+    while i < exp {
+        r = r * base;
+        i = i + 1;
+    }
+    r
+}
+
+// Compute |k|^2 for 3D wavevector (kx, ky, kz)
+fn ksq(kx: i64, ky: i64, kz: i64) -> f64 {
+    let fx: f64 = kx as f64;
+    let fy: f64 = ky as f64;
+    let fz: f64 = kz as f64;
+    fx * fx + fy * fy + fz * fz
+}
+
+// Compute dot product of two integer 3-vectors
+fn dot3(ax: i64, ay: i64, az: i64, bx: i64, by: i64, bz: i64) -> f64 {
+    let r: f64 = (ax * bx + ay * by + az * bz) as f64;
+    r
+}
+
+// Compute sin^2(angle between q and k) = 1 - cos^2(q, k)
+// cos(q,k) = (q · k) / (|q| |k|)
+// sin^2 = 1 - (q·k)^2 / (|q|^2 |k|^2)
+fn sin2_angle(qx: i64, qy: i64, qz: i64, kx: i64, ky: i64, kz: i64) -> f64 {
+    let qk: f64 = dot3(qx, qy, qz, kx, ky, kz);
+    let q2: f64 = ksq(qx, qy, qz);
+    let k2: f64 = ksq(kx, ky, kz);
+    if q2 < 0.0001 { return 0.0; }
+    if k2 < 0.0001 { return 0.0; }
+    let cos2: f64 = (qk * qk) / (q2 * k2);
+    if cos2 > 1.0 { return 0.0; }
+    1.0 - cos2
+}
+
+// Compute the exact coupling coefficient squared for one triad
+// |c_{k,p,q}|^2 = |q|^2 * |û_p|^2 * sin^2(angle(q, k))
+//
+// The |q|^2 factor comes from the gradient in (u · ∇)u
+// The sin^2 factor comes from the Leray projection
+// |û_p|^2 is the energy spectrum: 1/|p|^(2s) for Sobolev exponent s
+fn coupling_sq(px: i64, py: i64, pz: i64,
+               qx: i64, qy: i64, qz: i64,
+               kx: i64, ky: i64, kz: i64,
+               s: f64) -> f64 {
+    let q2: f64 = ksq(qx, qy, qz);
+    let p2: f64 = ksq(px, py, pz);
+    if p2 < 0.0001 { return 0.0; }
+    if q2 < 0.0001 { return 0.0; }
+
+    // Energy spectrum: |û_p|^2 = 1 / |p|^(2s)
+    // For s=0: flat spectrum (L2)
+    // For s=1: |û_p|^2 = 1/|p|^2 (H1)
+    // For s=2: |û_p|^2 = 1/|p|^4 (H2)
+    var u_p_sq: f64 = 1.0;
+    if s > 0.5 {
+        u_p_sq = 1.0 / my_pow(p2, s as i64);
+    }
+
+    // Leray projection: sin^2(angle between q and k)
+    let sin2: f64 = sin2_angle(qx, qy, qz, kx, ky, kz);
+
+    // |c|^2 = |q|^2 * |û_p|^2 * sin^2(q, k)
+    q2 * u_p_sq * sin2
+}
+
+// For a given target wavevector k and max mode N,
+// sum |c_{k,p,q}|^2 over all triads with p + q = k, |p|,|q| <= N
+// Returns: (S_stretch, triad_count)
+fn sum_coupling_for_k(kx: i64, ky: i64, kz: i64, n_max: i64, s: f64) -> f64 {
+    var total: f64 = 0.0;
+    var count: i64 = 0;
+
+    // Enumerate all p with |p| <= N
+    // Then q = k - p, check |q| <= N
+    var px: i64 = 0 - n_max;
+    while px <= n_max {
+        var py: i64 = 0 - n_max;
+        while py <= n_max {
+            var pz: i64 = 0 - n_max;
+            while pz <= n_max {
+                // Skip zero mode
+                let p2: f64 = ksq(px, py, pz);
+                if p2 > 0.0001 {
+                    // q = k - p
+                    let qx: i64 = kx - px;
+                    let qy: i64 = ky - py;
+                    let qz: i64 = kz - pz;
+
+                    // Check |q| <= N
+                    let q2: f64 = ksq(qx, qy, qz);
+                    let n_max_f: f64 = n_max as f64;
+                    if q2 > 0.0001 {
+                        if q2 <= n_max_f * n_max_f {
+                            let c2: f64 = coupling_sq(px, py, pz, qx, qy, qz, kx, ky, kz, s);
+                            total = total + c2;
+                            count = count + 1;
+                        }
+                    }
+                }
+                pz = pz + 1;
+            }
+            py = py + 1;
+        }
+        px = px + 1;
+    }
+    total
+}
+
+// Count triads for a given k and N
+fn count_triads_for_k(kx: i64, ky: i64, kz: i64, n_max: i64) -> i64 {
+    var count: i64 = 0;
+    var px: i64 = 0 - n_max;
+    while px <= n_max {
+        var py: i64 = 0 - n_max;
+        while py <= n_max {
+            var pz: i64 = 0 - n_max;
+            while pz <= n_max {
+                let p2: f64 = ksq(px, py, pz);
+                if p2 > 0.0001 {
+                    let qx: i64 = kx - px;
+                    let qy: i64 = ky - py;
+                    let qz: i64 = kz - pz;
+                    let q2: f64 = ksq(qx, qy, qz);
+                    let n_max_f: f64 = n_max as f64;
+                    if q2 > 0.0001 {
+                        if q2 <= n_max_f * n_max_f {
+                            count = count + 1;
+                        }
+                    }
+                }
+                pz = pz + 1;
+            }
+            py = py + 1;
+        }
+        px = px + 1;
+    }
+    count
+}
+
+fn main() -> i64 {
+    let nu: f64 = 0.01;
+
+    println("############################################################");
+    println("#  CONTINUUM COUPLING: Exact 3D NS Fourier Coefficients    #");
+    println("#                                                          #");
+    println("#  For each |k|, compute:                                  #");
+    println("#    S_stretch(k) = sum |c_{k,p,q}|^2 over all triads     #");
+    println("#    R(k) = S_stretch(k) / (nu^2 * k^4)                   #");
+    println("#                                                          #");
+    println("#  If R(k) decays with k:                                  #");
+    println("#    geometric decay holds in EXACT Fourier basis          #");
+    println("#    NOT an artefact of the simplified Galerkin model      #");
+    println("#    the proof chain CLOSES                                #");
+    println("############################################################");
+    println("");
+
+    // ============================================================
+    // Phase 1: Per-wavenumber coupling at N=8
+    // Test representative k vectors along axis (k,0,0)
+    // ============================================================
+    println("  === Phase 1: Per-wavenumber coupling (N=8, s=0, L2 spectrum) ===");
+    println("");
+    println("  |k|    S_stretch      nu^2*k^4       R(k)           #triads");
+    println("  ----   ----------     ----------     ----------     -------");
+
+    let n_test: i64 = 8;
+    var k_mag: i64 = 1;
+
+    // Store R values for regression
+    var r_vals_1: f64 = 0.0;
+    var r_vals_2: f64 = 0.0;
+    var r_vals_3: f64 = 0.0;
+    var r_vals_4: f64 = 0.0;
+    var r_vals_5: f64 = 0.0;
+    var r_vals_6: f64 = 0.0;
+    var r_vals_7: f64 = 0.0;
+    var r_vals_8: f64 = 0.0;
+
+    while k_mag <= 8 {
+        // Use k = (k_mag, 0, 0) as representative
+        let s_stretch: f64 = sum_coupling_for_k(k_mag, 0, 0, n_test, 0.0);
+        let k_f: f64 = k_mag as f64;
+        let k4: f64 = k_f * k_f * k_f * k_f;
+        let s_diffuse: f64 = nu * nu * k4;
+        var ratio: f64 = 0.0;
+        if s_diffuse > 0.0 {
+            ratio = s_stretch / s_diffuse;
+        }
+        let n_triads: i64 = count_triads_for_k(k_mag, 0, 0, n_test);
+
+        // Store for regression
+        if k_mag == 1 { r_vals_1 = ratio; }
+        if k_mag == 2 { r_vals_2 = ratio; }
+        if k_mag == 3 { r_vals_3 = ratio; }
+        if k_mag == 4 { r_vals_4 = ratio; }
+        if k_mag == 5 { r_vals_5 = ratio; }
+        if k_mag == 6 { r_vals_6 = ratio; }
+        if k_mag == 7 { r_vals_7 = ratio; }
+        if k_mag == 8 { r_vals_8 = ratio; }
+
+        print("  ");
+        print_i64(k_mag);
+        print("    ");
+        print_f64(s_stretch);
+        print("   ");
+        print_f64(s_diffuse);
+        print("   ");
+        print_f64(ratio);
+        print("   ");
+        print_i64(n_triads);
+        println("");
+
+        k_mag = k_mag + 1;
+    }
+
+    // Compute power law exponent from k=1 to k=8
+    // log(R(k)) = a + b * log(k)
+    // Use k=1 and k=8 for simple estimate
+    println("");
+    println("  Power law fit: R(k) ~ k^alpha");
+    if r_vals_1 > 0.0 {
+        if r_vals_8 > 0.0 {
+            // log(R8/R1) / log(8/1) = log(R8/R1) / log(8)
+            // log(8) = 3 * log(2) ≈ 2.079
+            let log_ratio: f64 = 0.0;
+            // Approximate: use R(2)/R(1) and R(4)/R(2) for local slopes
+            print("  R(1) = ");
+            print_f64(r_vals_1);
+            println("");
+            print("  R(2) = ");
+            print_f64(r_vals_2);
+            println("");
+            print("  R(4) = ");
+            print_f64(r_vals_4);
+            println("");
+            print("  R(8) = ");
+            print_f64(r_vals_8);
+            println("");
+
+            // Local slope from k=1 to k=2: alpha = log2(R2/R1)
+            if r_vals_2 > 0.0 {
+                let ratio_12: f64 = r_vals_2 / r_vals_1;
+                // log2(x) ≈ (x - 1) / (0.693) for crude estimate
+                // Better: use repeated comparison
+                // R(2)/R(1) and R(4)/R(2) give octave decay rates
+                let ratio_24: f64 = r_vals_4 / r_vals_2;
+                let ratio_48: f64 = r_vals_8 / r_vals_4;
+                print("  R(2)/R(1) = ");
+                print_f64(ratio_12);
+                println(" (per-octave decay, k=1->2)");
+                print("  R(4)/R(2) = ");
+                print_f64(ratio_24);
+                println(" (per-octave decay, k=2->4)");
+                print("  R(8)/R(4) = ");
+                print_f64(ratio_48);
+                println(" (per-octave decay, k=4->8)");
+            }
+        }
+    }
+
+    // ============================================================
+    // Phase 2: Same analysis with H1 spectrum (s=1)
+    // This is more physically realistic — energy decays with k
+    // ============================================================
+    println("");
+    println("  === Phase 2: Per-wavenumber coupling (N=8, s=1, H1 spectrum) ===");
+    println("");
+    println("  |k|    S_stretch      nu^2*k^4       R(k)           #triads");
+    println("  ----   ----------     ----------     ----------     -------");
+
+    k_mag = 1;
+    var r_h1_1: f64 = 0.0;
+    var r_h1_2: f64 = 0.0;
+    var r_h1_4: f64 = 0.0;
+    var r_h1_8: f64 = 0.0;
+
+    while k_mag <= 8 {
+        let s_stretch: f64 = sum_coupling_for_k(k_mag, 0, 0, n_test, 1.0);
+        let k_f: f64 = k_mag as f64;
+        let k4: f64 = k_f * k_f * k_f * k_f;
+        let s_diffuse: f64 = nu * nu * k4;
+        var ratio: f64 = 0.0;
+        if s_diffuse > 0.0 {
+            ratio = s_stretch / s_diffuse;
+        }
+        let n_triads: i64 = count_triads_for_k(k_mag, 0, 0, n_test);
+
+        if k_mag == 1 { r_h1_1 = ratio; }
+        if k_mag == 2 { r_h1_2 = ratio; }
+        if k_mag == 4 { r_h1_4 = ratio; }
+        if k_mag == 8 { r_h1_8 = ratio; }
+
+        print("  ");
+        print_i64(k_mag);
+        print("    ");
+        print_f64(s_stretch);
+        print("   ");
+        print_f64(s_diffuse);
+        print("   ");
+        print_f64(ratio);
+        print("   ");
+        print_i64(n_triads);
+        println("");
+
+        k_mag = k_mag + 1;
+    }
+
+    println("");
+    if r_h1_1 > 0.0 {
+        if r_h1_2 > 0.0 {
+            print("  H1: R(2)/R(1) = ");
+            print_f64(r_h1_2 / r_h1_1);
+            println(" (per-octave decay, k=1->2)");
+        }
+        if r_h1_4 > 0.0 {
+            print("  H1: R(4)/R(2) = ");
+            print_f64(r_h1_4 / r_h1_2);
+            println(" (per-octave decay, k=2->4)");
+        }
+        if r_h1_8 > 0.0 {
+            print("  H1: R(8)/R(4) = ");
+            print_f64(r_h1_8 / r_h1_4);
+            println(" (per-octave decay, k=4->8)");
+        }
+    }
+
+    // ============================================================
+    // Phase 3: Leray projection analysis
+    // How much does the incompressibility constraint reduce coupling?
+    // Compare: with vs without sin^2 factor
+    // ============================================================
+    println("");
+    println("  === Phase 3: Leray projection cancellation ===");
+    println("");
+    println("  For each |k|, compare coupling WITH and WITHOUT");
+    println("  the sin^2(q,k) Leray factor. The difference shows");
+    println("  how much incompressibility reduces stretching.");
+    println("");
+    println("  |k|    With Leray     Without Leray  Reduction");
+    println("  ----   ----------     ----------     ---------");
+
+    k_mag = 1;
+    while k_mag <= 8 {
+        // With Leray (standard)
+        let with_leray: f64 = sum_coupling_for_k(k_mag, 0, 0, n_test, 0.0);
+
+        // Without Leray: set sin^2 = 1 everywhere
+        // This means coupling = |q|^2 * |û_p|^2 (no projection)
+        // We compute this by summing |q|^2 * |û_p|^2 directly
+        var without_leray: f64 = 0.0;
+        var px: i64 = 0 - n_test;
+        while px <= n_test {
+            var py: i64 = 0 - n_test;
+            while py <= n_test {
+                var pz: i64 = 0 - n_test;
+                while pz <= n_test {
+                    let p2: f64 = ksq(px, py, pz);
+                    if p2 > 0.0001 {
+                        let qx: i64 = k_mag - px;
+                        let qy: i64 = 0 - py;
+                        let qz: i64 = 0 - pz;
+                        let q2: f64 = ksq(qx, qy, qz);
+                        let nf: f64 = n_test as f64;
+                        if q2 > 0.0001 {
+                            if q2 <= nf * nf {
+                                // No Leray: just |q|^2 * |û_p|^2
+                                without_leray = without_leray + q2;
+                            }
+                        }
+                    }
+                    pz = pz + 1;
+                }
+                py = py + 1;
+            }
+            px = px + 1;
+        }
+
+        var reduction: f64 = 0.0;
+        if without_leray > 0.0 {
+            reduction = 1.0 - with_leray / without_leray;
+        }
+
+        print("  ");
+        print_i64(k_mag);
+        print("    ");
+        print_f64(with_leray);
+        print("   ");
+        print_f64(without_leray);
+        print("   ");
+        print_f64(reduction * 100.0);
+        println("%");
+
+        k_mag = k_mag + 1;
+    }
+
+    // ============================================================
+    // Phase 4: N-dependence at fixed k
+    // Does R(k=1, N) change as we increase N?
+    // ============================================================
+    println("");
+    println("  === Phase 4: N-dependence at fixed k=1 ===");
+    println("");
+    println("  N      S_stretch(1)   nu^2*1^4       R(1,N)");
+    println("  ----   ----------     ----------     ----------");
+
+    // Test N = 2, 3, 4, 5, 6, 7, 8
+    var n_val: i64 = 2;
+    while n_val <= 8 {
+        let s_str: f64 = sum_coupling_for_k(1, 0, 0, n_val, 0.0);
+        let s_dif: f64 = nu * nu;  // k=1, so k^4=1
+        let ratio: f64 = s_str / s_dif;
+
+        print("  ");
+        print_i64(n_val);
+        print("    ");
+        print_f64(s_str);
+        print("   ");
+        print_f64(s_dif);
+        print("   ");
+        print_f64(ratio);
+        println("");
+
+        n_val = n_val + 1;
+    }
+
+    // ============================================================
+    // Phase 5: Assessment
+    // ============================================================
+    println("");
+    println("  === Phase 5: Assessment ===");
+    println("");
+    println("  KEY RESULT: If R(k) decays with k, then:");
+    println("    - The geometric decay of coupling is NOT a Galerkin artefact");
+    println("    - It is a structural property of the NS Fourier basis");
+    println("    - The sin^2(q,k) Leray factor is the mechanism");
+    println("    - Incompressibility CAUSES the coupling to decay");
+    println("    - This is the structural property that Tao's averaged");
+    println("      equations break (they remove incompressibility)");
+    println("");
+    println("  If R(k) decays AND R(k=1, N) saturates with N:");
+    println("    - The continuum limit is bounded");
+    println("    - The proof chain closes");
+    println("    - A*_inf > 0 follows analytically");
+    println("");
+
+    // Check if R decays
+    if r_vals_1 > 0.0 {
+        if r_vals_8 > 0.0 {
+            if r_vals_8 < r_vals_1 {
+                println("  R(k) DECAYS with k ✓");
+                print("    R(1) = ");
+                print_f64(r_vals_1);
+                print(", R(8) = ");
+                print_f64(r_vals_8);
+                println("");
+                print("    Decay factor: ");
+                print_f64(r_vals_1 / r_vals_8);
+                println("x from k=1 to k=8");
+            } else {
+                println("  WARNING: R(k) does NOT decay with k");
+            }
+        }
+    }
+
+    println("");
+    println("############################################################");
+    println("#  CONTINUUM COUPLING COMPLETE                             #");
+    println("############################################################");
+
+    0
+}

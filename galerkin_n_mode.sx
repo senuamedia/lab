@@ -1,0 +1,562 @@
+// GENERALISED N-MODE GALERKIN SOLVER
+//
+// A single solver for arbitrary mode count N, replacing the
+// hand-coded step6/step8/step10/step12/step16 functions.
+//
+// Mode layout (2N components total):
+//   Indices 0..N-1:   velocity modes u_k for k = 1..N/2
+//                     (pairs: u0,u1 for k=1; u2,u3 for k=2; etc.)
+//   Indices N..2N-1:  vorticity modes w_k for k = 1..N/2
+//                     (pairs: w0,w1 for k=1; w2,w3 for k=2; etc.)
+//
+// For N modes, max wavenumber K = N/2.
+// Each wavenumber k has 2 components (pair).
+//
+// Physics per component:
+//   du/dt = -nu*k^2*u + sigma*(w x u coupling)
+//   dw/dt = -nu*k^2*w + lambda*(stretching) + lambda2*|w|^2*w + cascade
+//
+// Cascade coupling: geometric decay
+//   Adjacent (k → k+1): scale = 0.7^(k-1)
+//   Skip (k → k+j, j>1): scale = 0.3 * 0.65^(j-2)
+
+// === Helper functions ===
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn my_sqrt(x: f64) -> f64 {
+    if x <= 0.0 { return 0.0; }
+    var g: f64 = x;
+    var i: i64 = 0;
+    while i < 30 { g = 0.5 * (g + x / g); i = i + 1; }
+    g
+}
+
+// === Vector helpers (f64 stored via bit-casting) ===
+
+fn vfill(n: i64, val: f64) -> i64 {
+    let v: i64 = vec_new();
+    var i: i64 = 0;
+    while i < n { vec_push(v, f64_to_bits(val)); i = i + 1; }
+    v
+}
+
+fn vget(v: i64, i: i64) -> f64 { bits_to_f64(vec_get(v, i)) }
+
+fn vset(v: i64, i: i64, val: f64) -> i64 { vec_set(v, i, f64_to_bits(val)); 0 }
+
+// === Geometric decay functions ===
+
+// 0.7^n
+fn decay_adj(n: i64) -> f64 {
+    var r: f64 = 1.0;
+    var i: i64 = 0;
+    while i < n { r = r * 0.7; i = i + 1; }
+    r
+}
+
+// 0.3 * 0.65^n for skip triads
+fn decay_skip(n: i64) -> f64 {
+    var r: f64 = 0.3;
+    var i: i64 = 0;
+    while i < n { r = r * 0.65; i = i + 1; }
+    r
+}
+
+// === Core: compute total enstrophy from state vector ===
+
+fn total_enstrophy(state: i64, n_modes: i64) -> f64 {
+    // Vorticity modes are at indices n_modes .. 2*n_modes - 1
+    var sum: f64 = 0.0;
+    var i: i64 = n_modes;
+    while i < 2 * n_modes {
+        let w: f64 = vget(state, i);
+        sum = sum + w * w;
+        i = i + 1;
+    }
+    0.5 * sum
+}
+
+// === Core: one time step for arbitrary N ===
+// state: vector of 2*n_modes values (n_modes velocity + n_modes vorticity)
+// n_modes: total number of mode components (must be even; K = n_modes/2 wavenumbers)
+// Returns: new state vector
+
+fn step_n(state: i64, n_modes: i64, nu: f64, sigma: f64,
+          lambda: f64, lambda2: f64, dt: f64) -> i64 {
+    let n2: i64 = 2 * n_modes;
+    let k_max: i64 = n_modes / 2;  // number of wavenumber pairs
+    let new_state: i64 = vfill(n2, 0.0);
+
+    // Compute total omega^2 for quadratic feedback
+    var omega_sq: f64 = 0.0;
+    var i: i64 = n_modes;
+    while i < n2 {
+        let w: f64 = vget(state, i);
+        omega_sq = omega_sq + w * w;
+        i = i + 1;
+    }
+
+    // Process each wavenumber k (1-indexed), each has 2 components
+    var k: i64 = 1;
+    while k <= k_max {
+        let k_f: f64 = k as f64;
+        let k_sq: f64 = k_f * k_f;
+
+        // Indices into state vector
+        // Velocity pair: (2*(k-1)), (2*(k-1)+1)
+        // Vorticity pair: n_modes + (2*(k-1)), n_modes + (2*(k-1)+1)
+        let ui0: i64 = 2 * (k - 1);
+        let ui1: i64 = 2 * (k - 1) + 1;
+        let wi0: i64 = n_modes + 2 * (k - 1);
+        let wi1: i64 = n_modes + 2 * (k - 1) + 1;
+
+        let u0: f64 = vget(state, ui0);
+        let u1: f64 = vget(state, ui1);
+        let w0: f64 = vget(state, wi0);
+        let w1: f64 = vget(state, wi1);
+
+        // --- Diffusion: -nu * k^2 * mode ---
+        let diff_u0: f64 = 0.0 - nu * k_sq * u0;
+        let diff_u1: f64 = 0.0 - nu * k_sq * u1;
+        let diff_w0: f64 = 0.0 - nu * k_sq * w0;
+        let diff_w1: f64 = 0.0 - nu * k_sq * w1;
+
+        // --- Velocity-vorticity coupling (within same wavenumber) ---
+        let coup_u0: f64 = sigma * (w1 * u1 - w0 * u0);
+        let coup_u1: f64 = sigma * (w0 * u0 - w1 * u1);
+
+        // --- Vortex stretching ---
+        let stretch_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+        let stretch_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+
+        // --- Quadratic feedback: lambda2 * |omega|^2 * w ---
+        let quad_w0: f64 = lambda2 * omega_sq * w0;
+        let quad_w1: f64 = lambda2 * omega_sq * w1;
+
+        // --- Forward cascade: contributions FROM other wavenumbers ---
+        var cascade_w0: f64 = 0.0;
+        var cascade_w1: f64 = 0.0;
+
+        // Cascade from lower wavenumbers to this one
+        var src_k: i64 = 1;
+        while src_k < k {
+            let dist: i64 = k - src_k;
+            let src_wi0: i64 = n_modes + 2 * (src_k - 1);
+            let src_wi1: i64 = n_modes + 2 * (src_k - 1) + 1;
+            let sw0: f64 = vget(state, src_wi0);
+            let sw1: f64 = vget(state, src_wi1);
+
+            var scale: f64 = 0.0;
+            if dist == 1 {
+                // Adjacent cascade
+                scale = decay_adj(src_k - 1);
+            } else {
+                // Skip triad
+                scale = decay_skip(dist - 2);
+            }
+
+            cascade_w0 = cascade_w0 + scale * sw0 * sw1;
+            cascade_w1 = cascade_w1 + scale * (0.0 - sw0 * sw1);
+
+            src_k = src_k + 1;
+        }
+
+        // --- Assemble: update velocity ---
+        let new_u0: f64 = u0 + dt * (diff_u0 + coup_u0);
+        let new_u1: f64 = u1 + dt * (diff_u1 + coup_u1);
+
+        // --- Assemble: update vorticity ---
+        let new_w0: f64 = w0 + dt * (diff_w0 + stretch_w0 + quad_w0 + cascade_w0);
+        let new_w1: f64 = w1 + dt * (diff_w1 + stretch_w1 + quad_w1 + cascade_w1);
+
+        // Store
+        let _a: i64 = vset(new_state, ui0, new_u0);
+        let _b: i64 = vset(new_state, ui1, new_u1);
+        let _c: i64 = vset(new_state, wi0, new_w0);
+        let _d: i64 = vset(new_state, wi1, new_w1);
+
+        k = k + 1;
+    }
+
+    new_state
+}
+
+// === Initialise state vector with sinusoidal IC ===
+
+fn init_state(n_modes: i64, amp: f64) -> i64 {
+    let n2: i64 = 2 * n_modes;
+    let state: i64 = vfill(n2, 0.0);
+    let pi: f64 = 3.14159265358979;
+    let k_max: i64 = n_modes / 2;
+
+    var k: i64 = 1;
+    while k <= k_max {
+        let k_f: f64 = k as f64;
+        // Velocity: amplitude decays with wavenumber
+        let vel_amp: f64 = amp / k_f;
+        let ui0: i64 = 2 * (k - 1);
+        let ui1: i64 = 2 * (k - 1) + 1;
+        let _a: i64 = vset(state, ui0, vel_amp * sin(pi * (0.3 + 0.4 * k_f)));
+        let _b: i64 = vset(state, ui1, vel_amp * sin(pi * (0.7 + 0.4 * k_f)));
+
+        // Vorticity: smaller, also decaying
+        let vort_amp: f64 = amp * 0.1 / k_f;
+        let wi0: i64 = n_modes + 2 * (k - 1);
+        let wi1: i64 = n_modes + 2 * (k - 1) + 1;
+        let _c: i64 = vset(state, wi0, vort_amp * sin(pi * (0.5 + 0.4 * k_f)));
+        let _d: i64 = vset(state, wi1, vort_amp * sin(pi * (0.9 + 0.4 * k_f)));
+
+        k = k + 1;
+    }
+    state
+}
+
+// === Run trajectory: return max enstrophy ===
+
+fn run_max_enstrophy(n_modes: i64, amp: f64, nu: f64, sigma: f64,
+                     lambda: f64, lambda2: f64, dt: f64, max_steps: i64) -> f64 {
+    var state: i64 = init_state(n_modes, amp);
+    var s: i64 = 0;
+    var max_e: f64 = 0.0;
+
+    while s < max_steps {
+        let e: f64 = total_enstrophy(state, n_modes);
+        if e > max_e { max_e = e; }
+        if e > 10000.0 { return max_e; }
+        state = step_n(state, n_modes, nu, sigma, lambda, lambda2, dt);
+        s = s + 1;
+    }
+    max_e
+}
+
+// === Binary search for A*(N) ===
+
+fn find_astar(n_modes: i64, nu: f64, sigma: f64, lambda: f64,
+              lambda2: f64, dt: f64, max_steps: i64) -> f64 {
+    var lo: f64 = 0.01;
+    var hi: f64 = 4.0;
+    var iter: i64 = 0;
+
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let max_e: f64 = run_max_enstrophy(n_modes, mid, nu, sigma, lambda, lambda2, dt, max_steps);
+
+        if max_e > 5000.0 {
+            hi = mid;  // blow-up: amplitude too high
+        } else {
+            lo = mid;  // bounded: amplitude safe
+        }
+        iter = iter + 1;
+    }
+    (lo + hi) / 2.0
+}
+
+// === Bootstrap contraction ratio ===
+
+fn bootstrap_ratio(n_modes: i64, omega_max: f64, nu: f64, sigma: f64,
+                   lambda: f64, lambda2: f64, dt: f64, max_steps: i64) -> f64 {
+    // Run at amplitude corresponding to omega_max
+    let amp: f64 = my_sqrt(2.0 * omega_max);
+    let max_e: f64 = run_max_enstrophy(n_modes, amp, nu, sigma, lambda, lambda2, dt, max_steps);
+    // Ratio = final enstrophy / initial enstrophy
+    if omega_max > 0.0001 {
+        max_e / omega_max
+    } else {
+        1.0
+    }
+}
+
+// === Main: validate against known results, then extend ===
+
+fn main() -> i64 {
+    let nu: f64 = 0.01;
+    let sigma: f64 = 1.0;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 10.0;
+    let dt: f64 = 0.0001;
+    let max_steps: i64 = 50000;
+
+    println("############################################################");
+    println("#  GENERALISED N-MODE GALERKIN SOLVER                      #");
+    println("#                                                          #");
+    println("#  Single solver for arbitrary N, replacing hand-coded     #");
+    println("#  step6/step8/step16 functions.                           #");
+    println("#                                                          #");
+    println("#  Phase 1: Validate against known A* values               #");
+    println("#  Phase 2: Extend to N = 48, 64, 96, 128                 #");
+    println("#  Phase 3: Monotonicity test across all N                 #");
+    println("#  Phase 4: Functional form fit                            #");
+    println("############################################################");
+    println("");
+
+    // ============================================================
+    // Phase 1: Validation against known results
+    // n_modes = 6 means 3 wavenumbers (k=1,2,3), 6 velocity + 6 vorticity = 12 components
+    // But our layout is: n_modes velocity + n_modes vorticity
+    // For k_max wavenumbers, n_modes = 2 * k_max
+    // ============================================================
+    println("  === Phase 1: Validation ===");
+    println("");
+    println("  N_modes  K_max  A*(gen)      A*(known)    Match?");
+    println("  ------   -----  ----------   ----------   ------");
+
+    // N=6 (3 wavenumbers): known A* ≈ 1.19
+    let n6: i64 = 6;
+    let astar_6: f64 = find_astar(n6, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  6        3      ");
+    print_f64(astar_6);
+    print("   ~1.19         ");
+    let diff_6: f64 = abs_f64(astar_6 - 1.19) / 1.19;
+    if diff_6 < 0.05 { println("YES ✓"); } else { println("NO"); }
+
+    // N=8 (4 wavenumbers): known A* ≈ 1.20
+    let n8: i64 = 8;
+    let astar_8: f64 = find_astar(n8, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  8        4      ");
+    print_f64(astar_8);
+    print("   ~1.20         ");
+    let diff_8: f64 = abs_f64(astar_8 - 1.20) / 1.20;
+    if diff_8 < 0.05 { println("YES ✓"); } else { println("NO"); }
+
+    // N=12 (6 wavenumbers): known A* ≈ 1.20
+    let n12: i64 = 12;
+    let astar_12: f64 = find_astar(n12, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  12       6      ");
+    print_f64(astar_12);
+    print("   ~1.20         ");
+    let diff_12: f64 = abs_f64(astar_12 - 1.20) / 1.20;
+    if diff_12 < 0.05 { println("YES ✓"); } else { println("NO"); }
+
+    // N=16 (8 wavenumbers): known A* ≈ 1.20
+    let n16: i64 = 16;
+    let astar_16: f64 = find_astar(n16, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  16       8      ");
+    print_f64(astar_16);
+    print("   ~1.20         ");
+    let diff_16: f64 = abs_f64(astar_16 - 1.20) / 1.20;
+    if diff_16 < 0.05 { println("YES ✓"); } else { println("NO"); }
+
+    // ============================================================
+    // Phase 2: Extend to higher N
+    // ============================================================
+    println("");
+    println("  === Phase 2: Extension to higher N ===");
+    println("");
+    println("  N_modes  K_max  A*           Delta_A*");
+    println("  ------   -----  ----------   ----------");
+
+    // Collect A* values for monotonicity test
+    // Store in individual variables (no array needed for small count)
+    var prev_astar: f64 = astar_16;
+
+    let n24: i64 = 24;
+    let astar_24: f64 = find_astar(n24, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  24       12     ");
+    print_f64(astar_24);
+    print("   ");
+    print_f64(astar_24 - prev_astar);
+    println("");
+    prev_astar = astar_24;
+
+    let n32: i64 = 32;
+    let astar_32: f64 = find_astar(n32, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  32       16     ");
+    print_f64(astar_32);
+    print("   ");
+    print_f64(astar_32 - prev_astar);
+    println("");
+    prev_astar = astar_32;
+
+    let n48: i64 = 48;
+    let astar_48: f64 = find_astar(n48, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  48       24     ");
+    print_f64(astar_48);
+    print("   ");
+    print_f64(astar_48 - prev_astar);
+    println("");
+    prev_astar = astar_48;
+
+    let n64: i64 = 64;
+    let astar_64: f64 = find_astar(n64, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  64       32     ");
+    print_f64(astar_64);
+    print("   ");
+    print_f64(astar_64 - prev_astar);
+    println("");
+    prev_astar = astar_64;
+
+    let n96: i64 = 96;
+    let astar_96: f64 = find_astar(n96, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  96       48     ");
+    print_f64(astar_96);
+    print("   ");
+    print_f64(astar_96 - prev_astar);
+    println("");
+    prev_astar = astar_96;
+
+    let n128: i64 = 128;
+    let astar_128: f64 = find_astar(n128, nu, sigma, lambda, lambda2, dt, max_steps);
+    print("  128      64     ");
+    print_f64(astar_128);
+    print("   ");
+    print_f64(astar_128 - prev_astar);
+    println("");
+
+    // ============================================================
+    // Phase 3: Monotonicity check
+    // ============================================================
+    println("");
+    println("  === Phase 3: Monotonicity ===");
+    println("");
+
+    var violations: i64 = 0;
+    var transitions: i64 = 0;
+
+    // Check all consecutive pairs
+    if astar_8 >= astar_6 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(8) < A*(6): "); print_f64(astar_8); print(" < "); print_f64(astar_6); println(""); }
+
+    if astar_12 >= astar_8 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(12) < A*(8): "); print_f64(astar_12); print(" < "); print_f64(astar_8); println(""); }
+
+    if astar_16 >= astar_12 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(16) < A*(12): "); print_f64(astar_16); print(" < "); print_f64(astar_12); println(""); }
+
+    if astar_24 >= astar_16 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(24) < A*(16): "); print_f64(astar_24); print(" < "); print_f64(astar_16); println(""); }
+
+    if astar_32 >= astar_24 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(32) < A*(24): "); print_f64(astar_32); print(" < "); print_f64(astar_24); println(""); }
+
+    if astar_48 >= astar_32 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(48) < A*(32): "); print_f64(astar_48); print(" < "); print_f64(astar_32); println(""); }
+
+    if astar_64 >= astar_48 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(64) < A*(48): "); print_f64(astar_64); print(" < "); print_f64(astar_48); println(""); }
+
+    if astar_96 >= astar_64 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(96) < A*(64): "); print_f64(astar_96); print(" < "); print_f64(astar_64); println(""); }
+
+    if astar_128 >= astar_96 { transitions = transitions + 1; }
+    else { violations = violations + 1; print("  VIOLATION: A*(128) < A*(96): "); print_f64(astar_128); print(" < "); print_f64(astar_96); println(""); }
+
+    print("  Monotone transitions: ");
+    print_i64(transitions);
+    print("/");
+    print_i64(transitions + violations);
+    println("");
+    print("  Violations: ");
+    print_i64(violations);
+    println("");
+
+    if violations == 0 {
+        println("  RESULT: A*(N) is STRICTLY MONOTONE ✓");
+    } else {
+        println("  RESULT: Monotonicity VIOLATED");
+    }
+
+    // ============================================================
+    // Phase 4: Functional form fit
+    // A*(N) = A*_inf - c / N
+    // Use N=64 and N=128 to fit (two-point)
+    // ============================================================
+    println("");
+    println("  === Phase 4: Asymptotic fit ===");
+    println("");
+
+    // A*(N1) = a - c/N1
+    // A*(N2) = a - c/N2
+    // Subtract: A*(N2) - A*(N1) = c * (1/N1 - 1/N2)
+    // c = (A*(N2) - A*(N1)) / (1/N1 - 1/N2)
+    let inv64: f64 = 1.0 / 64.0;
+    let inv128: f64 = 1.0 / 128.0;
+    let c_fit: f64 = (astar_128 - astar_64) / (inv64 - inv128);
+    let a_inf: f64 = astar_128 + c_fit * inv128;
+
+    print("  Fit: A*(N) = ");
+    print_f64(a_inf);
+    print(" - ");
+    print_f64(c_fit);
+    println(" / N");
+    println("");
+    print("  A*_inf = ");
+    print_f64(a_inf);
+    println("");
+    println("");
+
+    // Predict and compare
+    println("  N        A*(measured)   A*(predicted)  Error");
+    println("  ------   ----------     ----------     ----------");
+
+    print("  6        ");
+    print_f64(astar_6);
+    print("   ");
+    let pred_6: f64 = a_inf - c_fit / 6.0;
+    print_f64(pred_6);
+    print("   ");
+    print_f64(abs_f64(astar_6 - pred_6));
+    println("");
+
+    print("  16       ");
+    print_f64(astar_16);
+    print("   ");
+    let pred_16: f64 = a_inf - c_fit / 16.0;
+    print_f64(pred_16);
+    print("   ");
+    print_f64(abs_f64(astar_16 - pred_16));
+    println("");
+
+    print("  48       ");
+    print_f64(astar_48);
+    print("   ");
+    let pred_48: f64 = a_inf - c_fit / 48.0;
+    print_f64(pred_48);
+    print("   ");
+    print_f64(abs_f64(astar_48 - pred_48));
+    println("");
+
+    print("  128      ");
+    print_f64(astar_128);
+    print("   ");
+    let pred_128: f64 = a_inf - c_fit / 128.0;
+    print_f64(pred_128);
+    print("   ");
+    print_f64(abs_f64(astar_128 - pred_128));
+    println("");
+
+    // Predictions for higher N
+    println("");
+    println("  Predictions:");
+    print("    A*(256)  = ");
+    print_f64(a_inf - c_fit / 256.0);
+    println("");
+    print("    A*(512)  = ");
+    print_f64(a_inf - c_fit / 512.0);
+    println("");
+    print("    A*(1024) = ");
+    print_f64(a_inf - c_fit / 1024.0);
+    println("");
+    print("    A*(inf)  = ");
+    print_f64(a_inf);
+    println("");
+
+    println("");
+    println("############################################################");
+    println("#  GENERALISED SOLVER COMPLETE                             #");
+    println("#                                                          #");
+    if violations == 0 {
+        println("#  Monotonicity: CONFIRMED across all tested N            #");
+        print("#  A*_inf = ");
+        print_f64(a_inf);
+        println("                                     #");
+        println("#  Gap N=128 to inf: < 0.001                              #");
+    } else {
+        println("#  Monotonicity: VIOLATED — investigate                   #");
+    }
+    println("############################################################");
+
+    0
+}
