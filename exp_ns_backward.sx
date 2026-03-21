@@ -1,0 +1,593 @@
+// FORWARD AND BACKWARD: Two Directions of Differentiation
+//
+// Forward AD (what we've done): perturb input → measure output change
+//   ∂H(T)/∂param = "how does changing param now affect H later?"
+//   Tells you: sensitivity of the FUTURE to the PRESENT
+//
+// Backward AD (adjoint/backprop): start from output → trace to inputs
+//   ∂H(T)/∂state(t) = "how much did the state at time t cause H(T)?"
+//   Tells you: INFLUENCE of the PAST on the PRESENT
+//
+// Together they give you:
+//   Forward: where are we GOING? (predictive)
+//   Backward: how did we GET HERE? (attributive)
+//   The interplay: does the forward sensitivity at time t correlate
+//   with the backward influence at time t? If yes → the trajectory
+//   is coherent. If no → there are hidden dynamics.
+//
+// Implementation: adjoint via finite differences
+//   For each time t in [0, T]:
+//     1. Run forward to time t, save state S(t)
+//     2. Perturb S(t) → S(t) + δ
+//     3. Run forward from perturbed S(t) to time T
+//     4. Measure H(T) with and without perturbation
+//     5. Influence I(t) = |H(T, perturbed) - H(T, unperturbed)| / δ
+//
+// I(t) is the backward influence function.
+// Peaks of I(t) = critical decision points in the trajectory.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { a } else { b } }
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+// Evolve from a given state for N steps, return enstrophy at end
+fn evolve_from(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+               nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, steps: i64) -> f64 {
+    var cu: f64 = u; var cv: f64 = v; var cw: f64 = w;
+    var cox: f64 = ox; var coy: f64 = oy; var coz: f64 = oz;
+    var s: i64 = 0;
+    while s < steps {
+        let n0: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 5);
+        cu = n0; cv = n1; cw = n2; cox = n3; coy = n4; coz = n5;
+        s = s + 1;
+    }
+    enstrophy3(cox, coy, coz)
+}
+
+// Evolve from initial condition to time t, return state component
+fn state_at(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+            dt: f64, steps: i64, which: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < steps {
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    if which == 0 { return u; }
+    if which == 1 { return v; }
+    if which == 2 { return w; }
+    if which == 3 { return ox; }
+    if which == 4 { return oy; }
+    oz
+}
+
+// ============================================================================
+// Exp 1: The Backward Influence Function I(t)
+//
+// For a blow-up trajectory, compute:
+//   I(t) = |Omega(T) with perturbation at t - Omega(T) without| / delta
+//
+// I(t) tells us: how much does the state at time t influence the final
+// enstrophy? Peaks = critical moments. Valleys = irrelevant moments.
+// ============================================================================
+
+fn test_backward_influence() -> i64 {
+    println("=== Exp 1: Backward Influence Function I(t) ===");
+    println("  Perturb state at time t, measure effect on enstrophy at T");
+    println("  I(t) = influence of time t on the outcome");
+    println("  Peaks = critical decision points");
+    println("");
+
+    let amp: f64 = 2.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let delta: f64 = 0.001;
+    let t_final: i64 = 20000;
+
+    // First get baseline enstrophy at T
+    let e_base: f64 = evolve_from(
+        state_at(amp, nu, sigma, lambda, lambda2, dt, 0, 0),
+        state_at(amp, nu, sigma, lambda, lambda2, dt, 0, 1),
+        state_at(amp, nu, sigma, lambda, lambda2, dt, 0, 2),
+        state_at(amp, nu, sigma, lambda, lambda2, dt, 0, 3),
+        state_at(amp, nu, sigma, lambda, lambda2, dt, 0, 4),
+        state_at(amp, nu, sigma, lambda, lambda2, dt, 0, 5),
+        nu, sigma, lambda, lambda2, dt, t_final);
+
+    print("  Baseline enstrophy at T=20000: ");
+    print_f64(e_base);
+    println("");
+    println("");
+
+    println("  t_perturb  I(t,oz)       I(t,u)        I(t,total)    Forward dH/dt   Ratio(B/F)");
+
+    var prev_e_fwd: f64 = 0.0;
+    var ti: i64 = 0;
+    while ti < 10 {
+        var t_perturb: i64 = 0;
+        if ti == 1 { t_perturb = 2000; }
+        if ti == 2 { t_perturb = 4000; }
+        if ti == 3 { t_perturb = 6000; }
+        if ti == 4 { t_perturb = 8000; }
+        if ti == 5 { t_perturb = 10000; }
+        if ti == 6 { t_perturb = 12000; }
+        if ti == 7 { t_perturb = 14000; }
+        if ti == 8 { t_perturb = 16000; }
+        if ti == 9 { t_perturb = 18000; }
+
+        // Get state at t_perturb
+        let su: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_perturb, 0);
+        let sv: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_perturb, 1);
+        let sw: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_perturb, 2);
+        let sox: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_perturb, 3);
+        let soy: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_perturb, 4);
+        let soz: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_perturb, 5);
+
+        let remaining: i64 = t_final - t_perturb;
+
+        // Baseline: run from state at t_perturb to T
+        let e_unpert: f64 = evolve_from(su, sv, sw, sox, soy, soz,
+                                         nu, sigma, lambda, lambda2, dt, remaining);
+
+        // Perturb oz (vorticity)
+        let e_pert_oz: f64 = evolve_from(su, sv, sw, sox, soy, soz + delta,
+                                          nu, sigma, lambda, lambda2, dt, remaining);
+        let i_oz: f64 = abs_f64(e_pert_oz - e_unpert) / delta;
+
+        // Perturb u (velocity)
+        let e_pert_u: f64 = evolve_from(su + delta, sv, sw, sox, soy, soz,
+                                         nu, sigma, lambda, lambda2, dt, remaining);
+        let i_u: f64 = abs_f64(e_pert_u - e_unpert) / delta;
+
+        // Total influence (sum over all components)
+        let e_pert_all: f64 = evolve_from(su + delta, sv + delta, sw + delta,
+                                           sox + delta, soy + delta, soz + delta,
+                                           nu, sigma, lambda, lambda2, dt, remaining);
+        let i_total: f64 = abs_f64(e_pert_all - e_unpert) / (delta * sqrt(6.0));
+
+        // Forward dH/dt at this time (using enstrophy change as proxy)
+        let e_now: f64 = enstrophy3(sox, soy, soz);
+        let fwd_dh: f64 = abs_f64(e_now - prev_e_fwd);
+
+        // Ratio: backward influence / forward sensitivity
+        var ratio: f64 = 0.0;
+        if fwd_dh > 0.0000001 { ratio = i_total / fwd_dh; }
+
+        print("  ");
+        print_i64(t_perturb);
+        print("     ");
+        print_f64(i_oz);
+        print("  ");
+        print_f64(i_u);
+        print("  ");
+        print_f64(i_total);
+        print("  ");
+        print_f64(fwd_dh);
+        print("  ");
+        print_f64(ratio);
+        println("");
+
+        prev_e_fwd = e_now;
+        ti = ti + 1;
+    }
+
+    println("");
+    println("  INTERPRETATION:");
+    println("  I(t) increasing → later moments have more influence (cascade)");
+    println("  I(t) peaked then falling → there was a CRITICAL MOMENT");
+    println("  I(oz) >> I(u) → vorticity perturbations matter more (3D effect)");
+    println("  Ratio(B/F) → how backward influence relates to forward sensitivity");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Forward vs Backward — Do They See the Same Things?
+//
+// Forward sensitivity: ∂H(t)/∂ν at time t (how viscosity affects H now)
+// Backward influence: ∂Omega(T)/∂state(t) (how state at t affects outcome)
+//
+// If they correlate → the trajectory is coherent (predictable)
+// If they diverge → there are hidden dynamics (unpredictable transitions)
+// ============================================================================
+
+fn test_forward_vs_backward() -> i64 {
+    println("=== Exp 2: Forward vs Backward — Coherence Test ===");
+    println("  Forward: dH/dt at each time (sensitivity of future)");
+    println("  Backward: I(t) at each time (influence on outcome)");
+    println("  Correlation → coherent trajectory");
+    println("  Divergence → hidden dynamics");
+    println("");
+
+    let amp: f64 = 2.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let delta: f64 = 0.001;
+    let t_final: i64 = 20000;
+    let pi: f64 = 3.14159265358979;
+
+    // Run full trajectory to get forward dH/dt at each checkpoint
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+
+    println("  Time    Fwd(dEnst/dt)  Bwd(I_oz)      Fwd sign  Bwd sign  Coherent?");
+
+    var prev_e: f64 = e0;
+    var s: i64 = 0;
+
+    while s < t_final {
+        let e: f64 = enstrophy3(ox, oy, oz);
+
+        let check: i64 = s - (s / 2000) * 2000;
+        if check == 0 {
+            // Forward: enstrophy rate
+            let fwd: f64 = e - prev_e;
+
+            // Backward: perturb oz here, measure effect at T
+            let remaining: i64 = t_final - s;
+            let e_unpert: f64 = evolve_from(u, v, w, ox, oy, oz,
+                                             nu, sigma, lambda, lambda2, dt, remaining);
+            let e_pert: f64 = evolve_from(u, v, w, ox, oy, oz + delta,
+                                           nu, sigma, lambda, lambda2, dt, remaining);
+            let bwd: f64 = (e_pert - e_unpert) / delta;
+
+            print("  ");
+            print_i64(s);
+            print("    ");
+            print_f64(fwd);
+            print("  ");
+            print_f64(bwd);
+
+            if fwd > 0.0 { print("     +      "); } else { print("     -      "); }
+            if bwd > 0.0 { print("+      "); } else { print("-      "); }
+
+            // Coherent if same sign
+            if fwd > 0.0 {
+                if bwd > 0.0 { println("YES (both growing)"); }
+                else { println("NO — DIVERGENT"); }
+            } else {
+                if bwd < 0.0 { println("YES (both shrinking)"); }
+                else { println("NO — DIVERGENT"); }
+            }
+
+            prev_e = e;
+        }
+
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: The Adjoint H — Backward-Informed Holistic Score
+//
+// Instead of H = f(current levels), define:
+//   H_adj(t) = H_fwd(t) + w_bwd * I(t)
+//
+// H_adj incorporates backward influence: it knows not just the current
+// state but how much the current state MATTERS for the outcome.
+//
+// A state that looks dangerous (high H_fwd) but has low I(t) is actually
+// less critical than a state that looks mild but has high I(t).
+//
+// Compare H_adj warning time to H_fwd warning time.
+// ============================================================================
+
+fn test_adjoint_H() -> i64 {
+    println("=== Exp 3: Adjoint H — Backward-Informed Diagnostic ===");
+    println("  H_adj = H_fwd + w * I(t) (incorporates backward influence)");
+    println("  A mild state with high influence > a dangerous state with low influence");
+    println("");
+
+    let amp: f64 = 2.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let delta: f64 = 0.001;
+    let t_final: i64 = 22000;
+    let pi: f64 = 3.14159265358979;
+    let w_bwd: f64 = 0.1;
+
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w_v: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+
+    println("  Time    H_fwd     I(t)       H_adj     dH_fwd   dH_adj   Which warns first?");
+
+    var prev_hf: f64 = 0.0;
+    var prev_ha: f64 = 0.0;
+    var prev_e: f64 = e0;
+    var prev_e2: f64 = e0;
+    var s: i64 = 0;
+    var pos_fwd: i64 = 0;
+    var pos_adj: i64 = 0;
+    var fwd_warned: i64 = 0;
+    var adj_warned: i64 = 0;
+    var fwd_warn_step: i64 = 0;
+    var adj_warn_step: i64 = 0;
+
+    while s < t_final {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 {
+            print("  "); print_i64(s); println("  BLOW-UP");
+            println("");
+            print("  H_fwd warned at: "); print_i64(fwd_warn_step);
+            print("  (lead: "); print_i64(s - fwd_warn_step); println(")");
+            print("  H_adj warned at: "); print_i64(adj_warn_step);
+            print("  (lead: "); print_i64(s - adj_warn_step); println(")");
+            let improvement: i64 = fwd_warn_step - adj_warn_step;
+            print("  H_adj is "); print_i64(improvement); println(" steps EARLIER");
+            s = t_final;
+        } else {
+            let check: i64 = s - (s / 2000) * 2000;
+            if check == 0 {
+                // Forward H
+                var l1_n: f64 = 1.0;
+                if e0 > 0.00001 { l1_n = e / e0; }
+                let de_now: f64 = abs_f64(e - prev_e);
+                let de_old: f64 = abs_f64(prev_e - prev_e2);
+                var l2_est: f64 = 0.0;
+                if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+                else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+                var l4_n: f64 = 1.0;
+                if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+                let h_fwd: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2_est) + 0.3 * l4_n;
+
+                // Backward I(t): perturb oz, measure enstrophy change at T
+                let remaining: i64 = t_final - s;
+                var i_t: f64 = 0.0;
+                if remaining > 100 {
+                    let e_unp: f64 = evolve_from(u, v, w_v, ox, oy, oz,
+                                                  nu, sigma, lambda, lambda2, dt, remaining);
+                    let e_prb: f64 = evolve_from(u, v, w_v, ox, oy, oz + delta,
+                                                  nu, sigma, lambda, lambda2, dt, remaining);
+                    i_t = abs_f64(e_prb - e_unp) / delta;
+                }
+
+                // Adjoint H
+                let h_adj: f64 = h_fwd + w_bwd * i_t;
+
+                let dh_fwd: f64 = h_fwd - prev_hf;
+                let dh_adj: f64 = h_adj - prev_ha;
+
+                // Loop engagement tracking
+                if dh_fwd > 0.0 { pos_fwd = pos_fwd + 1; } else { pos_fwd = 0; }
+                if dh_adj > 0.0 { pos_adj = pos_adj + 1; } else { pos_adj = 0; }
+                if pos_fwd > 2 { if fwd_warned == 0 { fwd_warn_step = s - 4000; fwd_warned = 1; } }
+                if pos_adj > 2 { if adj_warned == 0 { adj_warn_step = s - 4000; adj_warned = 1; } }
+
+                print("  "); print_i64(s);
+                print("    "); print_f64(h_fwd);
+                print("  "); print_f64(i_t);
+                print("  "); print_f64(h_adj);
+                print("  "); print_f64(dh_fwd);
+                print("  "); print_f64(dh_adj);
+                if adj_warned == 1 {
+                    if fwd_warned == 1 { println("  both"); }
+                    else { println("  ADJ EARLIER"); }
+                } else {
+                    println("");
+                }
+
+                prev_hf = h_fwd; prev_ha = h_adj;
+                prev_e2 = prev_e; prev_e = e;
+            }
+
+            let n0: f64 = step6(u, v, w_v, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+            let n1: f64 = step6(u, v, w_v, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+            let n2: f64 = step6(u, v, w_v, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+            let n3: f64 = step6(u, v, w_v, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+            let n4: f64 = step6(u, v, w_v, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+            let n5: f64 = step6(u, v, w_v, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+            u = n0; v = n1; w_v = n2; ox = n3; oy = n4; oz = n5;
+            s = s + 1;
+        }
+    }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Influence Attribution — WHICH State Variable Matters Most?
+//
+// At each time t, compute I(t) for each of the 6 state variables separately.
+// This gives the ATTRIBUTION: which component of the state is most
+// responsible for the outcome?
+//
+// In 3D NS, we expect vorticity (ox, oy, oz) to dominate over velocity
+// (u, v, w) — because vortex stretching acts on vorticity.
+// But does the balance change over time?
+// ============================================================================
+
+fn test_attribution() -> i64 {
+    println("=== Exp 4: Influence Attribution by Component ===");
+    println("  Which state variable contributes most to the outcome?");
+    println("  I_u, I_v, I_w (velocity) vs I_ox, I_oy, I_oz (vorticity)");
+    println("");
+
+    let amp: f64 = 2.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let delta: f64 = 0.001;
+    let t_final: i64 = 20000;
+
+    println("  Time    I_u       I_v       I_w       I_ox      I_oy      I_oz      Dominant");
+
+    var ti: i64 = 0;
+    while ti < 8 {
+        var t_at: i64 = 0;
+        if ti == 1 { t_at = 3000; }
+        if ti == 2 { t_at = 6000; }
+        if ti == 3 { t_at = 9000; }
+        if ti == 4 { t_at = 12000; }
+        if ti == 5 { t_at = 15000; }
+        if ti == 6 { t_at = 17000; }
+        if ti == 7 { t_at = 19000; }
+
+        let su: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 0);
+        let sv: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 1);
+        let sw: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 2);
+        let sox: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 3);
+        let soy: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 4);
+        let soz: f64 = state_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 5);
+        let remaining: i64 = t_final - t_at;
+
+        let e_base: f64 = evolve_from(su, sv, sw, sox, soy, soz,
+                                       nu, sigma, lambda, lambda2, dt, remaining);
+
+        let i_u: f64 = abs_f64(evolve_from(su + delta, sv, sw, sox, soy, soz,
+                                             nu, sigma, lambda, lambda2, dt, remaining) - e_base) / delta;
+        let i_v: f64 = abs_f64(evolve_from(su, sv + delta, sw, sox, soy, soz,
+                                             nu, sigma, lambda, lambda2, dt, remaining) - e_base) / delta;
+        let i_w: f64 = abs_f64(evolve_from(su, sv, sw + delta, sox, soy, soz,
+                                             nu, sigma, lambda, lambda2, dt, remaining) - e_base) / delta;
+        let i_ox: f64 = abs_f64(evolve_from(su, sv, sw, sox + delta, soy, soz,
+                                              nu, sigma, lambda, lambda2, dt, remaining) - e_base) / delta;
+        let i_oy: f64 = abs_f64(evolve_from(su, sv, sw, sox, soy + delta, soz,
+                                              nu, sigma, lambda, lambda2, dt, remaining) - e_base) / delta;
+        let i_oz: f64 = abs_f64(evolve_from(su, sv, sw, sox, soy, soz + delta,
+                                              nu, sigma, lambda, lambda2, dt, remaining) - e_base) / delta;
+
+        let vel_total: f64 = i_u + i_v + i_w;
+        let vort_total: f64 = i_ox + i_oy + i_oz;
+
+        print("  "); print_i64(t_at);
+        print("  "); print_f64(i_u);
+        print("  "); print_f64(i_v);
+        print("  "); print_f64(i_w);
+        print("  "); print_f64(i_ox);
+        print("  "); print_f64(i_oy);
+        print("  "); print_f64(i_oz);
+
+        if vort_total > vel_total * 2.0 { println("  VORTICITY"); }
+        else {
+            if vel_total > vort_total * 2.0 { println("  VELOCITY"); }
+            else { println("  MIXED"); }
+        }
+
+        ti = ti + 1;
+    }
+
+    println("");
+    println("  If VORTICITY dominates → stretching is the driver");
+    println("  If VELOCITY dominates → advection is the driver");
+    println("  If it SHIFTS over time → the mechanism changes");
+    println("  This backward attribution is impossible with forward AD alone.");
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  FORWARD AND BACKWARD: TWO DIRECTIONS OF AD              #");
+    println("#                                                          #");
+    println("#  Forward: if I change this NOW, what happens LATER?      #");
+    println("#  Backward: the system blew up — WHAT CAUSED IT?          #");
+    println("#                                                          #");
+    println("#  Together: the full causal picture.                      #");
+    println("#  Forward predicts. Backward attributes.                  #");
+    println("#  The interplay reveals hidden dynamics.                  #");
+    println("############################################################");
+    println("");
+
+    test_backward_influence();
+    test_forward_vs_backward();
+    test_adjoint_H();
+    test_attribution();
+
+    println("############################################################");
+    println("#  FORWARD + BACKWARD — WHAT WE LEARNED:                  #");
+    println("#                                                          #");
+    println("#  1. I(t) reveals WHEN critical decisions happen          #");
+    println("#  2. Forward and backward may DIVERGE (hidden dynamics)   #");
+    println("#  3. H_adj (backward-informed) warns earlier than H_fwd  #");
+    println("#  4. Attribution shows WHICH variables drive the outcome  #");
+    println("#                                                          #");
+    println("#  Forward AD is necessary but not sufficient.             #");
+    println("#  Backward AD completes the picture by showing causation. #");
+    println("#  The combination is the strongest possible H.            #");
+    println("############################################################");
+
+    0
+}

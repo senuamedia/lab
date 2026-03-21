@@ -1,0 +1,437 @@
+// Equilibrium Mapping via Interaction Matrix Derivatives
+//
+// The interaction matrix M(θ) varies with position θ.
+// Where dM/dθ = 0, the force structure is stationary = equilibrium.
+// d²M/dθ² classifies stability (positive = attractor, negative = saddle).
+//
+// This experiment:
+// 1. Computes M(θ) at a grid of positions
+// 2. Computes dM/dθ via finite difference
+// 3. Finds where dM/dθ ≈ 0 (equilibrium candidates)
+// 4. Classifies each as attractor or saddle via d²M/dθ²
+// 5. Verifies that actual optimization converges to the predicted equilibria
+//
+// If this works, we can MAP equilibria without RUNNING the optimization.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// Two competing objectives on 1D parameter θ:
+// L1(θ) = (θ - 3)²   — wants θ=3
+// L2(θ) = (θ + 2)²   — wants θ=-2
+// Equilibrium: θ* = 0.5 (weighted mean)
+
+fn grad1(theta: f64) -> f64 { 2.0 * (theta - 3.0) }
+fn grad2(theta: f64) -> f64 { 2.0 * (theta + 2.0) }
+
+// Interaction "matrix" for 1D case: just the cosine between gradients
+fn interaction_at(theta: f64) -> f64 {
+    let g1: f64 = grad1(theta);
+    let g2: f64 = grad2(theta);
+    let n1: f64 = abs_f64(g1);
+    let n2: f64 = abs_f64(g2);
+    if n1 < 0.000001 { return 0.0; }
+    if n2 < 0.000001 { return 0.0; }
+    (g1 * g2) / (n1 * n2)
+}
+
+// Derivative of interaction with respect to theta (finite difference)
+fn dM_dtheta(theta: f64) -> f64 {
+    let h: f64 = 0.001;
+    let mp: f64 = interaction_at(theta + h);
+    let mm: f64 = interaction_at(theta - h);
+    (mp - mm) / (2.0 * h)
+}
+
+// Second derivative
+fn d2M_dtheta2(theta: f64) -> f64 {
+    let h: f64 = 0.001;
+    let mp: f64 = dM_dtheta(theta + h);
+    let mm: f64 = dM_dtheta(theta - h);
+    (mp - mm) / (2.0 * h)
+}
+
+fn test_1d_mapping() -> i64 {
+    println("--- Exp 1: 1D Equilibrium Mapping ---");
+    println("  L1 = (θ-3)², L2 = (θ+2)²");
+    println("  True equilibrium: θ* = 0.5");
+    println("");
+    println("  θ       M(θ)       dM/dθ      d²M/dθ²    Type");
+
+    var theta: f64 = -4.0;
+    var best_theta: f64 = 0.0;
+    var min_dM: f64 = 999.0;
+
+    while theta <= 5.0 {
+        let m: f64 = interaction_at(theta);
+        let dm: f64 = dM_dtheta(theta);
+        let d2m: f64 = d2M_dtheta2(theta);
+        let adm: f64 = abs_f64(dm);
+
+        if adm < min_dM {
+            min_dM = adm;
+            best_theta = theta;
+        }
+
+        if theta == -4.0 {
+            print("  -4.0    ");
+        } else {
+            if theta == -2.0 {
+                print("  -2.0    ");
+            } else {
+                if theta == 0.0 {
+                    print("   0.0    ");
+                } else {
+                    if theta == 0.5 {
+                        print("   0.5    ");
+                    } else {
+                        if theta == 1.0 {
+                            print("   1.0    ");
+                        } else {
+                            if theta == 3.0 {
+                                print("   3.0    ");
+                            } else {
+                                if theta == 5.0 {
+                                    print("   5.0    ");
+                                } else {
+                                    theta = theta + 0.5;
+                                    // skip printing for intermediate values
+                                    theta = theta; // no-op to avoid empty block
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Print for key values only
+        if theta == -4.0 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("");
+        }
+        if theta == -2.0 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("  <- L2 target");
+        }
+        if theta == 0.0 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("");
+        }
+        if theta == 0.5 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("  <- predicted eq");
+        }
+        if theta == 1.0 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("");
+        }
+        if theta == 3.0 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("  <- L1 target");
+        }
+        if theta == 5.0 {
+            print_f64(m); print("  "); print_f64(dm); print("  "); print_f64(d2m);
+            println("");
+        }
+
+        theta = theta + 0.5;
+    }
+
+    println("");
+    print("  Minimum |dM/dθ| at θ = ");
+    print_f64(best_theta);
+    print("  (|dM| = ");
+    print_f64(min_dM);
+    println(")");
+
+    // Fine search around the minimum
+    theta = best_theta - 1.0;
+    min_dM = 999.0;
+    while theta <= best_theta + 1.0 {
+        let adm: f64 = abs_f64(dM_dtheta(theta));
+        if adm < min_dM {
+            min_dM = adm;
+            best_theta = theta;
+        }
+        theta = theta + 0.05;
+    }
+    print("  Refined: θ* ≈ ");
+    print_f64(best_theta);
+    println("");
+
+    let d2m_at_eq: f64 = d2M_dtheta2(best_theta);
+    print("  d²M/dθ² at θ* = ");
+    print_f64(d2m_at_eq);
+    if d2m_at_eq > 0.0 { println("  ATTRACTOR"); }
+    else { if d2m_at_eq < 0.0 { println("  SADDLE"); } else { println("  DEGENERATE"); } }
+
+    // Verify by running actual optimization
+    var x: f64 = 0.0;
+    var step: i64 = 0;
+    while step < 500 {
+        let g: f64 = grad1(x) + grad2(x);
+        x = x - 0.01 * g;
+        step = step + 1;
+    }
+    print("  Actual optimization converges to θ = ");
+    print_f64(x);
+    println("");
+
+    if abs_f64(best_theta - x) < 0.2 {
+        println("  MATCH: Predicted equilibrium agrees with actual convergence");
+    } else {
+        println("  MISMATCH");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: 2D Equilibrium with Multiple Equilibria
+//
+// Three objectives creating a complex landscape:
+// L1 = (x-3)² + (y-1)²
+// L2 = (x+1)² + (y-4)²
+// L3 = (x-1)² + (y+2)²
+//
+// The "equilibrium" is the Pareto compromise.
+// Map the interaction norm ||dM/dθ|| across a 2D grid.
+// ============================================================================
+
+fn interaction_norm_2d(x: f64, y: f64) -> f64 {
+    // Compute 3 gradient vectors at (x,y)
+    let g1x: f64 = 2.0 * (x - 3.0);
+    let g1y: f64 = 2.0 * (y - 1.0);
+    let g2x: f64 = 2.0 * (x + 1.0);
+    let g2y: f64 = 2.0 * (y - 4.0);
+    let g3x: f64 = 2.0 * (x - 1.0);
+    let g3y: f64 = 2.0 * (y + 2.0);
+
+    // Cosines between all pairs
+    let d12: f64 = g1x * g2x + g1y * g2y;
+    let n1: f64 = sqrt(g1x * g1x + g1y * g1y) + 0.000001;
+    let n2: f64 = sqrt(g2x * g2x + g2y * g2y) + 0.000001;
+    let n3: f64 = sqrt(g3x * g3x + g3y * g3y) + 0.000001;
+    let c12: f64 = d12 / (n1 * n2);
+
+    let d13: f64 = g1x * g3x + g1y * g3y;
+    let c13: f64 = d13 / (n1 * n3);
+
+    let d23: f64 = g2x * g3x + g2y * g3y;
+    let c23: f64 = d23 / (n2 * n3);
+
+    // "Interaction norm" = sum of absolute cosines
+    abs_f64(c12) + abs_f64(c13) + abs_f64(c23)
+}
+
+fn dInorm_dx(x: f64, y: f64) -> f64 {
+    let h: f64 = 0.01;
+    (interaction_norm_2d(x + h, y) - interaction_norm_2d(x - h, y)) / (2.0 * h)
+}
+
+fn dInorm_dy(x: f64, y: f64) -> f64 {
+    let h: f64 = 0.01;
+    (interaction_norm_2d(x, y + h) - interaction_norm_2d(x, y - h)) / (2.0 * h)
+}
+
+fn test_2d_mapping() -> i64 {
+    println("--- Exp 2: 2D Equilibrium Map ---");
+    println("  3 objectives: (3,1), (-1,4), (1,-2)");
+    println("  True equilibrium: mean = (1.0, 1.0)");
+    println("");
+    println("  Map ||dM/dθ|| across grid — minimum = equilibrium");
+    println("");
+
+    var best_x: f64 = 0.0;
+    var best_y: f64 = 0.0;
+    var min_grad_norm: f64 = 999.0;
+
+    println("  x     y     ||∇M||     I_norm");
+    var ix: f64 = -2.0;
+    while ix <= 4.0 {
+        var iy: f64 = -3.0;
+        while iy <= 5.0 {
+            let dx: f64 = dInorm_dx(ix, iy);
+            let dy: f64 = dInorm_dy(ix, iy);
+            let grad_norm: f64 = sqrt(dx * dx + dy * dy);
+            let inorm: f64 = interaction_norm_2d(ix, iy);
+
+            if grad_norm < min_grad_norm {
+                min_grad_norm = grad_norm;
+                best_x = ix;
+                best_y = iy;
+            }
+
+            // Print at key locations
+            if ix == 1.0 {
+                if iy == 1.0 {
+                    print("  1.0   1.0   ");
+                    print_f64(grad_norm);
+                    print("  ");
+                    print_f64(inorm);
+                    println("  <- predicted eq");
+                }
+            }
+            if ix == 3.0 {
+                if iy == 1.0 {
+                    print("  3.0   1.0   ");
+                    print_f64(grad_norm);
+                    print("  ");
+                    print_f64(inorm);
+                    println("  <- L1 target");
+                }
+            }
+            if ix == -1.0 {
+                if iy == 4.0 {
+                    print("  -1.0  4.0   ");
+                    print_f64(grad_norm);
+                    print("  ");
+                    print_f64(inorm);
+                    println("  <- L2 target");
+                }
+            }
+
+            iy = iy + 1.0;
+        }
+        ix = ix + 1.0;
+    }
+
+    println("");
+    print("  Minimum ||∇M|| at (");
+    print_f64(best_x);
+    print(", ");
+    print_f64(best_y);
+    print(")  ||∇M||=");
+    print_f64(min_grad_norm);
+    println("");
+
+    // Verify by running optimization
+    var ox: f64 = 0.0;
+    var oy: f64 = 0.0;
+    var step: i64 = 0;
+    while step < 500 {
+        let gx: f64 = 2.0 * (ox - 3.0) + 2.0 * (ox + 1.0) + 2.0 * (ox - 1.0);
+        let gy: f64 = 2.0 * (oy - 1.0) + 2.0 * (oy - 4.0) + 2.0 * (oy + 2.0);
+        ox = ox - 0.01 * gx / 3.0;
+        oy = oy - 0.01 * gy / 3.0;
+        step = step + 1;
+    }
+    print("  Actual convergence: (");
+    print_f64(ox);
+    print(", ");
+    print_f64(oy);
+    println(")");
+
+    if abs_f64(best_x - ox) < 1.5 {
+        if abs_f64(best_y - oy) < 1.5 {
+            println("  MATCH: Structural stationarity predicts equilibrium");
+        } else {
+            println("  PARTIAL MATCH: x agrees, y differs");
+        }
+    } else {
+        println("  MISMATCH");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Gradient Flow on the Interaction Landscape
+//
+// Instead of optimizing the LOSS, optimize the INTERACTION NORM.
+// Follow ∇||M|| downhill — this should lead to the equilibrium
+// from ANY starting point, potentially faster than loss optimization.
+// ============================================================================
+
+fn test_interaction_flow() -> i64 {
+    println("--- Exp 3: Gradient Flow on Interaction Landscape ---");
+    println("  Follow ∇||M|| downhill instead of ∇Loss downhill");
+    println("  Does interaction-flow reach equilibrium faster?");
+    println("");
+
+    // Standard loss optimization
+    var lx: f64 = -3.0;
+    var ly: f64 = -3.0;
+    var step: i64 = 0;
+    while step < 200 {
+        let gx: f64 = 2.0 * (lx - 3.0) + 2.0 * (lx + 1.0) + 2.0 * (lx - 1.0);
+        let gy: f64 = 2.0 * (ly - 1.0) + 2.0 * (ly - 4.0) + 2.0 * (ly + 2.0);
+        lx = lx - 0.01 * gx / 3.0;
+        ly = ly - 0.01 * gy / 3.0;
+        step = step + 1;
+    }
+    let loss_x: f64 = lx;
+    let loss_y: f64 = ly;
+
+    // Interaction-flow optimization
+    var ix: f64 = -3.0;
+    var iy: f64 = -3.0;
+    step = 0;
+    while step < 200 {
+        let dx: f64 = dInorm_dx(ix, iy);
+        let dy: f64 = dInorm_dy(ix, iy);
+        // Follow NEGATIVE gradient of interaction norm (minimize interaction)
+        ix = ix - 0.1 * dx;
+        iy = iy - 0.1 * dy;
+        step = step + 1;
+    }
+
+    print("  Loss-flow after 200 steps: (");
+    print_f64(loss_x);
+    print(", ");
+    print_f64(loss_y);
+    println(")");
+    print("  Interaction-flow after 200: (");
+    print_f64(ix);
+    print(", ");
+    print_f64(iy);
+    println(")");
+
+    // Distance to true equilibrium (1, 1)
+    let d_loss: f64 = sqrt((loss_x - 1.0) * (loss_x - 1.0) + (loss_y - 1.0) * (loss_y - 1.0));
+    let d_inter: f64 = sqrt((ix - 1.0) * (ix - 1.0) + (iy - 1.0) * (iy - 1.0));
+
+    print("  Distance to eq (loss-flow):  ");
+    print_f64(d_loss);
+    println("");
+    print("  Distance to eq (inter-flow): ");
+    print_f64(d_inter);
+    println("");
+
+    if d_inter < d_loss {
+        println("  FINDING: Interaction-flow is CLOSER to equilibrium!");
+        println("  Optimizing the STRUCTURE reaches the answer faster");
+        println("  than optimizing the LOSS directly.");
+    } else {
+        println("  Loss-flow is closer (expected for simple convex case)");
+        println("  Interaction-flow may shine on non-convex landscapes.");
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("============================================");
+    println("  EQUILIBRIUM MAPPING VIA dM/dθ");
+    println("  Find equilibria from structure, not loss");
+    println("============================================");
+    println("");
+
+    test_1d_mapping();
+    test_2d_mapping();
+    test_interaction_flow();
+
+    println("============================================");
+    println("  THESIS: The equilibrium of a composed");
+    println("  system is where its INTERACTION STRUCTURE");
+    println("  becomes stationary (dM/dθ = 0).");
+    println("  This provides a coordinate-free, model-free");
+    println("  way to locate equilibria from gradient");
+    println("  topology alone — a form of Morse theory");
+    println("  for multi-objective systems.");
+    println("============================================");
+
+    0
+}

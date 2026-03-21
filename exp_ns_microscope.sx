@@ -1,0 +1,305 @@
+// MICROSCOPE: A=1.08 vs A=1.15 — Find the Signal
+//
+// Both trajectories look identical for 40,000 steps.
+// A=1.08 self-limits at ~45,000. A=1.15 blows up at ~49,000.
+//
+// Strategy: run both side by side, compute EVERY measurable
+// quantity at EVERY checkpoint (every 1000 steps).
+// Find the first quantity where the two trajectories
+// differ by more than a threshold.
+//
+// Quantities to compare:
+//   1. Enstrophy (raw)
+//   2. Enstrophy growth rate (EMA smoothed)
+//   3. Enstrophy acceleration
+//   4. Production ratio
+//   5. Stretching efficiency
+//   6. Doubling time
+//   7. Kinetic energy
+//   8. Energy partition (enst / total)
+//   9. Vorticity alignment (how parallel are ox, oy, oz?)
+//  10. Stretching efficiency RATE (is alignment improving?)
+//  11. Growth rate ratio (current / average)
+//  12. Enstrophy curvature (d2E/E)
+//
+// For each: compute the RELATIVE difference between A=1.08 and A=1.15.
+// Plot the divergence over time. Find the earliest > 5% divergence.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn kinetic3(u: f64, v: f64, w: f64) -> f64 {
+    0.5 * (u * u + v * v + w * w)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  MICROSCOPE: A=1.08 vs A=1.15                           #");
+    println("#  Every 1000 steps, every measurable quantity.            #");
+    println("#  Find the FIRST divergence.                             #");
+    println("############################################################");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let pi: f64 = 3.14159265358979;
+
+    let amp_a: f64 = 1.08;
+    let amp_b: f64 = 1.15;
+
+    // Trajectory A (safe)
+    var ua: f64 = amp_a * sin(pi * 0.3);
+    var va: f64 = amp_a * sin(pi * 0.7);
+    var wa: f64 = amp_a * sin(pi * 1.1);
+    var oxa: f64 = amp_a * 0.1 * sin(pi * 0.5);
+    var oya: f64 = amp_a * 0.1 * sin(pi * 0.9);
+    var oza: f64 = amp_a * 0.1 * sin(pi * 1.3);
+
+    // Trajectory B (blow-up)
+    var ub: f64 = amp_b * sin(pi * 0.3);
+    var vb: f64 = amp_b * sin(pi * 0.7);
+    var wb: f64 = amp_b * sin(pi * 1.1);
+    var oxb: f64 = amp_b * 0.1 * sin(pi * 0.5);
+    var oyb: f64 = amp_b * 0.1 * sin(pi * 0.9);
+    var ozb: f64 = amp_b * 0.1 * sin(pi * 1.3);
+
+    var s: i64 = 0;
+    var prev_ea: f64 = enstrophy3(oxa, oya, oza);
+    var prev_eb: f64 = enstrophy3(oxb, oyb, ozb);
+    var prev_dea: f64 = 0.0;
+    var prev_deb: f64 = 0.0;
+    var ema_dea: f64 = 0.0;
+    var ema_deb: f64 = 0.0;
+    var ema_d2ea: f64 = 0.0;
+    var ema_d2eb: f64 = 0.0;
+    var prev_effa: f64 = 0.0;
+    var prev_effb: f64 = 0.0;
+    var avg_dea: f64 = 0.0;
+    var avg_deb: f64 = 0.0;
+    var avg_count: i64 = 0;
+
+    var prev_d2ea: f64 = 0.0;
+    var prev_d2eb: f64 = 0.0;
+    var first_5pct: i64 = 0;
+    var first_5pct_what: i64 = 0;
+    var found_5: i64 = 0;
+    var first_10pct: i64 = 0;
+    var first_10pct_what: i64 = 0;
+    var found_10: i64 = 0;
+
+    println("  Step   E_a/E_b   dE_a/dE_b  Prod_diff  Eff_diff  dEff_diff  Curv_diff  FIRST_DIVERGE");
+
+    while s < 50000 {
+        let ea: f64 = enstrophy3(oxa, oya, oza);
+        let eb: f64 = enstrophy3(oxb, oyb, ozb);
+
+        if eb > 100.0 {
+            print("  "); print_i64(s); println("  B BLEW UP");
+            s = 50000;
+        } else {
+            let osqa: f64 = oxa * oxa + oya * oya + oza * oza;
+            let osqb: f64 = oxb * oxb + oyb * oyb + ozb * ozb;
+            let dea: f64 = ea - prev_ea;
+            let deb: f64 = eb - prev_eb;
+            let d2ea: f64 = dea - prev_dea;
+            let d2eb: f64 = deb - prev_deb;
+            ema_dea = 0.0005 * dea + 0.9995 * ema_dea;
+            ema_deb = 0.0005 * deb + 0.9995 * ema_deb;
+            ema_d2ea = 0.0005 * d2ea + 0.9995 * ema_d2ea;
+            ema_d2eb = 0.0005 * d2eb + 0.9995 * ema_d2eb;
+            avg_dea = avg_dea + abs_f64(dea);
+            avg_deb = avg_deb + abs_f64(deb);
+            avg_count = avg_count + 1;
+
+            let check: i64 = s - (s / 1000) * 1000;
+            if check == 0 {
+                // 1. Enstrophy ratio
+                var e_ratio: f64 = 1.0;
+                if ea > 0.0000001 { e_ratio = eb / ea; }
+
+                // 2. Growth rate ratio
+                var de_ratio: f64 = 1.0;
+                if abs_f64(ema_dea) > 0.00000001 { de_ratio = ema_deb / ema_dea; }
+
+                // 3. Production ratio difference
+                let dra: f64 = nu * 4.0 * osqa;
+                let sxa: f64 = lambda * (oya * wa + oza * ua) + lambda2 * osqa * oxa;
+                let sya: f64 = lambda * (oza * ua + oxa * wa) + lambda2 * osqa * oya;
+                let sza: f64 = lambda * (oxa * va + oya * ua) + lambda2 * osqa * oza;
+                let stra: f64 = oxa * sxa + oya * sya + oza * sza;
+                var proda: f64 = 0.0;
+                if dra > 0.0000001 { proda = stra / dra; }
+
+                let drb: f64 = nu * 4.0 * osqb;
+                let sxb: f64 = lambda * (oyb * wb + ozb * ub) + lambda2 * osqb * oxb;
+                let syb: f64 = lambda * (ozb * ub + oxb * wb) + lambda2 * osqb * oyb;
+                let szb: f64 = lambda * (oxb * vb + oyb * ub) + lambda2 * osqb * ozb;
+                let strb: f64 = oxb * sxb + oyb * syb + ozb * szb;
+                var prodb: f64 = 0.0;
+                if drb > 0.0000001 { prodb = strb / drb; }
+
+                let prod_diff: f64 = abs_f64(proda - prodb);
+
+                // 4. Stretching efficiency difference
+                let sma: f64 = sqrt(sxa * sxa + sya * sya + sza * sza);
+                let oma: f64 = sqrt(osqa);
+                var effa: f64 = 0.0;
+                if sma > 0.0000001 { if oma > 0.0000001 { effa = (oxa * sxa + oya * sya + oza * sza) / (sma * oma); } }
+
+                let smb: f64 = sqrt(sxb * sxb + syb * syb + szb * szb);
+                let omb: f64 = sqrt(osqb);
+                var effb: f64 = 0.0;
+                if smb > 0.0000001 { if omb > 0.0000001 { effb = (oxb * sxb + oyb * syb + ozb * szb) / (smb * omb); } }
+
+                let eff_diff: f64 = abs_f64(effa - effb);
+
+                // 5. Efficiency RATE difference
+                let deffa: f64 = effa - prev_effa;
+                let deffb: f64 = effb - prev_effb;
+                let deff_diff: f64 = abs_f64(deffa - deffb);
+
+                // 6. Curvature difference: d2E / E
+                var curva: f64 = 0.0;
+                var curvb: f64 = 0.0;
+                if ea > 0.0000001 { curva = ema_d2ea / ea; }
+                if eb > 0.0000001 { curvb = ema_d2eb / eb; }
+                let curv_diff: f64 = abs_f64(curva - curvb);
+
+                // 7. Growth rate ratio (current vs average)
+                var gra: f64 = 0.0;
+                var grb: f64 = 0.0;
+                if avg_count > 100 {
+                    let avg_a: f64 = avg_dea / (avg_count as f64);
+                    let avg_b: f64 = avg_deb / (avg_count as f64);
+                    if avg_a > 0.0000001 { gra = abs_f64(ema_dea) / avg_a; }
+                    if avg_b > 0.0000001 { grb = abs_f64(ema_deb) / avg_b; }
+                }
+                let gr_diff: f64 = abs_f64(gra - grb);
+
+                // Find first divergence > 5%
+                var max_div: f64 = 0.0;
+                var max_what: i64 = 0;
+
+                let e_pct: f64 = abs_f64(e_ratio - 1.0);
+                if e_pct > max_div { max_div = e_pct; max_what = 1; }
+                if prod_diff > max_div { max_div = prod_diff; max_what = 3; }
+                if eff_diff > max_div { max_div = eff_diff; max_what = 4; }
+                if deff_diff > max_div { max_div = deff_diff; max_what = 5; }
+                if curv_diff > max_div { max_div = curv_diff; max_what = 6; }
+                if gr_diff > max_div { max_div = gr_diff; max_what = 7; }
+
+                if max_div > 0.05 {
+                    if found_5 == 0 { first_5pct = s; first_5pct_what = max_what; found_5 = 1; }
+                }
+                if max_div > 0.10 {
+                    if found_10 == 0 { first_10pct = s; first_10pct_what = max_what; found_10 = 1; }
+                }
+
+                print("  "); print_i64(s);
+                print("  "); print_f64(e_ratio);
+                print("  "); print_f64(de_ratio);
+                print("  "); print_f64(prod_diff);
+                print("  "); print_f64(eff_diff);
+                print("  "); print_f64(deff_diff);
+                print("  "); print_f64(curv_diff);
+
+                if max_div > 0.10 {
+                    if max_what == 1 { print("  **ENST"); }
+                    if max_what == 3 { print("  **PROD"); }
+                    if max_what == 4 { print("  **EFF"); }
+                    if max_what == 5 { print("  **dEFF"); }
+                    if max_what == 6 { print("  **CURV"); }
+                    if max_what == 7 { print("  **GROWRATIO"); }
+                } else {
+                    if max_div > 0.05 {
+                        if max_what == 1 { print("  *enst"); }
+                        if max_what == 3 { print("  *prod"); }
+                        if max_what == 4 { print("  *eff"); }
+                        if max_what == 5 { print("  *deff"); }
+                        if max_what == 6 { print("  *curv"); }
+                        if max_what == 7 { print("  *growratio"); }
+                    }
+                }
+                println("");
+
+                prev_effa = effa; prev_effb = effb;
+            }
+
+            prev_dea = dea; prev_deb = deb;
+            prev_ea = ea; prev_eb = eb;
+            prev_d2ea = d2ea; prev_d2eb = d2eb;
+
+            let na0: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 0);
+            let na1: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 1);
+            let na2: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 2);
+            let na3: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 3);
+            let na4: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 4);
+            let na5: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 5);
+            ua = na0; va = na1; wa = na2; oxa = na3; oya = na4; oza = na5;
+
+            let nb0: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 0);
+            let nb1: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 1);
+            let nb2: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 2);
+            let nb3: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 3);
+            let nb4: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 4);
+            let nb5: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 5);
+            ub = nb0; vb = nb1; wb = nb2; oxb = nb3; oyb = nb4; ozb = nb5;
+
+            s = s + 1;
+        }
+    }
+
+    println("");
+    println("  DIVERGENCE SUMMARY:");
+    if found_5 == 1 {
+        print("  First >5% divergence at step "); print_i64(first_5pct);
+        print("  in signal "); print_i64(first_5pct_what);
+        println("");
+    } else { println("  No >5% divergence found!"); }
+    if found_10 == 1 {
+        print("  First >10% divergence at step "); print_i64(first_10pct);
+        print("  in signal "); print_i64(first_10pct_what);
+        println("");
+    }
+    println("");
+    println("  Signal key: 1=enstrophy, 3=production, 4=efficiency,");
+    println("              5=efficiency_rate, 6=curvature, 7=growth_ratio");
+    println("");
+
+    0
+}

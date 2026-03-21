@@ -1,0 +1,582 @@
+// PHYSICS-GROUNDED ENGAGEMENT CRITERION
+//
+// Current criterion: 500 consecutive steps of dH/dt > 0 (statistical)
+// Problem: it's blunt. It triggers at the same time regardless of H version.
+//
+// New criterion: the feedback loop is engaged when BOTH:
+//   C1 > 1 (stretching overpowers diffusion — the physics)
+//   AND C5 > threshold (the loop is amplifying — the dynamics)
+//   persistently (for N consecutive steps)
+//
+// The product C1 * C5 captures the COUPLED physics:
+//   C1 * C5 = (stretching/diffusion) * (fragility_response/enstrophy_change)
+//           = how much does a unit of stretching dominance amplify fragility?
+//
+// This is the LOOP TRANSFER FUNCTION — the gain of the feedback loop.
+// If C1*C5 > 1 persistently, the loop self-reinforces.
+//
+// Alternative criteria to test:
+//   Criterion A: C1 > 1 for N steps (stretching dominates)
+//   Criterion B: C5 > 1 for N steps (gain > 1)
+//   Criterion C: C1 * C5 > 1 for N steps (coupled transfer function)
+//   Criterion D: C1 > 1 AND dEnst/dt > 0 for N steps (physics + trend)
+//   Criterion E: production_integral > threshold (accumulated stretching)
+//
+// For each, compute A* and compare to enstrophy blow-up ground truth.
+// The best criterion is the one whose A* most closely matches reality.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn production_ratio(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+                    nu: f64, lambda: f64, lambda2: f64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let diff_rate: f64 = nu * 4.0 * omega_sq;
+    let s_ox: f64 = lambda * (oy * w + oz * u) + lambda2 * omega_sq * ox;
+    let s_oy: f64 = lambda * (oz * u + ox * w) + lambda2 * omega_sq * oy;
+    let s_oz: f64 = lambda * (ox * v + oy * u) + lambda2 * omega_sq * oz;
+    let stretch_rate: f64 = ox * s_ox + oy * s_oy + oz * s_oz;
+    if diff_rate > 0.0000001 { stretch_rate / diff_rate }
+    else { 0.0 }
+}
+
+// Ground truth: does enstrophy actually blow up?
+fn actually_blows_up(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                     dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion A: C1 > 1 for N consecutive steps
+fn criterion_A(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let p: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+        if p > 1.0 { count = count + 1; } else { count = 0; }
+        if count > persist { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion C: C1 * C5 > 1 for N consecutive steps (coupled transfer function)
+fn criterion_C(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+    var s: i64 = 0;
+    var count: i64 = 0;
+    var prev_e: f64 = e0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let p: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+        var c1: f64 = 0.0;
+        if p > 1.0 { c1 = p - 1.0; } else { c1 = 0.0; }
+        // C5: loop gain
+        var l1_n: f64 = 1.0;
+        if e0 > 0.00001 { l1_n = e / e0; }
+        var l4_n: f64 = 1.0;
+        if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+        let dl1: f64 = abs_f64(l1_n - prev_e / e0);
+        let dl4: f64 = l4_n - 1.0;
+        var c5: f64 = 0.0;
+        if dl1 > 0.0000001 { c5 = dl4 / dl1; }
+        let transfer: f64 = c1 * c5;
+        if transfer > 1.0 { count = count + 1; } else { count = 0; }
+        if count > persist { return 1; }
+        prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion D: C1 > 1 AND dEnst/dt > 0 for N steps (physics + trend)
+fn criterion_D(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var count: i64 = 0;
+    var prev_e: f64 = enstrophy3(ox, oy, oz);
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let p: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+        let de: f64 = e - prev_e;
+        if p > 1.0 {
+            if de > 0.0 { count = count + 1; }
+            else { count = 0; }
+        } else { count = 0; }
+        if count > persist { return 1; }
+        prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion E: accumulated production integral > threshold
+fn criterion_E(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, threshold: f64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var integral: f64 = 0.0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let p: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+        if p > 1.0 { integral = integral + (p - 1.0) * dt; }
+        if integral > threshold { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Original H_v1 criterion: dH/dt > 0 for 500 steps
+fn criterion_H1(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+    var s: i64 = 0;
+    var prev_e: f64 = e0;
+    var prev_e2: f64 = e0;
+    var prev_h: f64 = 0.0;
+    var pos: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        var l1_n: f64 = 1.0;
+        if e0 > 0.00001 { l1_n = e / e0; }
+        let de_now: f64 = abs_f64(e - prev_e);
+        let de_old: f64 = abs_f64(prev_e - prev_e2);
+        var l2_est: f64 = 0.0;
+        if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+        else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+        var l4_n: f64 = 1.0;
+        if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+        let h: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2_est) + 0.3 * l4_n;
+        let dh: f64 = h - prev_h;
+        if dh > 0.0 { pos = pos + 1; } else { pos = 0; }
+        if pos > 500 { return 1; }
+        prev_h = h; prev_e2 = prev_e; prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 1: Head-to-Head — All Criteria vs Ground Truth
+//
+// At 12 amplitudes, compare each criterion's prediction to actual blow-up.
+// Score: correct predictions / total. Best criterion = highest score.
+// ============================================================================
+
+fn test_head_to_head() -> i64 {
+    println("=== Exp 1: Head-to-Head — All Criteria vs Ground Truth ===");
+    println("  12 amplitudes, 6 criteria, scored against actual blow-up");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  Amp    Truth  H_v1   Crit_A  Crit_C  Crit_D  Crit_E");
+
+    var score_h1: i64 = 0;
+    var score_a: i64 = 0;
+    var score_c: i64 = 0;
+    var score_d: i64 = 0;
+    var score_e: i64 = 0;
+    var total: i64 = 0;
+
+    var ai: i64 = 0;
+    while ai < 12 {
+        var amp: f64 = 0.5;
+        if ai == 1 { amp = 0.4; }
+        if ai == 2 { amp = 0.35; }
+        if ai == 3 { amp = 0.32; }
+        if ai == 4 { amp = 0.30; }
+        if ai == 5 { amp = 0.28; }
+        if ai == 6 { amp = 0.26; }
+        if ai == 7 { amp = 0.24; }
+        if ai == 8 { amp = 0.22; }
+        if ai == 9 { amp = 0.20; }
+        if ai == 10 { amp = 0.15; }
+        if ai == 11 { amp = 0.10; }
+
+        let truth: i64 = actually_blows_up(amp, nu, sigma, lambda, lambda2, dt, max_s);
+        let pred_h1: i64 = criterion_H1(amp, nu, sigma, lambda, lambda2, dt, max_s);
+        let pred_a: i64 = criterion_A(amp, nu, sigma, lambda, lambda2, dt, max_s, 1000);
+        let pred_c: i64 = criterion_C(amp, nu, sigma, lambda, lambda2, dt, max_s, 500);
+        let pred_d: i64 = criterion_D(amp, nu, sigma, lambda, lambda2, dt, max_s, 1000);
+        let pred_e: i64 = criterion_E(amp, nu, sigma, lambda, lambda2, dt, max_s, 0.5);
+
+        if pred_h1 == truth { score_h1 = score_h1 + 1; }
+        if pred_a == truth { score_a = score_a + 1; }
+        if pred_c == truth { score_c = score_c + 1; }
+        if pred_d == truth { score_d = score_d + 1; }
+        if pred_e == truth { score_e = score_e + 1; }
+        total = total + 1;
+
+        print("  ");
+        print_f64(amp);
+        if truth == 1 { print("  BLOW "); } else { print("  safe "); }
+        if pred_h1 == truth { print("  ok  "); } else { print("  MISS"); }
+        if pred_a == truth { print("  ok  "); } else { print("  MISS"); }
+        if pred_c == truth { print("  ok  "); } else { print("  MISS"); }
+        if pred_d == truth { print("  ok  "); } else { print("  MISS"); }
+        if pred_e == truth { print("  ok  "); } else { print("  MISS"); }
+        println("");
+
+        ai = ai + 1;
+    }
+
+    println("");
+    println("  SCORES (correct / 12):");
+    print("  H_v1 (dH/dt > 0, 500 steps): "); print_i64(score_h1); println("/12");
+    print("  Crit A (C1 > 1, 1000 steps): "); print_i64(score_a); println("/12");
+    print("  Crit C (C1*C5 > 1, 500 steps):"); print_i64(score_c); println("/12");
+    print("  Crit D (C1>1 AND dE>0, 1000): "); print_i64(score_d); println("/12");
+    print("  Crit E (prod integral > 0.5):  "); print_i64(score_e); println("/12");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: A* for Each Criterion
+//
+// Binary search for A* using each criterion. The criterion whose A*
+// best matches the actual blow-up threshold is the most accurate.
+// ============================================================================
+
+fn test_thresholds() -> i64 {
+    println("=== Exp 2: A* Threshold for Each Criterion ===");
+    println("  Binary search, compared to ground truth A*");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    // Ground truth A*
+    var lo: f64 = 0.01;
+    var hi: f64 = 2.0;
+    var iter: i64 = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let bu: i64 = actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s);
+        if bu == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_truth: f64 = (lo + hi) / 2.0;
+    print("  Ground truth A* = ");
+    print_f64(a_truth);
+    println("");
+    println("");
+
+    // H_v1
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let eng: i64 = criterion_H1(mid, nu, sigma, lambda, lambda2, dt, max_s);
+        if eng == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_h1: f64 = (lo + hi) / 2.0;
+
+    // Criterion A
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let eng: i64 = criterion_A(mid, nu, sigma, lambda, lambda2, dt, max_s, 1000);
+        if eng == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_ca: f64 = (lo + hi) / 2.0;
+
+    // Criterion C
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let eng: i64 = criterion_C(mid, nu, sigma, lambda, lambda2, dt, max_s, 500);
+        if eng == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_cc: f64 = (lo + hi) / 2.0;
+
+    // Criterion D
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let eng: i64 = criterion_D(mid, nu, sigma, lambda, lambda2, dt, max_s, 1000);
+        if eng == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_cd: f64 = (lo + hi) / 2.0;
+
+    // Criterion E
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let eng: i64 = criterion_E(mid, nu, sigma, lambda, lambda2, dt, max_s, 0.5);
+        if eng == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_ce: f64 = (lo + hi) / 2.0;
+
+    println("  Criterion      A*          Error vs Truth");
+    print("  Ground truth:  "); print_f64(a_truth); println("  ---");
+    print("  H_v1:          "); print_f64(a_h1);
+    print("  "); print_f64(abs_f64(a_h1 - a_truth)); println("");
+    print("  Crit A (C1):   "); print_f64(a_ca);
+    print("  "); print_f64(abs_f64(a_ca - a_truth)); println("");
+    print("  Crit C (C1*C5):"); print_f64(a_cc);
+    print("  "); print_f64(abs_f64(a_cc - a_truth)); println("");
+    print("  Crit D (C1+dE):"); print_f64(a_cd);
+    print("  "); print_f64(abs_f64(a_cd - a_truth)); println("");
+    print("  Crit E (integ):"); print_f64(a_ce);
+    print("  "); print_f64(abs_f64(a_ce - a_truth)); println("");
+
+    println("");
+    println("  Smallest error = most accurate criterion.");
+    println("  This is the physics-grounded engagement that should replace");
+    println("  the statistical 'dH/dt > 0 for 500 steps' in the scaffold.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Universality — Best Criterion at Multiple Stretching Strengths
+// ============================================================================
+
+fn test_universality() -> i64 {
+    println("=== Exp 3: Best Criterion Across Stretching Strengths ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  lambda2  A*(truth)  A*(H_v1)   A*(best)   Best criterion  Error");
+
+    var li: i64 = 0;
+    while li < 5 {
+        var lambda2: f64 = 0.0;
+        if li == 1 { lambda2 = 2.0; }
+        if li == 2 { lambda2 = 5.0; }
+        if li == 3 { lambda2 = 10.0; }
+        if li == 4 { lambda2 = 20.0; }
+
+        // Ground truth
+        var lo: f64 = 0.01; var hi: f64 = 2.0; var iter: i64 = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let at: f64 = (lo + hi) / 2.0;
+
+        // H_v1
+        lo = 0.01; hi = 2.0; iter = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if criterion_H1(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let ah: f64 = (lo + hi) / 2.0;
+
+        // Criterion D (physics + trend — likely best from Exp 1)
+        lo = 0.01; hi = 2.0; iter = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if criterion_D(mid, nu, sigma, lambda, lambda2, dt, max_s, 1000) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let ad: f64 = (lo + hi) / 2.0;
+
+        let err_h: f64 = abs_f64(ah - at);
+        let err_d: f64 = abs_f64(ad - at);
+
+        print("  ");
+        print_f64(lambda2);
+        print("  ");
+        print_f64(at);
+        print("  ");
+        print_f64(ah);
+        print("  ");
+        print_f64(ad);
+
+        if err_d < err_h {
+            print("  Crit D        ");
+            print_f64(err_d);
+        } else {
+            print("  H_v1          ");
+            print_f64(err_h);
+        }
+        println("");
+
+        li = li + 1;
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  PHYSICS-GROUNDED ENGAGEMENT CRITERION                   #");
+    println("#                                                          #");
+    println("#  Replace the statistical criterion (dH/dt > 0, 500 steps)#");
+    println("#  with physics-based criteria:                            #");
+    println("#    A: C1 > 1 (stretching beats diffusion)               #");
+    println("#    C: C1*C5 > 1 (coupled transfer function)             #");
+    println("#    D: C1 > 1 AND dEnst > 0 (physics + trend)            #");
+    println("#    E: integral(C1-1) > threshold (accumulated history)   #");
+    println("#                                                          #");
+    println("#  Best criterion = smallest error vs ground truth A*.    #");
+    println("############################################################");
+    println("");
+
+    test_head_to_head();
+    test_thresholds();
+    test_universality();
+
+    println("############################################################");
+    println("#  PHYSICS-GROUNDED CRITERION — RESULTS:                  #");
+    println("#                                                          #");
+    println("#  The best criterion matches ground truth A* most closely #");
+    println("#  AND gets the most marginal cases correct.              #");
+    println("#  This replaces the statistical dH/dt criterion with     #");
+    println("#  a physics-grounded engagement that captures WHY the    #");
+    println("#  feedback loop engages, not just THAT it engaged.       #");
+    println("############################################################");
+
+    0
+}

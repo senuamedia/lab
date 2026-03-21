@@ -1,0 +1,346 @@
+// THE REGULARITY QUESTION:
+// Does |∂T_blowup/∂A| → ∞ as A → 0?
+//
+// If YES: smooth enough initial data prevents blow-up for
+// arbitrarily long times. This is global regularity.
+//
+// If NO: there exists a minimum blow-up time independent
+// of smoothness. This would suggest finite-time singularity.
+//
+// We test on 1D Burgers (where the answer is known: YES,
+// Cole-Hopf guarantees no finite-time blow-up with viscosity).
+// Then we test on modified systems that are HARDER:
+// - Reduced viscosity (approaching inviscid)
+// - Added nonlinear amplification (mimics vortex stretching)
+// - Multiple interacting modes (mimics 3D coupling)
+//
+// The question: does the |∂T/∂A| → ∞ signature persist
+// as we make the system more NS-like?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { a } else { b } }
+
+// Standard Burgers step
+fn bstep(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+         nu: f64, dt: f64, dx: f64, i: i64) -> f64 {
+    var um: f64 = u4; var ui: f64 = u0; var up: f64 = u1;
+    if i == 1 { um = u0; ui = u1; up = u2; }
+    if i == 2 { um = u1; ui = u2; up = u3; }
+    if i == 3 { um = u2; ui = u3; up = u4; }
+    if i == 4 { um = u3; ui = u4; up = u0; }
+    let adv: f64 = ui * (up - um) / (2.0 * dx);
+    let diff: f64 = nu * (up - 2.0 * ui + um) / (dx * dx);
+    ui + dt * (diff - adv)
+}
+
+// Modified Burgers with nonlinear amplification (mimics vortex stretching)
+// du/dt + u·du/dx = ν·d²u/dx² + γ·u·|du/dx|
+// The last term amplifies velocity where gradients are steep
+fn bstep_amplified(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+                   nu: f64, gamma: f64, dt: f64, dx: f64, i: i64) -> f64 {
+    var um: f64 = u4; var ui: f64 = u0; var up: f64 = u1;
+    if i == 1 { um = u0; ui = u1; up = u2; }
+    if i == 2 { um = u1; ui = u2; up = u3; }
+    if i == 3 { um = u2; ui = u3; up = u4; }
+    if i == 4 { um = u3; ui = u4; up = u0; }
+    let adv: f64 = ui * (up - um) / (2.0 * dx);
+    let diff: f64 = nu * (up - 2.0 * ui + um) / (dx * dx);
+    let grad: f64 = abs_f64(up - um) / (2.0 * dx);
+    let stretch: f64 = gamma * ui * grad;
+    ui + dt * (diff - adv + stretch)
+}
+
+// Blow-up time for standard Burgers
+fn T_burgers(amp: f64, nu: f64, dt: f64, dx: f64, max_steps: i64, threshold: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(2.0 * pi * 0.0 / 5.0);
+    var u1: f64 = amp * sin(2.0 * pi * 1.0 / 5.0);
+    var u2: f64 = amp * sin(2.0 * pi * 2.0 / 5.0);
+    var u3: f64 = amp * sin(2.0 * pi * 3.0 / 5.0);
+    var u4: f64 = amp * sin(2.0 * pi * 4.0 / 5.0);
+    var step: i64 = 0;
+    while step < max_steps {
+        let n0: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 0);
+        let n1: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 1);
+        let n2: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 2);
+        let n3: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 3);
+        let n4: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 4);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3; u4 = n4;
+        let g: f64 = max_f64(max_f64(abs_f64(u1 - u0), abs_f64(u2 - u1)),
+                    max_f64(abs_f64(u3 - u2), abs_f64(u4 - u3))) / dx;
+        if g > threshold { return step as f64; }
+        if g != g { return step as f64; }
+        step = step + 1;
+    }
+    max_steps as f64
+}
+
+// Blow-up time for amplified Burgers (vortex stretching analog)
+fn T_amplified(amp: f64, nu: f64, gamma: f64, dt: f64, dx: f64, max_steps: i64, threshold: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(2.0 * pi * 0.0 / 5.0);
+    var u1: f64 = amp * sin(2.0 * pi * 1.0 / 5.0);
+    var u2: f64 = amp * sin(2.0 * pi * 2.0 / 5.0);
+    var u3: f64 = amp * sin(2.0 * pi * 3.0 / 5.0);
+    var u4: f64 = amp * sin(2.0 * pi * 4.0 / 5.0);
+    var step: i64 = 0;
+    while step < max_steps {
+        let n0: f64 = bstep_amplified(u0, u1, u2, u3, u4, nu, gamma, dt, dx, 0);
+        let n1: f64 = bstep_amplified(u0, u1, u2, u3, u4, nu, gamma, dt, dx, 1);
+        let n2: f64 = bstep_amplified(u0, u1, u2, u3, u4, nu, gamma, dt, dx, 2);
+        let n3: f64 = bstep_amplified(u0, u1, u2, u3, u4, nu, gamma, dt, dx, 3);
+        let n4: f64 = bstep_amplified(u0, u1, u2, u3, u4, nu, gamma, dt, dx, 4);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3; u4 = n4;
+        let g: f64 = max_f64(max_f64(abs_f64(u1 - u0), abs_f64(u2 - u1)),
+                    max_f64(abs_f64(u3 - u2), abs_f64(u4 - u3))) / dx;
+        if g > threshold { return step as f64; }
+        if g != g { return step as f64; }
+        step = step + 1;
+    }
+    max_steps as f64
+}
+
+fn main() -> i64 {
+    println("############################################");
+    println("#  THE REGULARITY QUESTION                 #");
+    println("#  Does |dT/dA| -> infinity as A -> 0?     #");
+    println("############################################");
+    println("");
+
+    let dt: f64 = 0.0001;
+    let dx: f64 = 0.2;
+    let threshold: f64 = 50.0;
+    let max_steps: i64 = 100000;
+    let h: f64 = 0.001;
+
+    // === TEST 1: Standard Burgers at ν=0.005 ===
+    println("=== Test 1: Standard Burgers (ν=0.005) ===");
+    println("  Known result: Cole-Hopf guarantees no true blow-up");
+    println("  |∂T/∂A| should → ∞ as A → 0");
+    println("");
+    println("  Amplitude    T_blowup     |∂T/∂A|      |∂T/∂A|/A    Diverging?");
+
+    var amp: f64 = 0.05;
+    var prev_ratio: f64 = 0.0;
+    var diverging: i64 = 1;
+
+    while amp <= 2.01 {
+        let tb: f64 = T_burgers(amp, 0.005, dt, dx, max_steps, threshold);
+        let tp: f64 = T_burgers(amp + h, 0.005, dt, dx, max_steps, threshold);
+        let tm: f64 = T_burgers(amp - h, 0.005, dt, dx, max_steps, threshold);
+        let dtda: f64 = abs_f64((tp - tm) / (2.0 * h));
+        let ratio: f64 = dtda / amp;
+
+        print("  ");
+        print_f64(amp);
+        print("     ");
+        print_f64(tb);
+        print("  ");
+        print_f64(dtda);
+        print("  ");
+        print_f64(ratio);
+
+        if ratio < prev_ratio * 0.5 {
+            println("  YES ↑");
+        } else {
+            if dtda > 100000.0 {
+                println("  DIVERGING");
+            } else {
+                println("");
+            }
+        }
+
+        prev_ratio = ratio;
+        amp = amp * 2.0;
+    }
+    println("");
+
+    // === TEST 2: Lower viscosity (ν=0.001) — closer to inviscid ===
+    println("=== Test 2: Low Viscosity Burgers (ν=0.001) ===");
+    println("  Closer to inviscid — does |∂T/∂A| still diverge?");
+    println("");
+    println("  Amplitude    T_blowup     |∂T/∂A|      Diverging?");
+
+    amp = 0.05;
+    while amp <= 2.01 {
+        let tb: f64 = T_burgers(amp, 0.001, dt, dx, max_steps, threshold);
+        let tp: f64 = T_burgers(amp + h, 0.001, dt, dx, max_steps, threshold);
+        let tm: f64 = T_burgers(amp - h, 0.001, dt, dx, max_steps, threshold);
+        let dtda: f64 = abs_f64((tp - tm) / (2.0 * h));
+
+        print("  ");
+        print_f64(amp);
+        print("     ");
+        print_f64(tb);
+        print("  ");
+        print_f64(dtda);
+        if tb >= (max_steps as f64) { println("  NO BLOW-UP"); }
+        else { if dtda > 50000.0 { println("  DIVERGING"); } else { println(""); } }
+
+        amp = amp * 2.0;
+    }
+    println("");
+
+    // === TEST 3: Amplified Burgers (γ > 0, mimics vortex stretching) ===
+    println("=== Test 3: Amplified Burgers (γ=0.1, vortex stretching) ===");
+    println("  Added term: γ·u·|du/dx| amplifies velocity at steep gradients");
+    println("  This is closer to 3D NS where vortex stretching drives blow-up");
+    println("  QUESTION: Does |∂T/∂A| still diverge? Or does it SATURATE?");
+    println("");
+    println("  Amplitude    T_blowup     |∂T/∂A|      Diverging?");
+
+    amp = 0.05;
+    while amp <= 2.01 {
+        let tb: f64 = T_amplified(amp, 0.005, 0.1, dt, dx, max_steps, threshold);
+        let tp: f64 = T_amplified(amp + h, 0.005, 0.1, dt, dx, max_steps, threshold);
+        let tm: f64 = T_amplified(amp - h, 0.005, 0.1, dt, dx, max_steps, threshold);
+        let dtda: f64 = abs_f64((tp - tm) / (2.0 * h));
+
+        print("  ");
+        print_f64(amp);
+        print("     ");
+        print_f64(tb);
+        print("  ");
+        print_f64(dtda);
+        if tb >= (max_steps as f64) { println("  NO BLOW-UP"); }
+        else { if dtda > 50000.0 { println("  DIVERGING"); } else { println(""); } }
+
+        amp = amp * 2.0;
+    }
+    println("");
+
+    // === TEST 4: Strong amplification (γ=0.5) ===
+    println("=== Test 4: Strong Amplification (γ=0.5) ===");
+    println("  Does strong vortex stretching BREAK the divergence?");
+    println("  If |∂T/∂A| saturates: regularity may FAIL.");
+    println("");
+    println("  Amplitude    T_blowup     |∂T/∂A|      Diverging?");
+
+    amp = 0.05;
+    while amp <= 2.01 {
+        let tb: f64 = T_amplified(amp, 0.005, 0.5, dt, dx, max_steps, threshold);
+        let tp: f64 = T_amplified(amp + h, 0.005, 0.5, dt, dx, max_steps, threshold);
+        let tm: f64 = T_amplified(amp - h, 0.005, 0.5, dt, dx, max_steps, threshold);
+        let dtda: f64 = abs_f64((tp - tm) / (2.0 * h));
+
+        print("  ");
+        print_f64(amp);
+        print("     ");
+        print_f64(tb);
+        print("  ");
+        print_f64(dtda);
+        if tb >= (max_steps as f64) { println("  NO BLOW-UP"); }
+        else { if dtda > 50000.0 { println("  DIVERGING"); } else { println(""); } }
+
+        amp = amp * 2.0;
+    }
+    println("");
+
+    // === TEST 5: The Ratio Test ===
+    println("=== Test 5: THE RATIO TEST ===");
+    println("  For each system, compute R(A) = |∂T/∂A| × A");
+    println("  If R → ∞ as A → 0: |∂T/∂A| diverges FASTER than 1/A (strong regularity)");
+    println("  If R → const: |∂T/∂A| ~ 1/A (marginal regularity)");
+    println("  If R → 0: |∂T/∂A| grows SLOWER than 1/A (regularity may fail)");
+    println("");
+    println("  System              A=0.05      A=0.1       A=0.2       A=0.4       Trend");
+
+    // Standard Burgers
+    var r1: f64 = 0.0; var r2: f64 = 0.0; var r3: f64 = 0.0; var r4: f64 = 0.0;
+    var tp: f64 = 0.0; var tm: f64 = 0.0;
+
+    tp = T_burgers(0.05 + h, 0.005, dt, dx, max_steps, threshold);
+    tm = T_burgers(0.05 - h, 0.005, dt, dx, max_steps, threshold);
+    r1 = abs_f64((tp - tm) / (2.0 * h)) * 0.05;
+
+    tp = T_burgers(0.1 + h, 0.005, dt, dx, max_steps, threshold);
+    tm = T_burgers(0.1 - h, 0.005, dt, dx, max_steps, threshold);
+    r2 = abs_f64((tp - tm) / (2.0 * h)) * 0.1;
+
+    tp = T_burgers(0.2 + h, 0.005, dt, dx, max_steps, threshold);
+    tm = T_burgers(0.2 - h, 0.005, dt, dx, max_steps, threshold);
+    r3 = abs_f64((tp - tm) / (2.0 * h)) * 0.2;
+
+    tp = T_burgers(0.4 + h, 0.005, dt, dx, max_steps, threshold);
+    tm = T_burgers(0.4 - h, 0.005, dt, dx, max_steps, threshold);
+    r4 = abs_f64((tp - tm) / (2.0 * h)) * 0.4;
+
+    print("  Burgers ν=0.005     ");
+    print_f64(r1); print("  "); print_f64(r2); print("  ");
+    print_f64(r3); print("  "); print_f64(r4);
+    if r1 > r2 { if r2 > r3 { println("  R DECREASING (strong)"); } else { println(""); } }
+    else { println("  R INCREASING (very strong)"); }
+
+    // Amplified γ=0.1
+    tp = T_amplified(0.05 + h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.05 - h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    r1 = abs_f64((tp - tm) / (2.0 * h)) * 0.05;
+
+    tp = T_amplified(0.1 + h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.1 - h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    r2 = abs_f64((tp - tm) / (2.0 * h)) * 0.1;
+
+    tp = T_amplified(0.2 + h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.2 - h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    r3 = abs_f64((tp - tm) / (2.0 * h)) * 0.2;
+
+    tp = T_amplified(0.4 + h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.4 - h, 0.005, 0.1, dt, dx, max_steps, threshold);
+    r4 = abs_f64((tp - tm) / (2.0 * h)) * 0.4;
+
+    print("  Amplified γ=0.1     ");
+    print_f64(r1); print("  "); print_f64(r2); print("  ");
+    print_f64(r3); print("  "); print_f64(r4);
+    if r1 > r2 { if r2 > r3 { println("  R DECREASING"); } else { println(""); } }
+    else { println("  R INCREASING"); }
+
+    // Amplified γ=0.5
+    tp = T_amplified(0.05 + h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.05 - h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    r1 = abs_f64((tp - tm) / (2.0 * h)) * 0.05;
+
+    tp = T_amplified(0.1 + h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.1 - h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    r2 = abs_f64((tp - tm) / (2.0 * h)) * 0.1;
+
+    tp = T_amplified(0.2 + h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.2 - h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    r3 = abs_f64((tp - tm) / (2.0 * h)) * 0.2;
+
+    tp = T_amplified(0.4 + h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    tm = T_amplified(0.4 - h, 0.005, 0.5, dt, dx, max_steps, threshold);
+    r4 = abs_f64((tp - tm) / (2.0 * h)) * 0.4;
+
+    print("  Amplified γ=0.5     ");
+    print_f64(r1); print("  "); print_f64(r2); print("  ");
+    print_f64(r3); print("  "); print_f64(r4);
+    if r1 > r2 { if r2 > r3 { println("  R DECREASING"); } else { println(""); } }
+    else { println("  R INCREASING"); }
+
+    println("");
+    println("############################################");
+    println("#  INTERPRETATION:                         #");
+    println("#                                          #");
+    println("#  If |dT/dA| -> inf as A -> 0:            #");
+    println("#  REGULARITY HOLDS — smooth data = no     #");
+    println("#  blow-up. The meta-gradient diverges at   #");
+    println("#  the regularity boundary.                #");
+    println("#                                          #");
+    println("#  If |dT/dA| saturates as A -> 0:          #");
+    println("#  REGULARITY MAY FAIL — there exists a    #");
+    println("#  minimum blow-up time independent of      #");
+    println("#  smoothness. Finite-time singularity.    #");
+    println("#                                          #");
+    println("#  The vortex stretching term (gamma > 0)  #");
+    println("#  tests whether 3D-like nonlinearity      #");
+    println("#  breaks the regularity signature.        #");
+    println("#  If it does: the 3D NS problem is        #");
+    println("#  fundamentally different from 1D Burgers. #");
+    println("#  If it doesn't: regularity persists      #");
+    println("#  even with stretching.                   #");
+    println("############################################");
+
+    0
+}

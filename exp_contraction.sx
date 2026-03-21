@@ -1,0 +1,599 @@
+// Experiment 1: Contraction Verification
+//
+// Validates that adaptive subsystems contract in the Fisher metric.
+// For each subsystem, start from two different initial conditions and
+// verify the Fisher-normed distance between trajectories decreases.
+//
+// Pass criteria: all subsystems contract (beta < 1) across all seeds.
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn lcg_next(state: i64) -> i64 {
+    state * 1664525 + 1013904223
+}
+
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 {
+        s = 0 - s;
+    }
+    let m: i64 = 2147483647;
+    let r: i64 = s % m;
+    let rf: f64 = r as f64;
+    let mf: f64 = m as f64;
+    rf / mf
+}
+
+// ============================================================================
+// Experiment 1a: Gradient descent on quadratic loss
+//
+// L(w) = sum (w_i - w*_i)^2
+//
+// Two trajectories from different starts should converge
+// (distance decreases each step).
+// ============================================================================
+
+fn test_gd_contraction() -> i64 {
+    var wa_0: f64 = 5.0;
+    var wa_1: f64 = 5.0;
+    var wa_2: f64 = 5.0;
+    var wb_0: f64 = -1.0;
+    var wb_1: f64 = -1.0;
+    var wb_2: f64 = -1.0;
+    var prev_dist: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var ga_0: f64 = 0.0;
+    var ga_1: f64 = 0.0;
+    var ga_2: f64 = 0.0;
+    var gb_0: f64 = 0.0;
+    var gb_1: f64 = 0.0;
+    var gb_2: f64 = 0.0;
+    var dist: f64 = 0.0;
+    var beta: f64 = 0.0;
+
+    println("--- Exp 1a: Gradient Descent Contraction ---");
+
+    let w_star_0: f64 = 1.0;
+    let w_star_1: f64 = 2.0;
+    let w_star_2: f64 = 3.0;
+    let lr: f64 = 0.05;
+    let steps: i64 = 200;
+    let fisher_0: f64 = 2.0;
+    let fisher_1: f64 = 2.0;
+    let fisher_2: f64 = 2.0;
+
+    let d0: f64 = fisher_0 * (wa_0 - wb_0) * (wa_0 - wb_0)
+               + fisher_1 * (wa_1 - wb_1) * (wa_1 - wb_1)
+               + fisher_2 * (wa_2 - wb_2) * (wa_2 - wb_2);
+
+    prev_dist = d0;
+
+    while step < steps {
+        ga_0 = 2.0 * (wa_0 - w_star_0);
+        ga_1 = 2.0 * (wa_1 - w_star_1);
+        ga_2 = 2.0 * (wa_2 - w_star_2);
+
+        gb_0 = 2.0 * (wb_0 - w_star_0);
+        gb_1 = 2.0 * (wb_1 - w_star_1);
+        gb_2 = 2.0 * (wb_2 - w_star_2);
+
+        wa_0 = wa_0 - lr * ga_0;
+        wa_1 = wa_1 - lr * ga_1;
+        wa_2 = wa_2 - lr * ga_2;
+        wb_0 = wb_0 - lr * gb_0;
+        wb_1 = wb_1 - lr * gb_1;
+        wb_2 = wb_2 - lr * gb_2;
+
+        dist = fisher_0 * (wa_0 - wb_0) * (wa_0 - wb_0)
+             + fisher_1 * (wa_1 - wb_1) * (wa_1 - wb_1)
+             + fisher_2 * (wa_2 - wb_2) * (wa_2 - wb_2);
+
+        if dist > prev_dist + 0.000000000001 {
+            violations = violations + 1;
+        }
+        prev_dist = dist;
+        step = step + 1;
+    }
+
+    beta = prev_dist / d0;
+
+    print("  Initial distance: ");
+    print_f64(d0);
+    println("");
+    print("  Final distance:   ");
+    print_f64(prev_dist);
+    println("");
+    print("  Contraction beta: ");
+    print_f64(beta);
+    println("");
+    print("  Violations:       ");
+    print_i64(violations);
+    println("");
+
+    if beta < 1.0 {
+        if violations == 0 {
+            println("  PASS: System is contracting");
+            return 0;
+        }
+    }
+    println("  FAIL: System is NOT contracting");
+    1
+}
+
+// ============================================================================
+// Experiment 1b: Gradient descent + EWC penalty
+//
+// L(w) = sum (w_i - w*_i)^2 + lambda * sum F_i * (w_i - w0_i)^2
+//
+// EWC should also contract.
+// ============================================================================
+
+fn test_ewc_contraction() -> i64 {
+    var wa_0: f64 = 5.0;
+    var wa_1: f64 = 5.0;
+    var wa_2: f64 = 5.0;
+    var wb_0: f64 = -1.0;
+    var wb_1: f64 = -1.0;
+    var wb_2: f64 = -1.0;
+    var prev_dist: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var ga_0: f64 = 0.0;
+    var ga_1: f64 = 0.0;
+    var ga_2: f64 = 0.0;
+    var gb_0: f64 = 0.0;
+    var gb_1: f64 = 0.0;
+    var gb_2: f64 = 0.0;
+    var dist: f64 = 0.0;
+    var beta: f64 = 0.0;
+
+    println("--- Exp 1b: EWC Contraction ---");
+
+    let w_star_0: f64 = 1.0;
+    let w_star_1: f64 = 2.0;
+    let w_star_2: f64 = 3.0;
+    let w0_0: f64 = 0.0;
+    let w0_1: f64 = 0.0;
+    let w0_2: f64 = 0.0;
+    let lambda: f64 = 0.5;
+    let fisher_0: f64 = 2.0;
+    let fisher_1: f64 = 2.0;
+    let fisher_2: f64 = 2.0;
+    let lr: f64 = 0.05;
+    let steps: i64 = 200;
+
+    let d0: f64 = fisher_0 * (wa_0 - wb_0) * (wa_0 - wb_0)
+               + fisher_1 * (wa_1 - wb_1) * (wa_1 - wb_1)
+               + fisher_2 * (wa_2 - wb_2) * (wa_2 - wb_2);
+
+    prev_dist = d0;
+
+    while step < steps {
+        ga_0 = 2.0 * (wa_0 - w_star_0) + lambda * fisher_0 * (wa_0 - w0_0);
+        ga_1 = 2.0 * (wa_1 - w_star_1) + lambda * fisher_1 * (wa_1 - w0_1);
+        ga_2 = 2.0 * (wa_2 - w_star_2) + lambda * fisher_2 * (wa_2 - w0_2);
+
+        gb_0 = 2.0 * (wb_0 - w_star_0) + lambda * fisher_0 * (wb_0 - w0_0);
+        gb_1 = 2.0 * (wb_1 - w_star_1) + lambda * fisher_1 * (wb_1 - w0_1);
+        gb_2 = 2.0 * (wb_2 - w_star_2) + lambda * fisher_2 * (wb_2 - w0_2);
+
+        wa_0 = wa_0 - lr * ga_0;
+        wa_1 = wa_1 - lr * ga_1;
+        wa_2 = wa_2 - lr * ga_2;
+        wb_0 = wb_0 - lr * gb_0;
+        wb_1 = wb_1 - lr * gb_1;
+        wb_2 = wb_2 - lr * gb_2;
+
+        dist = fisher_0 * (wa_0 - wb_0) * (wa_0 - wb_0)
+             + fisher_1 * (wa_1 - wb_1) * (wa_1 - wb_1)
+             + fisher_2 * (wa_2 - wb_2) * (wa_2 - wb_2);
+
+        if dist > prev_dist + 0.000000000001 {
+            violations = violations + 1;
+        }
+        prev_dist = dist;
+        step = step + 1;
+    }
+
+    beta = prev_dist / d0;
+
+    print("  Contraction beta: ");
+    print_f64(beta);
+    println("");
+    print("  Violations:       ");
+    print_i64(violations);
+    println("");
+
+    if beta < 1.0 {
+        if violations == 0 {
+            println("  PASS: EWC system is contracting");
+            return 0;
+        }
+    }
+    println("  FAIL: EWC system is NOT contracting");
+    1
+}
+
+// ============================================================================
+// Experiment 1c: Natural gradient contraction
+//
+// Natural gradient step: delta_w = -eta * raw_grad / (F + damping)
+// Non-uniform Fisher to test curved space behavior.
+// ============================================================================
+
+fn test_natural_gradient_contraction() -> i64 {
+    var wa_0: f64 = 5.0;
+    var wa_1: f64 = 5.0;
+    var wa_2: f64 = 5.0;
+    var wb_0: f64 = -1.0;
+    var wb_1: f64 = -1.0;
+    var wb_2: f64 = -1.0;
+    var prev_dist: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var raw_ga_0: f64 = 0.0;
+    var raw_ga_1: f64 = 0.0;
+    var raw_ga_2: f64 = 0.0;
+    var raw_gb_0: f64 = 0.0;
+    var raw_gb_1: f64 = 0.0;
+    var raw_gb_2: f64 = 0.0;
+    var ng_a0: f64 = 0.0;
+    var ng_a1: f64 = 0.0;
+    var ng_a2: f64 = 0.0;
+    var ng_b0: f64 = 0.0;
+    var ng_b1: f64 = 0.0;
+    var ng_b2: f64 = 0.0;
+    var dist: f64 = 0.0;
+    var beta: f64 = 0.0;
+
+    println("--- Exp 1c: Natural Gradient Contraction ---");
+
+    let fisher_0: f64 = 1.0;
+    let fisher_1: f64 = 10.0;
+    let fisher_2: f64 = 0.1;
+    let w_star_0: f64 = 1.0;
+    let w_star_1: f64 = 2.0;
+    let w_star_2: f64 = 3.0;
+    let lr: f64 = 0.05;
+    let damping: f64 = 0.01;
+    let steps: i64 = 200;
+
+    let d0: f64 = fisher_0 * (wa_0 - wb_0) * (wa_0 - wb_0)
+               + fisher_1 * (wa_1 - wb_1) * (wa_1 - wb_1)
+               + fisher_2 * (wa_2 - wb_2) * (wa_2 - wb_2);
+
+    prev_dist = d0;
+
+    while step < steps {
+        raw_ga_0 = 2.0 * (wa_0 - w_star_0);
+        raw_ga_1 = 2.0 * (wa_1 - w_star_1);
+        raw_ga_2 = 2.0 * (wa_2 - w_star_2);
+
+        raw_gb_0 = 2.0 * (wb_0 - w_star_0);
+        raw_gb_1 = 2.0 * (wb_1 - w_star_1);
+        raw_gb_2 = 2.0 * (wb_2 - w_star_2);
+
+        ng_a0 = raw_ga_0 / (fisher_0 + damping);
+        ng_a1 = raw_ga_1 / (fisher_1 + damping);
+        ng_a2 = raw_ga_2 / (fisher_2 + damping);
+
+        ng_b0 = raw_gb_0 / (fisher_0 + damping);
+        ng_b1 = raw_gb_1 / (fisher_1 + damping);
+        ng_b2 = raw_gb_2 / (fisher_2 + damping);
+
+        wa_0 = wa_0 - lr * ng_a0;
+        wa_1 = wa_1 - lr * ng_a1;
+        wa_2 = wa_2 - lr * ng_a2;
+        wb_0 = wb_0 - lr * ng_b0;
+        wb_1 = wb_1 - lr * ng_b1;
+        wb_2 = wb_2 - lr * ng_b2;
+
+        dist = fisher_0 * (wa_0 - wb_0) * (wa_0 - wb_0)
+             + fisher_1 * (wa_1 - wb_1) * (wa_1 - wb_1)
+             + fisher_2 * (wa_2 - wb_2) * (wa_2 - wb_2);
+
+        if dist > prev_dist + 0.000000000001 {
+            violations = violations + 1;
+        }
+        prev_dist = dist;
+        step = step + 1;
+    }
+
+    beta = prev_dist / d0;
+
+    print("  Contraction beta: ");
+    print_f64(beta);
+    println("");
+    print("  Violations:       ");
+    print_i64(violations);
+    println("");
+
+    if beta < 1.0 {
+        if violations == 0 {
+            println("  PASS: Natural gradient is contracting");
+            return 0;
+        }
+    }
+    println("  FAIL: Natural gradient is NOT contracting");
+    1
+}
+
+// ============================================================================
+// Experiment 1d: Meta-learning rate adaptation
+//
+// Meta-objective: find the learning rate alpha that minimises training loss
+// after K inner steps. Two meta-trajectories with different initial alpha
+// should converge toward the same optimal alpha.
+// ============================================================================
+
+fn test_meta_lr_contraction() -> i64 {
+    var alpha_a: f64 = 0.5;
+    var alpha_b: f64 = 0.001;
+    var prev_dist: f64 = 0.0;
+    var violations: i64 = 0;
+    var ms: i64 = 0;
+    var wa: f64 = 0.0;
+    var wb: f64 = 0.0;
+    var is_a: i64 = 0;
+    var is_b: i64 = 0;
+    var grad: f64 = 0.0;
+    var wa_plus: f64 = 0.0;
+    var wa_minus: f64 = 0.0;
+    var wb_plus: f64 = 0.0;
+    var wb_minus: f64 = 0.0;
+    var ip: i64 = 0;
+    var im: i64 = 0;
+    var mg_a: f64 = 0.0;
+    var mg_b: f64 = 0.0;
+    var dist: f64 = 0.0;
+    var beta: f64 = 0.0;
+    var loss_plus: f64 = 0.0;
+    var loss_minus: f64 = 0.0;
+
+    println("--- Exp 1d: Meta-Learning Rate Contraction ---");
+
+    let meta_lr: f64 = 0.001;
+    let inner_steps: i64 = 10;
+    let meta_steps: i64 = 100;
+    let w_star: f64 = 3.0;
+    let h: f64 = 0.0001;
+    let initial_dist: f64 = abs_f64(0.5 - 0.001);
+
+    prev_dist = initial_dist;
+
+    while ms < meta_steps {
+        // Inner loop for alpha_a with (alpha_a + h)
+        wa_plus = 0.0;
+        ip = 0;
+        while ip < inner_steps {
+            grad = 2.0 * (wa_plus - w_star);
+            wa_plus = wa_plus - (alpha_a + h) * grad;
+            ip = ip + 1;
+        }
+        loss_plus = (wa_plus - w_star) * (wa_plus - w_star);
+
+        // Inner loop for alpha_a with (alpha_a - h)
+        wa_minus = 0.0;
+        im = 0;
+        while im < inner_steps {
+            grad = 2.0 * (wa_minus - w_star);
+            wa_minus = wa_minus - (alpha_a - h) * grad;
+            im = im + 1;
+        }
+        loss_minus = (wa_minus - w_star) * (wa_minus - w_star);
+
+        mg_a = (loss_plus - loss_minus) / (2.0 * h);
+
+        // Inner loop for alpha_b with (alpha_b + h)
+        wb_plus = 0.0;
+        ip = 0;
+        while ip < inner_steps {
+            grad = 2.0 * (wb_plus - w_star);
+            wb_plus = wb_plus - (alpha_b + h) * grad;
+            ip = ip + 1;
+        }
+        loss_plus = (wb_plus - w_star) * (wb_plus - w_star);
+
+        // Inner loop for alpha_b with (alpha_b - h)
+        wb_minus = 0.0;
+        im = 0;
+        while im < inner_steps {
+            grad = 2.0 * (wb_minus - w_star);
+            wb_minus = wb_minus - (alpha_b - h) * grad;
+            im = im + 1;
+        }
+        loss_minus = (wb_minus - w_star) * (wb_minus - w_star);
+
+        mg_b = (loss_plus - loss_minus) / (2.0 * h);
+
+        // Meta-update
+        alpha_a = alpha_a - meta_lr * mg_a;
+        alpha_b = alpha_b - meta_lr * mg_b;
+
+        // Clamp to valid range
+        if alpha_a < 0.0001 {
+            alpha_a = 0.0001;
+        }
+        if alpha_b < 0.0001 {
+            alpha_b = 0.0001;
+        }
+        if alpha_a > 1.0 {
+            alpha_a = 1.0;
+        }
+        if alpha_b > 1.0 {
+            alpha_b = 1.0;
+        }
+
+        dist = abs_f64(alpha_a - alpha_b);
+        if dist > prev_dist + 0.0000000001 {
+            violations = violations + 1;
+        }
+        prev_dist = dist;
+        ms = ms + 1;
+    }
+
+    beta = prev_dist / initial_dist;
+
+    print("  alpha_a converged to: ");
+    print_f64(alpha_a);
+    println("");
+    print("  alpha_b converged to: ");
+    print_f64(alpha_b);
+    println("");
+    print("  Contraction beta:     ");
+    print_f64(beta);
+    println("");
+    print("  Violations:           ");
+    print_i64(violations);
+    println("");
+
+    if beta < 1.0 {
+        println("  PASS: Meta-learning contracts");
+        return 0;
+    }
+    println("  FAIL: Meta-learning does NOT contract");
+    1
+}
+
+// ============================================================================
+// Experiment 1e: Bayesian belief update contraction
+//
+// Sequential evidence should cause posteriors from different priors
+// to converge (Bernstein-von Mises theorem).
+// Agent A: Beta(16,4), Agent B: Beta(4,16). True p=0.6.
+// ============================================================================
+
+fn test_bayesian_contraction() -> i64 {
+    var a_alpha: f64 = 16.0;
+    var a_beta_p: f64 = 4.0;
+    var b_alpha: f64 = 4.0;
+    var b_beta_p: f64 = 16.0;
+    var prev_dist: f64 = 0.0;
+    var violations: i64 = 0;
+    var rng: i64 = 42;
+    var obs: i64 = 0;
+    var r: f64 = 0.0;
+    var success: f64 = 0.0;
+    var ma: f64 = 0.0;
+    var mb: f64 = 0.0;
+    var dist: f64 = 0.0;
+    var beta: f64 = 0.0;
+    var final_mean_a: f64 = 0.0;
+    var final_mean_b: f64 = 0.0;
+
+    println("--- Exp 1e: Bayesian Belief Contraction ---");
+
+    let p_true: f64 = 0.6;
+    let observations: i64 = 200;
+
+    // Initial distance between posterior means
+    let mean_a_init: f64 = a_alpha / (a_alpha + a_beta_p);
+    let mean_b_init: f64 = b_alpha / (b_alpha + b_beta_p);
+    let initial_dist: f64 = abs_f64(mean_a_init - mean_b_init);
+    prev_dist = initial_dist;
+
+    while obs < observations {
+        // Generate observation (success with probability p_true)
+        rng = lcg_next(rng);
+        r = lcg_f64(rng);
+        if r < p_true {
+            success = 1.0;
+        } else {
+            success = 0.0;
+        }
+
+        // Bayesian update: Beta(alpha + success, beta + failure)
+        a_alpha = a_alpha + success;
+        a_beta_p = a_beta_p + (1.0 - success);
+        b_alpha = b_alpha + success;
+        b_beta_p = b_beta_p + (1.0 - success);
+
+        // Posterior means
+        ma = a_alpha / (a_alpha + a_beta_p);
+        mb = b_alpha / (b_alpha + b_beta_p);
+        dist = abs_f64(ma - mb);
+
+        if dist > prev_dist + 0.000000000001 {
+            violations = violations + 1;
+        }
+        prev_dist = dist;
+        obs = obs + 1;
+    }
+
+    beta = prev_dist / initial_dist;
+    final_mean_a = a_alpha / (a_alpha + a_beta_p);
+    final_mean_b = b_alpha / (b_alpha + b_beta_p);
+
+    print("  Agent A posterior mean: ");
+    print_f64(final_mean_a);
+    println("");
+    print("  Agent B posterior mean: ");
+    print_f64(final_mean_b);
+    println("");
+    print("  True p:                ");
+    print_f64(p_true);
+    println("");
+    print("  Contraction beta:      ");
+    print_f64(beta);
+    println("");
+    print("  Violations:            ");
+    print_i64(violations);
+    println("");
+
+    if beta < 1.0 {
+        println("  PASS: Bayesian updates contract");
+        return 0;
+    }
+    println("  FAIL: Bayesian updates do NOT contract");
+    1
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    var failed: i64 = 0;
+    var r1: i64 = 0;
+    var r2: i64 = 0;
+    var r3: i64 = 0;
+    var r4: i64 = 0;
+    var r5: i64 = 0;
+
+    println("============================================");
+    println("  EXPERIMENT 1: CONTRACTION VERIFICATION");
+    println("============================================");
+    println("");
+
+    r1 = test_gd_contraction();
+    println("");
+    r2 = test_ewc_contraction();
+    println("");
+    r3 = test_natural_gradient_contraction();
+    println("");
+    r4 = test_meta_lr_contraction();
+    println("");
+    r5 = test_bayesian_contraction();
+
+    failed = r1 + r2 + r3 + r4 + r5;
+
+    println("");
+    println("============================================");
+    if failed == 0 {
+        println("  EXPERIMENT 1: ALL TESTS PASSED");
+    } else {
+        print("  EXPERIMENT 1: ");
+        print_i64(failed);
+        println(" TEST(S) FAILED");
+    }
+    println("============================================");
+
+    failed
+}

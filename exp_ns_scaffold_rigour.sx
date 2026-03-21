@@ -1,0 +1,609 @@
+// SCAFFOLD RIGOUR: Stress-Testing H
+//
+// Two questions:
+//   1. Does the scaffold survive at higher mode counts?
+//   2. Can H be made stronger with better structure?
+//
+// Part A: 8-mode model (4 velocity + 4 vorticity)
+//   Add a second wavenumber to each: k1=1, k2=2, k3=3
+//   More coupling paths = closer to real NS
+//   Test: does A* stay positive? Does alpha stay at 2?
+//
+// Part B: Strengthened H
+//   H_v1 = 0.3*L1_n + 0.4*(-L2) + 0.3*L4_n  (current)
+//   H_v2 = w1*L1_n + w2*(-L2) + w3*L4_n + w4*(L1_n*L4_n) + w5*dL1/dt
+//   where weights are LEARNED via meta-gradient on blow-up prediction
+//
+// Part C: Does H predict blow-up BEFORE enstrophy diverges?
+//   If H catches it earlier → H is genuinely more powerful
+//   Measure the lead time: steps between H warning and enstrophy blow-up
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy_4(o0: f64, o1: f64, o2: f64, o3: f64) -> f64 {
+    0.5 * (o0 * o0 + o1 * o1 + o2 * o2 + o3 * o3)
+}
+
+// ============================================================================
+// 8-MODE MODEL: 4 velocity + 4 vorticity
+//
+// Velocity: u0(k=1), u1(k=1), u2(k=2), u3(k=2)
+// Vorticity: w0(k=2), w1(k=2), w2(k=3), w3(k=3)
+//
+// Diffusion: -nu * k^2 * component
+// Cross-coupling: sigma * (wi*uj - wj*ui) for velocity
+// Vortex stretching: lambda * (wi*uj + wj*ui) for vorticity
+// Quadratic: lambda2 * |omega|^2 * omega for vorticity
+// Forward cascade: coupling from low-k to high-k (beta coefficient)
+//
+// The 8-mode model adds:
+//   - A second scale of vorticity (k=3)
+//   - Forward energy cascade from k=2 to k=3
+//   - More coupling paths between velocity and vorticity
+// ============================================================================
+
+fn step8(u0: f64, u1: f64, u2: f64, u3: f64,
+         w0: f64, w1: f64, w2: f64, w3: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64, beta: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3;
+
+    // Diffusion: -nu * k^2
+    let fd_u0: f64 = 0.0 - nu * 1.0 * u0;
+    let fd_u1: f64 = 0.0 - nu * 1.0 * u1;
+    let fd_u2: f64 = 0.0 - nu * 4.0 * u2;
+    let fd_u3: f64 = 0.0 - nu * 4.0 * u3;
+    let fd_w0: f64 = 0.0 - nu * 4.0 * w0;
+    let fd_w1: f64 = 0.0 - nu * 4.0 * w1;
+    let fd_w2: f64 = 0.0 - nu * 9.0 * w2;
+    let fd_w3: f64 = 0.0 - nu * 9.0 * w3;
+
+    // Velocity-vorticity coupling (sigma)
+    let fs_u0: f64 = sigma * (w0 * u1 - w1 * u0);
+    let fs_u1: f64 = sigma * (w1 * u0 - w0 * u1);
+    let fs_u2: f64 = sigma * (w2 * u3 - w3 * u2);
+    let fs_u3: f64 = sigma * (w3 * u2 - w2 * u3);
+
+    // Linear vortex stretching (lambda)
+    let fv_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+    let fv_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+    let fv_w2: f64 = lambda * (w3 * u2 + w2 * u3);
+    let fv_w3: f64 = lambda * (w2 * u3 + w3 * u2);
+
+    // Quadratic self-amplification (lambda2)
+    let fq_w0: f64 = lambda2 * omega_sq * w0;
+    let fq_w1: f64 = lambda2 * omega_sq * w1;
+    let fq_w2: f64 = lambda2 * omega_sq * w2;
+    let fq_w3: f64 = lambda2 * omega_sq * w3;
+
+    // Forward cascade: energy from k=2 vorticity to k=3 vorticity
+    let fc_w2: f64 = beta * (w0 * w1);
+    let fc_w3: f64 = beta * (0.0 - w0 * w1);
+
+    if which == 0 { return u0 + dt * (fd_u0 + fs_u0); }
+    if which == 1 { return u1 + dt * (fd_u1 + fs_u1); }
+    if which == 2 { return u2 + dt * (fd_u2 + fs_u2); }
+    if which == 3 { return u3 + dt * (fd_u3 + fs_u3); }
+    if which == 4 { return w0 + dt * (fd_w0 + fv_w0 + fq_w0); }
+    if which == 5 { return w1 + dt * (fd_w1 + fv_w1 + fq_w1); }
+    if which == 6 { return w2 + dt * (fd_w2 + fv_w2 + fq_w2 + fc_w2); }
+    w3 + dt * (fd_w3 + fv_w3 + fq_w3 + fc_w3)
+}
+
+fn blowup8(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+           beta: f64, dt: f64, max_steps: i64, thresh: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2);
+    var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8);
+    var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0);
+    var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy_4(w0, w1, w2, w3);
+        if e > thresh { return s as f64; }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    max_steps as f64
+}
+
+fn max_enst8(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+             beta: f64, dt: f64, max_steps: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2);
+    var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8);
+    var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0);
+    var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var max_e: f64 = 0.0;
+    while s < max_steps {
+        let e: f64 = enstrophy_4(w0, w1, w2, w3);
+        if e > max_e { max_e = e; }
+        if e > 10000.0 { return max_e; }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    max_e
+}
+
+// H-loop engagement for 8-mode model
+fn loop8_engages(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                 beta: f64, dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2);
+    var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8);
+    var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0);
+    var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    let l1_0: f64 = enstrophy_4(w0, w1, w2, w3);
+    var s: i64 = 0;
+    var prev_h: f64 = 0.0;
+    var prev_e: f64 = l1_0;
+    var prev_e2: f64 = l1_0;
+    var pos_count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy_4(w0, w1, w2, w3);
+        if e > 10000.0 { return 1; }
+        var l1_n: f64 = 1.0;
+        if l1_0 > 0.00001 { l1_n = e / l1_0; }
+        let de_now: f64 = abs_f64(e - prev_e);
+        let de_old: f64 = abs_f64(prev_e - prev_e2);
+        var l2_est: f64 = 0.0;
+        if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+        else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+        var l4_n: f64 = 1.0;
+        if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+        let h: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2_est) + 0.3 * l4_n;
+        let dh: f64 = h - prev_h;
+        if dh > 0.0 { pos_count = pos_count + 1; } else { pos_count = 0; }
+        if pos_count > 500 { return 1; }
+        prev_h = h; prev_e2 = prev_e; prev_e = e;
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 1: Does the scaffold survive at 8 modes?
+// ============================================================================
+
+fn test_8mode_scaffold() -> i64 {
+    println("=== Exp 1: 8-Mode Scaffold Test ===");
+    println("  4 velocity + 4 vorticity, k=1,2,3");
+    println("  Forward cascade from k=2 to k=3");
+    println("  Does A* stay positive? Does alpha stay at 2?");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+    let thresh: f64 = 100.0;
+
+    // Test at multiple stretching and cascade strengths
+    println("  lambda2  beta   A*         max(Omega)@A*/2   alpha   Scaffold?");
+
+    var ci: i64 = 0;
+    while ci < 6 {
+        var lambda2: f64 = 2.0;
+        var beta: f64 = 0.5;
+        if ci == 1 { lambda2 = 5.0; beta = 0.5; }
+        if ci == 2 { lambda2 = 5.0; beta = 1.0; }
+        if ci == 3 { lambda2 = 10.0; beta = 0.5; }
+        if ci == 4 { lambda2 = 10.0; beta = 2.0; }
+        if ci == 5 { lambda2 = 20.0; beta = 1.0; }
+
+        // Binary search for A*
+        var lo: f64 = 0.01;
+        var hi: f64 = 4.0;
+        var iter: i64 = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            let eng: i64 = loop8_engages(mid, nu, sigma, lambda, lambda2, beta, dt, max_s);
+            if eng > 0 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let a_star: f64 = (lo + hi) / 2.0;
+        let a_half: f64 = a_star / 2.0;
+
+        let me: f64 = max_enst8(a_half, nu, sigma, lambda, lambda2, beta, dt, max_s);
+
+        // Compute alpha: max_enst at a_half vs a_half/2
+        let a_quarter: f64 = a_star / 4.0;
+        let me2: f64 = max_enst8(a_quarter, nu, sigma, lambda, lambda2, beta, dt, max_s);
+        var alpha: f64 = 0.0;
+        if me > 0.0000001 {
+            if me2 > 0.0000001 {
+                alpha = ln(me / me2) / ln(2.0);
+            }
+        }
+
+        print("  ");
+        print_f64(lambda2);
+        print("  ");
+        print_f64(beta);
+        print("  ");
+        print_f64(a_star);
+        print("  ");
+        print_f64(me);
+        print("  ");
+        print_f64(alpha);
+
+        if a_star > 0.05 {
+            if alpha > 1.5 { println("  YES (A*>0, alpha≈2)"); }
+            else { println("  PARTIAL (A*>0, alpha<2)"); }
+        } else {
+            println("  NO (A* too small)");
+        }
+
+        ci = ci + 1;
+    }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Mode Count Scaling — Does A* Shrink with More Modes?
+//
+// Compare A* between 6-mode and 8-mode at same parameters.
+// If A* shrinks significantly → scaffold may fail at infinite modes.
+// If A* is stable → scaffold might survive.
+// ============================================================================
+
+fn test_mode_scaling() -> i64 {
+    println("=== Exp 2: Mode Count Scaling ===");
+    println("  Compare A* between 6-mode and 8-mode models");
+    println("  Does A* shrink with more modes?");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  lambda2  A*(6-mode)  A*(8-mode)  Ratio    Trend");
+
+    var li: i64 = 0;
+    while li < 5 {
+        var lambda2: f64 = 0.0;
+        if li == 1 { lambda2 = 2.0; }
+        if li == 2 { lambda2 = 5.0; }
+        if li == 3 { lambda2 = 10.0; }
+        if li == 4 { lambda2 = 20.0; }
+
+        // 8-mode A* (beta=0.5)
+        var lo8: f64 = 0.01;
+        var hi8: f64 = 4.0;
+        var iter: i64 = 0;
+        while iter < 12 {
+            let mid: f64 = (lo8 + hi8) / 2.0;
+            let eng: i64 = loop8_engages(mid, nu, sigma, lambda, lambda2, 0.5, dt, max_s);
+            if eng > 0 { hi8 = mid; } else { lo8 = mid; }
+            iter = iter + 1;
+        }
+        let a8: f64 = (lo8 + hi8) / 2.0;
+
+        // Approximate 6-mode A* (from previous experiments, roughly)
+        // We know: lambda2=0 → 0.246, lambda2=5 → 0.244, lambda2=10 → 0.242
+        var a6: f64 = 0.246;
+        if li == 1 { a6 = 0.246; }
+        if li == 2 { a6 = 0.244; }
+        if li == 3 { a6 = 0.242; }
+        if li == 4 { a6 = 0.238; }
+
+        var ratio: f64 = 0.0;
+        if a6 > 0.001 { ratio = a8 / a6; }
+
+        print("  ");
+        print_f64(lambda2);
+        print("  ");
+        print_f64(a6);
+        print("     ");
+        print_f64(a8);
+        print("     ");
+        print_f64(ratio);
+
+        if ratio > 0.9 { println("  STABLE (scaffold survives)"); }
+        else {
+            if ratio > 0.5 { println("  SHRINKING (concern)"); }
+            else { println("  COLLAPSING (scaffold at risk)"); }
+        }
+
+        li = li + 1;
+    }
+
+    println("");
+    println("  CRITICAL: if ratio stays near 1.0 → scaffold likely survives");
+    println("  If ratio < 1 and decreasing → scaffold may fail at high modes");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Strengthened H — Add Cross-Terms and Rate Terms
+//
+// H_v1 = 0.3*L1_n - 0.4*L2 + 0.3*L4_n  (simple weighted sum)
+// H_v2 = w1*L1_n - w2*L2 + w3*L4_n + w4*(L1_n * L4_n) + w5*dL1/dt
+//
+// The cross-term L1_n*L4_n captures the INTERACTION between enstrophy
+// and fragility — this is the feedback loop itself, not just the components.
+//
+// The rate term dL1/dt captures momentum — is enstrophy accelerating?
+//
+// Test: does H_v2 detect loop engagement EARLIER than H_v1?
+// ============================================================================
+
+fn test_strengthened_H() -> i64 {
+    println("=== Exp 3: Strengthened H with Cross-Terms ===");
+    println("  H_v1 = 0.3*L1 - 0.4*L2 + 0.3*L4 (current)");
+    println("  H_v2 = adds L1*L4 cross-term and dL1/dt rate term");
+    println("  Compare blow-up prediction lead time");
+    println("");
+
+    let pi: f64 = 3.14159265358979;
+    let amp: f64 = 2.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+
+    var u0: f64 = amp * sin(pi * 0.3);
+    var u1: f64 = amp * sin(pi * 0.7);
+    var u2: f64 = amp * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.5);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.9);
+    var w2: f64 = amp * 0.1 * sin(pi * 1.3);
+
+    let l1_0: f64 = 0.5 * (w0 * w0 + w1 * w1 + w2 * w2);
+
+    println("  Step   L1_n    L2_est   L4_n    H_v1    H_v2    dH_v1  dH_v2  Signal");
+
+    var s: i64 = 0;
+    var prev_e: f64 = l1_0;
+    var prev_e2: f64 = l1_0;
+    var prev_h1: f64 = 0.0;
+    var prev_h2: f64 = 0.0;
+    var h1_warned: i64 = 0;
+    var h2_warned: i64 = 0;
+    var h1_warn_step: i64 = 0;
+    var h2_warn_step: i64 = 0;
+    var pos1: i64 = 0;
+    var pos2: i64 = 0;
+    var prev_l1n: f64 = 1.0;
+
+    while s < 30000 {
+        let omega_sq: f64 = w0 * w0 + w1 * w1 + w2 * w2;
+        let e: f64 = 0.5 * omega_sq;
+        if e > 100.0 {
+            print("  "); print_i64(s); println("  BLOW-UP");
+            println("");
+            print("  H_v1 warning at step "); print_i64(h1_warn_step);
+            print("  (lead time: "); print_i64(s - h1_warn_step); println(")");
+            print("  H_v2 warning at step "); print_i64(h2_warn_step);
+            print("  (lead time: "); print_i64(s - h2_warn_step); println(")");
+            s = 30000;
+        } else {
+            var l1_n: f64 = 1.0;
+            if l1_0 > 0.00001 { l1_n = e / l1_0; }
+            let de_now: f64 = abs_f64(e - prev_e);
+            let de_old: f64 = abs_f64(prev_e - prev_e2);
+            var l2_est: f64 = 0.0;
+            if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+            else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+            var l4_n: f64 = 1.0;
+            if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+
+            // Rate of L1 change
+            let dl1_dt: f64 = l1_n - prev_l1n;
+
+            // H_v1: simple
+            let h1: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2_est) + 0.3 * l4_n;
+            // H_v2: with cross-term and rate
+            let cross: f64 = l1_n * l4_n;
+            let h2: f64 = 0.25 * l1_n + 0.3 * (0.0 - l2_est) + 0.25 * l4_n + 0.1 * cross + 0.1 * dl1_dt;
+
+            let dh1: f64 = h1 - prev_h1;
+            let dh2: f64 = h2 - prev_h2;
+
+            if dh1 > 0.0 { pos1 = pos1 + 1; } else { pos1 = 0; }
+            if dh2 > 0.0 { pos2 = pos2 + 1; } else { pos2 = 0; }
+
+            if pos1 > 500 {
+                if h1_warned == 0 { h1_warn_step = s - 500; h1_warned = 1; }
+            }
+            if pos2 > 500 {
+                if h2_warned == 0 { h2_warn_step = s - 500; h2_warned = 1; }
+            }
+
+            let check: i64 = s - (s / 3000) * 3000;
+            if check == 0 {
+                print("  "); print_i64(s);
+                print("  "); print_f64(l1_n);
+                print("  "); print_f64(l2_est);
+                print("  "); print_f64(l4_n);
+                print("  "); print_f64(h1);
+                print("  "); print_f64(h2);
+                print("  "); print_f64(dh1);
+                print("  "); print_f64(dh2);
+                if h2_warned == 1 {
+                    if h1_warned == 1 { println("  BOTH warned"); }
+                    else { println("  H_v2 EARLY"); }
+                } else {
+                    println("");
+                }
+            }
+
+            prev_h1 = h1; prev_h2 = h2;
+            prev_e2 = prev_e; prev_e = e;
+            prev_l1n = l1_n;
+
+            // Step the 6-mode model
+            let omega_sq2: f64 = w0 * w0 + w1 * w1 + w2 * w2;
+            let nu0: f64 = u0 + dt * (0.0 - nu * u0 + sigma * (w1 * u2 - w2 * u1));
+            let nu1: f64 = u1 + dt * (0.0 - nu * u1 + sigma * (w2 * u0 - w0 * u2));
+            let nu2_v: f64 = u2 + dt * (0.0 - nu * u2 + sigma * (w0 * u1 - w1 * u0));
+            let nw0: f64 = w0 + dt * (0.0 - nu * 4.0 * w0 + lambda * (w1 * u2 + w2 * u0) + lambda2 * omega_sq2 * w0);
+            let nw1: f64 = w1 + dt * (0.0 - nu * 4.0 * w1 + lambda * (w2 * u0 + w0 * u2) + lambda2 * omega_sq2 * w1);
+            let nw2: f64 = w2 + dt * (0.0 - nu * 4.0 * w2 + lambda * (w0 * u1 + w1 * u0) + lambda2 * omega_sq2 * w2);
+            u0 = nu0; u1 = nu1; u2 = nu2_v; w0 = nw0; w1 = nw1; w2 = nw2;
+            s = s + 1;
+        }
+    }
+
+    println("");
+    println("  H_v2 adds the L1*L4 interaction term (the loop itself)");
+    println("  and dL1/dt (momentum). If it warns earlier,");
+    println("  the cross-term captures dynamics that the linear H misses.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Cascade Effect — Does Forward Cascade Change the Scaling Law?
+//
+// The forward cascade (beta) pushes energy from large to small scales.
+// In real NS, this is what makes regularity hard — energy piles up
+// at small scales where viscosity must dissipate it.
+//
+// Test: does alpha stay at 2 with forward cascade active?
+// If alpha < 2 → cascade is degrading the bound → closer to real NS
+// ============================================================================
+
+fn test_cascade_alpha() -> i64 {
+    println("=== Exp 4: Forward Cascade Effect on Scaling Law ===");
+    println("  Does energy cascade change alpha from 2.0?");
+    println("  alpha < 2 means cascade degrades the enstrophy bound");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  beta(cascade)  Omega@A=0.1   Omega@A=0.05  alpha    Effect");
+
+    var bi: i64 = 0;
+    while bi < 6 {
+        var beta: f64 = 0.0;
+        if bi == 1 { beta = 0.5; }
+        if bi == 2 { beta = 1.0; }
+        if bi == 3 { beta = 2.0; }
+        if bi == 4 { beta = 5.0; }
+        if bi == 5 { beta = 10.0; }
+
+        let me1: f64 = max_enst8(0.1, nu, sigma, lambda, lambda2, beta, dt, max_s);
+        let me2: f64 = max_enst8(0.05, nu, sigma, lambda, lambda2, beta, dt, max_s);
+
+        var alpha: f64 = 0.0;
+        if me1 > 0.0000001 {
+            if me2 > 0.0000001 {
+                alpha = ln(me1 / me2) / ln(2.0);
+            }
+        }
+
+        print("  ");
+        print_f64(beta);
+        print("        ");
+        print_f64(me1);
+        print("  ");
+        print_f64(me2);
+        print("  ");
+        print_f64(alpha);
+
+        if alpha > 1.8 { println("  alpha≈2 (scaffold holds)"); }
+        else {
+            if alpha > 1.0 { println("  alpha DEGRADED (cascade effect!)"); }
+            else { println("  alpha COLLAPSED"); }
+        }
+
+        bi = bi + 1;
+    }
+
+    println("");
+    println("  If alpha stays at 2 → cascade doesn't affect the bound");
+    println("  If alpha drops → cascade is the mechanism that degrades");
+    println("  regularity at higher mode counts. This is THE signal");
+    println("  to watch as we approach the infinite-mode limit.");
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  SCAFFOLD RIGOUR: STRESS-TESTING H                       #");
+    println("#                                                          #");
+    println("#  1. Does the scaffold survive at 8 modes?                #");
+    println("#  2. Does A* shrink with more modes?                      #");
+    println("#  3. Can H be strengthened with cross-terms?              #");
+    println("#  4. Does the forward cascade change alpha?               #");
+    println("#                                                          #");
+    println("#  These questions determine whether the scaffold          #");
+    println("#  can survive the journey toward infinite modes.          #");
+    println("############################################################");
+    println("");
+
+    test_8mode_scaffold();
+    test_mode_scaling();
+    test_strengthened_H();
+    test_cascade_alpha();
+
+    println("############################################################");
+    println("#  SCAFFOLD RIGOUR — RESULTS:                             #");
+    println("#                                                          #");
+    println("#  1. Does the scaffold survive 8 modes?                  #");
+    println("#  2. How does A* scale with mode count?                  #");
+    println("#  3. Does H_v2 warn earlier than H_v1?                   #");
+    println("#  4. Does cascade degrade alpha from 2.0?                #");
+    println("#                                                          #");
+    println("#  These answers determine the scaffold's future.         #");
+    println("############################################################");
+
+    0
+}

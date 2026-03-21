@@ -1,0 +1,517 @@
+// 8-MODE MODEL: Apply the Full Framework
+//
+// 6-mode: solved (91.5% at T=50k, 100% at T=100k)
+// 8-mode: 4 velocity + 4 vorticity, 3 wavenumbers (k=1,2,3)
+//         Forward cascade from k=2 to k=3
+//
+// Earlier test showed A* collapsed from 0.246 to 0.015 (16x drop)
+// with the old H_v1 criterion. Now apply the FULL framework:
+//   - Doubling time P (86.1% on 6-mode)
+//   - Dynamic sensitivity R
+//   - H' self-adapting weights
+//   - Full 26-level hierarchy
+//
+// Questions:
+//   1. What is the ground truth A* for 8-mode?
+//   2. Does doubling time P still work?
+//   3. Does the feedback loop L1→L4→L2→L1 still exist?
+//   4. How much gap does the framework close?
+//   5. Does T=100,000 still resolve to 100%?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy4(o0: f64, o1: f64, o2: f64, o3: f64) -> f64 {
+    0.5 * (o0 * o0 + o1 * o1 + o2 * o2 + o3 * o3)
+}
+
+// 8-mode step: 4 velocity (u0,u1 at k=1; u2,u3 at k=2)
+//              4 vorticity (w0,w1 at k=2; w2,w3 at k=3)
+fn step8(u0: f64, u1: f64, u2: f64, u3: f64,
+         w0: f64, w1: f64, w2: f64, w3: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64, beta: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3;
+    let fd_u0: f64 = 0.0 - nu * 1.0 * u0;
+    let fd_u1: f64 = 0.0 - nu * 1.0 * u1;
+    let fd_u2: f64 = 0.0 - nu * 4.0 * u2;
+    let fd_u3: f64 = 0.0 - nu * 4.0 * u3;
+    let fd_w0: f64 = 0.0 - nu * 4.0 * w0;
+    let fd_w1: f64 = 0.0 - nu * 4.0 * w1;
+    let fd_w2: f64 = 0.0 - nu * 9.0 * w2;
+    let fd_w3: f64 = 0.0 - nu * 9.0 * w3;
+    let fs_u0: f64 = sigma * (w0 * u1 - w1 * u0);
+    let fs_u1: f64 = sigma * (w1 * u0 - w0 * u1);
+    let fs_u2: f64 = sigma * (w2 * u3 - w3 * u2);
+    let fs_u3: f64 = sigma * (w3 * u2 - w2 * u3);
+    let fv_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+    let fv_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+    let fv_w2: f64 = lambda * (w3 * u2 + w2 * u3);
+    let fv_w3: f64 = lambda * (w2 * u3 + w3 * u2);
+    let fq_w0: f64 = lambda2 * omega_sq * w0;
+    let fq_w1: f64 = lambda2 * omega_sq * w1;
+    let fq_w2: f64 = lambda2 * omega_sq * w2;
+    let fq_w3: f64 = lambda2 * omega_sq * w3;
+    let fc_w2: f64 = beta * (w0 * w1);
+    let fc_w3: f64 = beta * (0.0 - w0 * w1);
+
+    if which == 0 { return u0 + dt * (fd_u0 + fs_u0); }
+    if which == 1 { return u1 + dt * (fd_u1 + fs_u1); }
+    if which == 2 { return u2 + dt * (fd_u2 + fs_u2); }
+    if which == 3 { return u3 + dt * (fd_u3 + fs_u3); }
+    if which == 4 { return w0 + dt * (fd_w0 + fv_w0 + fq_w0); }
+    if which == 5 { return w1 + dt * (fd_w1 + fv_w1 + fq_w1); }
+    if which == 6 { return w2 + dt * (fd_w2 + fv_w2 + fq_w2 + fc_w2); }
+    w3 + dt * (fd_w3 + fv_w3 + fq_w3 + fc_w3)
+}
+
+fn blows_up_8(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+              beta: f64, dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2); var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8); var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3); var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0); var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    0
+}
+
+// Doubling time criterion P adapted for 8-mode
+fn criterion_P_8(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                 beta: f64, dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2); var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8); var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3); var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0); var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var base_e: f64 = enstrophy4(w0, w1, w2, w3);
+    var target_e: f64 = base_e * 2.0;
+    var prev_dbl: f64 = 0.0;
+    var dbl_start: i64 = 0;
+    var shrink: f64 = 0.0;
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > 100.0 { return 1; }
+        if e >= target_e {
+            let dtime: f64 = (s - dbl_start) as f64;
+            if prev_dbl > 0.1 {
+                if dtime < prev_dbl * 0.85 { shrink = shrink + 1.0; }
+                else { shrink = shrink * 0.7; }
+            }
+            if shrink > 2.0 { return 1; }
+            prev_dbl = dtime; base_e = e; target_e = base_e * 2.0; dbl_start = s;
+        }
+        if e < base_e * 0.5 {
+            base_e = e; target_e = base_e * 2.0; dbl_start = s;
+            prev_dbl = 0.0; shrink = 0.0;
+        }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 1: Ground Truth A* for 8-Mode Model
+// ============================================================================
+
+fn test_ground_truth() -> i64 {
+    println("=== Exp 1: 8-Mode Ground Truth ===");
+    println("  Find A* at multiple stretching/cascade strengths");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  lambda2  beta   A*(truth)  Blow-up at A=1?  Blow-up at A=0.1?");
+
+    var ci: i64 = 0;
+    while ci < 6 {
+        var lambda2: f64 = 0.0;
+        var beta: f64 = 0.5;
+        if ci == 1 { lambda2 = 2.0; beta = 0.5; }
+        if ci == 2 { lambda2 = 5.0; beta = 0.5; }
+        if ci == 3 { lambda2 = 5.0; beta = 1.0; }
+        if ci == 4 { lambda2 = 10.0; beta = 0.5; }
+        if ci == 5 { lambda2 = 10.0; beta = 2.0; }
+
+        // Binary search for A*
+        var lo: f64 = 0.001;
+        var hi: f64 = 2.0;
+        var iter: i64 = 0;
+        while iter < 16 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if blows_up_8(mid, nu, sigma, lambda, lambda2, beta, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let at: f64 = (lo + hi) / 2.0;
+
+        let b1: i64 = blows_up_8(1.0, nu, sigma, lambda, lambda2, beta, dt, max_s);
+        let b01: i64 = blows_up_8(0.1, nu, sigma, lambda, lambda2, beta, dt, max_s);
+
+        print("  ");
+        print_f64(lambda2);
+        print("  ");
+        print_f64(beta);
+        print("  ");
+        print_f64(at);
+        if b1 == 1 { print("     YES           "); } else { print("     NO            "); }
+        if b01 == 1 { println("YES"); } else { println("NO"); }
+
+        ci = ci + 1;
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Apply Doubling Time P to 8-Mode
+// ============================================================================
+
+fn test_P_8mode() -> i64 {
+    println("=== Exp 2: Doubling Time P on 8-Mode ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    // Ground truth
+    var lo: f64 = 0.001; var hi: f64 = 2.0; var iter: i64 = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if blows_up_8(mid, nu, sigma, lambda, lambda2, beta, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let at: f64 = (lo + hi) / 2.0;
+
+    // P criterion
+    lo = 0.001; hi = 2.0; iter = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_P_8(mid, nu, sigma, lambda, lambda2, beta, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let ap: f64 = (lo + hi) / 2.0;
+
+    print("  Ground truth A*: "); print_f64(at); println("");
+    print("  P criterion A*:  "); print_f64(ap); println("");
+    if at > 0.01 {
+        let gap_closed: f64 = ap / at * 100.0;
+        print("  P/truth ratio:   "); print_f64(gap_closed); println("%");
+    }
+    println("");
+
+    // Head-to-head at 16 amplitudes
+    println("  Amp    Truth  P");
+    var score: i64 = 0;
+    var ai: i64 = 0;
+    while ai < 16 {
+        var amp: f64 = 0.5;
+        if ai == 1 { amp = 0.3; }
+        if ai == 2 { amp = 0.2; }
+        if ai == 3 { amp = 0.15; }
+        if ai == 4 { amp = 0.1; }
+        if ai == 5 { amp = 0.08; }
+        if ai == 6 { amp = 0.06; }
+        if ai == 7 { amp = 0.05; }
+        if ai == 8 { amp = 0.04; }
+        if ai == 9 { amp = 0.03; }
+        if ai == 10 { amp = 0.02; }
+        if ai == 11 { amp = 0.015; }
+        if ai == 12 { amp = 0.01; }
+        if ai == 13 { amp = 0.008; }
+        if ai == 14 { amp = 0.005; }
+        if ai == 15 { amp = 0.002; }
+
+        let truth: i64 = blows_up_8(amp, nu, sigma, lambda, lambda2, beta, dt, max_s);
+        let pred: i64 = criterion_P_8(amp, nu, sigma, lambda, lambda2, beta, dt, max_s);
+        if pred == truth { score = score + 1; }
+
+        print("  "); print_f64(amp);
+        if truth == 1 { print("  BLOW "); } else { print("  safe "); }
+        if pred == truth { print(" ok  "); } else { print(" MISS"); }
+        println("");
+
+        ai = ai + 1;
+    }
+    println("");
+    print("  P score: "); print_i64(score); println("/16");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Enstrophy Profile — Does the Feedback Loop Exist in 8-Mode?
+// ============================================================================
+
+fn test_feedback_loop() -> i64 {
+    println("=== Exp 3: Feedback Loop in 8-Mode ===");
+    println("  Track enstrophy, convergence, fragility over time");
+    println("  Does L1→L4→L2→L1 still exist with 8 modes?");
+    println("");
+
+    let pi: f64 = 3.14159265358979;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+
+    // Use an amplitude near the ground truth
+    let amp: f64 = 0.05;
+    var u0: f64 = amp * sin(pi * 0.2); var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8); var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3); var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0); var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+
+    let e0: f64 = enstrophy4(w0, w1, w2, w3);
+    var prev_e: f64 = e0;
+    var prev_e2: f64 = e0;
+
+    println("  Step   Enstrophy   dE/dt       L2(S)       L1↑L2↓?");
+
+    var s: i64 = 0;
+    while s < 50000 {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > 100.0 {
+            print("  "); print_i64(s); println("  BLOW-UP");
+            s = 50000;
+        } else {
+            let check: i64 = s - (s / 5000) * 5000;
+            if check == 0 {
+                let de: f64 = e - prev_e;
+                let de_now: f64 = abs_f64(e - prev_e);
+                let de_old: f64 = abs_f64(prev_e - prev_e2);
+                var l2: f64 = 0.0;
+                if de_old > 0.0000001 { l2 = 1.0 - de_now / de_old; }
+                else { if de_now < 0.0000001 { l2 = 1.0; } else { l2 = 0.0 - 1.0; } }
+
+                print("  "); print_i64(s);
+                print("  "); print_f64(e);
+                print("  "); print_f64(de);
+                print("  "); print_f64(l2);
+
+                if de > 0.0 {
+                    if l2 < 0.0 { println("  YES (L1↑ L2↓ = loop active)"); }
+                    else { println("  L1↑ L2↑ (no loop)"); }
+                } else {
+                    println("  L1↓ (decaying)");
+                }
+
+                prev_e2 = prev_e;
+                prev_e = e;
+            }
+
+            let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+            let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+            let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+            let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+            let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+            let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+            let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+            let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+            u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+            w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+            s = s + 1;
+        }
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Does T=100,000 close the gap on 8-mode?
+// ============================================================================
+
+fn test_horizon() -> i64 {
+    println("=== Exp 4: Time Horizon Effect on 8-Mode ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+
+    println("  T_horizon  A*(truth)  A*(P)      P/truth");
+
+    var ti: i64 = 0;
+    while ti < 3 {
+        var max_s: i64 = 30000;
+        if ti == 1 { max_s = 50000; }
+        if ti == 2 { max_s = 80000; }
+
+        var lo: f64 = 0.001; var hi: f64 = 1.0; var iter: i64 = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if blows_up_8(mid, nu, sigma, lambda, lambda2, beta, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let at: f64 = (lo + hi) / 2.0;
+
+        lo = 0.001; hi = 1.0; iter = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if criterion_P_8(mid, nu, sigma, lambda, lambda2, beta, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let ap: f64 = (lo + hi) / 2.0;
+
+        var ratio: f64 = 0.0;
+        if at > 0.001 { ratio = ap / at * 100.0; }
+
+        print("  "); print_i64(max_s);
+        print("     "); print_f64(at);
+        print("  "); print_f64(ap);
+        print("  "); print_f64(ratio);
+        println("%");
+
+        ti = ti + 1;
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 5: Scaling law — does alpha=2 survive in 8-mode?
+// ============================================================================
+
+fn test_alpha() -> i64 {
+    println("=== Exp 5: Enstrophy Scaling Law in 8-Mode ===");
+    println("  Does max(Omega) ~ A^alpha with alpha=2?");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+    let pi: f64 = 3.14159265358979;
+
+    println("  Amplitude  max(Omega)     log2(A)   log2(Omega)  alpha");
+
+    var prev_la: f64 = 0.0;
+    var prev_le: f64 = 0.0;
+    var ai: i64 = 0;
+    while ai < 6 {
+        var amp: f64 = 0.01;
+        if ai == 1 { amp = 0.005; }
+        if ai == 2 { amp = 0.0025; }
+        if ai == 3 { amp = 0.00125; }
+        if ai == 4 { amp = 0.000625; }
+        if ai == 5 { amp = 0.0003125; }
+
+        // Run and track max enstrophy
+        var u0: f64 = amp * sin(pi * 0.2); var u1: f64 = amp * sin(pi * 0.5);
+        var u2: f64 = amp * 0.5 * sin(pi * 0.8); var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+        var w0: f64 = amp * 0.1 * sin(pi * 0.3); var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+        var w2: f64 = amp * 0.05 * sin(pi * 1.0); var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+        var s: i64 = 0;
+        var max_e: f64 = 0.0;
+        while s < max_s {
+            let e: f64 = enstrophy4(w0, w1, w2, w3);
+            if e > max_e { max_e = e; }
+            let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+            let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+            let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+            let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+            let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+            let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+            let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+            let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+            u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+            w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+            s = s + 1;
+        }
+
+        let la: f64 = ln(amp) / ln(2.0);
+        var le: f64 = 0.0;
+        if max_e > 0.0000000001 { le = ln(max_e) / ln(2.0); }
+        var alpha: f64 = 0.0;
+        if ai > 0 { if abs_f64(la - prev_la) > 0.01 { alpha = (le - prev_le) / (la - prev_la); } }
+
+        print("  "); print_f64(amp);
+        print("  "); print_f64(max_e);
+        print("  "); print_f64(la);
+        print("  "); print_f64(le);
+        print("  "); print_f64(alpha);
+        println("");
+
+        prev_la = la; prev_le = le;
+        ai = ai + 1;
+    }
+    println("");
+    println("  alpha=2 → scaffold holds. alpha<2 → cascade degrades bound.");
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  8-MODE MODEL: FULL FRAMEWORK TEST                      #");
+    println("#                                                          #");
+    println("#  4 velocity (k=1,2) + 4 vorticity (k=2,3)              #");
+    println("#  Forward cascade from k=2 to k=3                        #");
+    println("#                                                          #");
+    println("#  Apply everything from the 6-mode solution:             #");
+    println("#  - Ground truth A*                                      #");
+    println("#  - Doubling time criterion P                            #");
+    println("#  - Feedback loop structure                              #");
+    println("#  - Time horizon convergence                             #");
+    println("#  - Scaling law alpha                                    #");
+    println("############################################################");
+    println("");
+
+    test_ground_truth();
+    test_P_8mode();
+    test_feedback_loop();
+    test_horizon();
+    test_alpha();
+
+    println("############################################################");
+    println("#  8-MODE RESULT:                                         #");
+    println("#  Does the framework survive the jump from 6 to 8 modes? #");
+    println("#  Does P still work? Does the loop exist?                #");
+    println("#  Does alpha stay at 2? Does time close the gap?         #");
+    println("############################################################");
+
+    0
+}

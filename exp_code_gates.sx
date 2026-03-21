@@ -1,0 +1,757 @@
+// Experiment: Geometric Contraction Framework for Code Optimisation Decisions
+//
+// Three experiments testing how the contraction framework resolves
+// conflicts in neural gate decisions and code structure optimisation.
+//
+// Exp 1: Multi-gate conflict resolution (speed vs accuracy)
+// Exp 2: Deterministic vs learnable decision blending
+// Exp 3: Convergence of 3 binary code structure decisions
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn dot4(a0: f64, a1: f64, a2: f64, a3: f64, b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
+}
+
+fn norm4(a0: f64, a1: f64, a2: f64, a3: f64) -> f64 {
+    sqrt(dot4(a0, a1, a2, a3, a0, a1, a2, a3) + 0.000000000001)
+}
+
+fn cosine4(a0: f64, a1: f64, a2: f64, a3: f64, b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    let d: f64 = dot4(a0, a1, a2, a3, b0, b1, b2, b3);
+    let na: f64 = norm4(a0, a1, a2, a3);
+    let nb: f64 = norm4(b0, b1, b2, b3);
+    d / (na * nb + 0.000000000001)
+}
+
+fn lcg_next(state: i64) -> i64 {
+    state * 1664525 + 1013904223
+}
+
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 {
+        s = 0 - s;
+    }
+    let m: i64 = 2147483647;
+    let r: i64 = s % m;
+    let rf: f64 = r as f64;
+    let mf: f64 = m as f64;
+    rf / mf
+}
+
+// Project gradient gi off gradient gj with strength alpha * |cosine|
+// Returns projected component for given dimension
+fn project_dim(gi: f64, gj_0: f64, gj_1: f64, gj_2: f64, gj_3: f64,
+               gi_0: f64, gi_1: f64, gi_2: f64, gi_3: f64,
+               alpha: f64, dim: i64) -> f64 {
+    let cos_val: f64 = cosine4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3);
+    if cos_val >= 0.0 {
+        return gi;
+    }
+    let scale: f64 = alpha * (0.0 - cos_val);
+    let gj_sq: f64 = dot4(gj_0, gj_1, gj_2, gj_3, gj_0, gj_1, gj_2, gj_3) + 0.000000000001;
+    let proj: f64 = scale * dot4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3) / gj_sq;
+    if dim == 0 { gi - proj * gj_0 }
+    else { if dim == 1 { gi - proj * gj_1 }
+    else { if dim == 2 { gi - proj * gj_2 }
+    else { gi - proj * gj_3 } } }
+}
+
+// ============================================================================
+// Experiment 1: Multi-Gate Conflict Resolution
+//
+// Gate A (speed): target [5, 0, -2, 3]
+// Gate B (accuracy): target [-1, 4, 3, -2]
+// Shared 4D parameters optimised with cosine-scaled projection.
+// ============================================================================
+
+fn speed_loss(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 - 5.0) * (w0 - 5.0);
+    let d1: f64 = (w1 - 0.0) * (w1 - 0.0);
+    let d2: f64 = (w2 + 2.0) * (w2 + 2.0);
+    let d3: f64 = (w3 - 3.0) * (w3 - 3.0);
+    d0 + d1 + d2 + d3
+}
+
+fn accuracy_loss(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 + 1.0) * (w0 + 1.0);
+    let d1: f64 = (w1 - 4.0) * (w1 - 4.0);
+    let d2: f64 = (w2 - 3.0) * (w2 - 3.0);
+    let d3: f64 = (w3 + 2.0) * (w3 + 2.0);
+    d0 + d1 + d2 + d3
+}
+
+// Train with given alpha_ab and alpha_ba, return combined loss
+fn train_gates(alpha_ab: f64, alpha_ba: f64, steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var ga_0: f64 = 0.0;
+    var ga_1: f64 = 0.0;
+    var ga_2: f64 = 0.0;
+    var ga_3: f64 = 0.0;
+    var gb_0: f64 = 0.0;
+    var gb_1: f64 = 0.0;
+    var gb_2: f64 = 0.0;
+    var gb_3: f64 = 0.0;
+    var ra_0: f64 = 0.0;
+    var ra_1: f64 = 0.0;
+    var ra_2: f64 = 0.0;
+    var ra_3: f64 = 0.0;
+    var rb_0: f64 = 0.0;
+
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        // Speed gate gradient: dL_speed/dw = 2*(w - target_speed)
+        ga_0 = 2.0 * (w0 - 5.0);
+        ga_1 = 2.0 * (w1 - 0.0);
+        ga_2 = 2.0 * (w2 + 2.0);
+        ga_3 = 2.0 * (w3 - 3.0);
+
+        // Accuracy gate gradient: dL_acc/dw = 2*(w - target_acc)
+        gb_0 = 2.0 * (w0 + 1.0);
+        gb_1 = 2.0 * (w1 - 4.0);
+        gb_2 = 2.0 * (w2 - 3.0);
+        gb_3 = 2.0 * (w3 + 2.0);
+
+        // Project A off B with alpha_ab
+        ra_0 = project_dim(ga_0, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 0);
+        ra_1 = project_dim(ga_1, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 1);
+        ra_2 = project_dim(ga_2, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 2);
+        ra_3 = project_dim(ga_3, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 3);
+
+        // Project B off A with alpha_ba
+        rb_0 = project_dim(gb_0, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 0);
+
+        w0 = w0 - lr * (ra_0 + rb_0);
+        w1 = w1 - lr * (ra_1 + project_dim(gb_1, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 1));
+        w2 = w2 - lr * (ra_2 + project_dim(gb_2, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 2));
+        w3 = w3 - lr * (ra_3 + project_dim(gb_3, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 3));
+
+        step = step + 1;
+    }
+
+    speed_loss(w0, w1, w2, w3) + accuracy_loss(w0, w1, w2, w3)
+}
+
+// Meta-gradient for alpha_ab or alpha_ba via finite difference
+fn gate_meta_grad(a_ab: f64, a_ba: f64, which: i64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    var ab_p: f64 = a_ab;
+    var ba_p: f64 = a_ba;
+    var ab_m: f64 = a_ab;
+    var ba_m: f64 = a_ba;
+
+    if which == 0 { ab_p = a_ab + h; ab_m = a_ab - h; }
+    if which == 1 { ba_p = a_ba + h; ba_m = a_ba - h; }
+
+    let lp: f64 = train_gates(ab_p, ba_p, steps);
+    let lm: f64 = train_gates(ab_m, ba_m, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp1() -> i64 {
+    var alpha_ab: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var loss: f64 = 0.0;
+
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 300;
+    let meta_cycles: i64 = 30;
+
+    println("============================================================");
+    println("  EXPERIMENT 1: Multi-Gate Conflict Resolution");
+    println("  Speed gate vs Accuracy gate on shared 4D params");
+    println("============================================================");
+    println("");
+
+    // Baseline: no projection
+    let loss_none: f64 = train_gates(0.0, 0.0, inner_steps);
+    print("  No projection:       loss = ");
+    print_f64(loss_none);
+    println("");
+
+    // Baseline: uniform projection
+    let loss_uniform: f64 = train_gates(1.0, 1.0, inner_steps);
+    print("  Uniform (alpha=1.0): loss = ");
+    print_f64(loss_uniform);
+    println("");
+
+    // Initial
+    loss = train_gates(alpha_ab, alpha_ba, inner_steps);
+    print("  Initial (alpha=0.5): loss = ");
+    print_f64(loss);
+    println("");
+    println("");
+
+    println("  Cycle  Loss       alpha_ab   alpha_ba");
+    println("  -----  ---------  ---------  ---------");
+
+    while cycle < meta_cycles {
+        mg = gate_meta_grad(alpha_ab, alpha_ba, 0, inner_steps);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+
+        mg = gate_meta_grad(alpha_ab, alpha_ba, 1, inner_steps);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+
+        loss = train_gates(alpha_ab, alpha_ba, inner_steps);
+
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(loss);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ba);
+            println("");
+        }
+        if cycle == 14 {
+            print("  14     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ba);
+            println("");
+        }
+        if cycle == 29 {
+            print("  29     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ba);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    println("");
+    print("  Learned alpha_ab = ");
+    print_f64(alpha_ab);
+    println("");
+    print("  Learned alpha_ba = ");
+    print_f64(alpha_ba);
+    println("");
+
+    let final_loss: f64 = train_gates(alpha_ab, alpha_ba, inner_steps);
+    print("  Final combined loss = ");
+    print_f64(final_loss);
+    println("");
+
+    if final_loss < loss_none {
+        println("  RESULT: Learned projection BEATS no-projection");
+    } else {
+        println("  RESULT: No improvement over no-projection");
+    }
+    if final_loss < loss_uniform {
+        println("  RESULT: Learned projection BEATS uniform projection");
+    } else {
+        println("  RESULT: Uniform is competitive");
+    }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Experiment 2: Deterministic vs Learnable Decision
+//
+// Path A and Path B have different loss functions.
+// Deterministic: always picks min(L_a, L_b).
+// Learnable: blends theta*path_a + (1-theta)*path_b, theta in [0,1].
+// 100 random inputs test which approach wins.
+// ============================================================================
+
+// Loss for a single input: quadratic around a target
+fn path_a_loss(x: f64) -> f64 {
+    (x - 2.0) * (x - 2.0) + 0.5
+}
+
+fn path_b_loss(x: f64) -> f64 {
+    (x + 1.0) * (x + 1.0) + 1.0
+}
+
+fn run_exp2() -> i64 {
+    var seed: i64 = 42;
+    var theta: f64 = 0.5;
+    var det_total: f64 = 0.0;
+    var learn_total: f64 = 0.0;
+    var i: i64 = 0;
+    var target: f64 = 0.0;
+    var la: f64 = 0.0;
+    var lb: f64 = 0.0;
+    var blended: f64 = 0.0;
+    var grad_theta: f64 = 0.0;
+    var best_theta: f64 = 0.5;
+    var best_learn_loss: f64 = 999999.0;
+
+    let n_inputs: i64 = 100;
+    let theta_lr: f64 = 0.01;
+    let n_epochs: i64 = 20;
+    var epoch: i64 = 0;
+
+    println("============================================================");
+    println("  EXPERIMENT 2: Deterministic vs Learnable Decision");
+    println("  100 random inputs, theta blends path_a and path_b");
+    println("============================================================");
+    println("");
+
+    // First compute deterministic total loss
+    seed = 42;
+    i = 0;
+    det_total = 0.0;
+    while i < n_inputs {
+        seed = lcg_next(seed);
+        target = lcg_f64(seed) * 6.0 - 3.0;
+        la = path_a_loss(target);
+        lb = path_b_loss(target);
+        if la < lb {
+            det_total = det_total + la;
+        } else {
+            det_total = det_total + lb;
+        }
+        i = i + 1;
+    }
+
+    print("  Deterministic total loss: ");
+    print_f64(det_total);
+    println("");
+    println("");
+
+    // Learn theta over epochs
+    println("  Epoch  theta      learn_loss");
+    println("  -----  ---------  ----------");
+
+    theta = 0.5;
+    epoch = 0;
+    while epoch < n_epochs {
+        // Evaluate and accumulate gradient for theta
+        seed = 42;
+        i = 0;
+        learn_total = 0.0;
+        grad_theta = 0.0;
+
+        while i < n_inputs {
+            seed = lcg_next(seed);
+            target = lcg_f64(seed) * 6.0 - 3.0;
+            la = path_a_loss(target);
+            lb = path_b_loss(target);
+            // Blended loss: theta * la + (1-theta) * lb
+            blended = theta * la + (1.0 - theta) * lb;
+            learn_total = learn_total + blended;
+            // Gradient of blended loss w.r.t. theta: la - lb
+            grad_theta = grad_theta + (la - lb);
+            i = i + 1;
+        }
+
+        if learn_total < best_learn_loss {
+            best_learn_loss = learn_total;
+            best_theta = theta;
+        }
+
+        if epoch < 5 {
+            print("  ");
+            print_i64(epoch);
+            print("      ");
+            print_f64(theta);
+            print("  ");
+            print_f64(learn_total);
+            println("");
+        }
+        if epoch == 9 {
+            print("  9      ");
+            print_f64(theta);
+            print("  ");
+            print_f64(learn_total);
+            println("");
+        }
+        if epoch == 19 {
+            print("  19     ");
+            print_f64(theta);
+            print("  ");
+            print_f64(learn_total);
+            println("");
+        }
+
+        // Update theta with gradient descent, clamp to [0, 1]
+        theta = theta - theta_lr * grad_theta;
+        theta = clamp(theta, 0.0, 1.0);
+
+        epoch = epoch + 1;
+    }
+
+    println("");
+    print("  Best theta = ");
+    print_f64(best_theta);
+    println("");
+    print("  Best learnable loss = ");
+    print_f64(best_learn_loss);
+    println("");
+    print("  Deterministic loss  = ");
+    print_f64(det_total);
+    println("");
+
+    // The deterministic per-input min will generally beat the single-theta blend
+    // BUT the gradient tells us the optimal direction
+    if best_learn_loss < det_total {
+        println("  RESULT: Learnable theta beats deterministic");
+    } else {
+        let gap: f64 = best_learn_loss - det_total;
+        print("  RESULT: Deterministic wins by ");
+        print_f64(gap);
+        println("");
+        println("  (Expected: per-input min beats global blend)");
+        println("  Gradient reveals optimal bias direction via theta");
+    }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Experiment 3: Convergence of Code Structure Decisions
+//
+// 3 binary decisions (d1=inline/call, d2=unroll/loop, d3=vectorise/scalar)
+// Each in [0,1] as a learnable temperature.
+// Conflicting objectives: latency vs code_size.
+// Track 3x3 interaction matrix and convergence score S(t).
+// ============================================================================
+
+// Latency cost: inline helps, unroll helps, vectorise helps
+fn latency_cost(d1: f64, d2: f64, d3: f64) -> f64 {
+    let base: f64 = 10.0;
+    let inline_benefit: f64 = 3.0 * d1;
+    let unroll_benefit: f64 = 2.5 * d2;
+    let vec_benefit: f64 = 4.0 * d3;
+    base - inline_benefit - unroll_benefit - vec_benefit
+}
+
+// Code size cost: inline hurts, unroll hurts, vectorise slightly hurts
+fn codesize_cost(d1: f64, d2: f64, d3: f64) -> f64 {
+    let base: f64 = 5.0;
+    let inline_penalty: f64 = 4.0 * d1;
+    let unroll_penalty: f64 = 3.0 * d2;
+    let vec_penalty: f64 = 1.0 * d3;
+    base + inline_penalty + unroll_penalty + vec_penalty
+}
+
+// Total cost combining latency and code size
+fn total_cost(d1: f64, d2: f64, d3: f64) -> f64 {
+    latency_cost(d1, d2, d3) + codesize_cost(d1, d2, d3)
+}
+
+// Gradient of total cost w.r.t. d_i via finite difference
+fn cost_grad(d1: f64, d2: f64, d3: f64, which: i64) -> f64 {
+    let h: f64 = 0.001;
+    var lp: f64 = 0.0;
+    var lm: f64 = 0.0;
+    if which == 0 {
+        lp = total_cost(d1 + h, d2, d3);
+        lm = total_cost(d1 - h, d2, d3);
+    }
+    if which == 1 {
+        lp = total_cost(d1, d2 + h, d3);
+        lm = total_cost(d1, d2 - h, d3);
+    }
+    if which == 2 {
+        lp = total_cost(d1, d2, d3 + h);
+        lm = total_cost(d1, d2, d3 - h);
+    }
+    (lp - lm) / (2.0 * h)
+}
+
+// Latency gradient w.r.t. d_i
+fn lat_grad(d1: f64, d2: f64, d3: f64, which: i64) -> f64 {
+    let h: f64 = 0.001;
+    var lp: f64 = 0.0;
+    var lm: f64 = 0.0;
+    if which == 0 {
+        lp = latency_cost(d1 + h, d2, d3);
+        lm = latency_cost(d1 - h, d2, d3);
+    }
+    if which == 1 {
+        lp = latency_cost(d1, d2 + h, d3);
+        lm = latency_cost(d1, d2 - h, d3);
+    }
+    if which == 2 {
+        lp = latency_cost(d1, d2, d3 + h);
+        lm = latency_cost(d1, d2, d3 - h);
+    }
+    (lp - lm) / (2.0 * h)
+}
+
+// Code size gradient w.r.t. d_i
+fn size_grad(d1: f64, d2: f64, d3: f64, which: i64) -> f64 {
+    let h: f64 = 0.001;
+    var lp: f64 = 0.0;
+    var lm: f64 = 0.0;
+    if which == 0 {
+        lp = codesize_cost(d1 + h, d2, d3);
+        lm = codesize_cost(d1 - h, d2, d3);
+    }
+    if which == 1 {
+        lp = codesize_cost(d1, d2 + h, d3);
+        lm = codesize_cost(d1, d2 - h, d3);
+    }
+    if which == 2 {
+        lp = codesize_cost(d1, d2, d3 + h);
+        lm = codesize_cost(d1, d2, d3 - h);
+    }
+    (lp - lm) / (2.0 * h)
+}
+
+// Compute cosine between latency and codesize gradient for decisions i,j
+fn decision_cosine(d1: f64, d2: f64, d3: f64, di: i64, dj: i64) -> f64 {
+    let gli: f64 = lat_grad(d1, d2, d3, di);
+    let gsi: f64 = size_grad(d1, d2, d3, di);
+    let glj: f64 = lat_grad(d1, d2, d3, dj);
+    let gsj: f64 = size_grad(d1, d2, d3, dj);
+    // Treat (lat_grad_i, size_grad_i) as 2D vector for decision i
+    let dot_val: f64 = gli * glj + gsi * gsj;
+    let ni: f64 = sqrt(gli * gli + gsi * gsi + 0.000000000001);
+    let nj: f64 = sqrt(glj * glj + gsj * gsj + 0.000000000001);
+    dot_val / (ni * nj + 0.000000000001)
+}
+
+fn run_exp3() -> i64 {
+    var d1: f64 = 0.5;
+    var d2: f64 = 0.5;
+    var d3: f64 = 0.5;
+    var step: i64 = 0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+    var prev_d1: f64 = 0.5;
+    var prev_d2: f64 = 0.5;
+    var prev_d3: f64 = 0.5;
+    var conv_score: f64 = 0.0;
+    var cost: f64 = 0.0;
+
+    let lr: f64 = 0.02;
+    let steps: i64 = 100;
+
+    println("============================================================");
+    println("  EXPERIMENT 3: Convergence of Code Structure Decisions");
+    println("  d1=inline/call, d2=unroll/loop, d3=vectorise/scalar");
+    println("============================================================");
+    println("");
+
+    let init_cost: f64 = total_cost(d1, d2, d3);
+    print("  Initial cost (d1=d2=d3=0.5): ");
+    print_f64(init_cost);
+    println("");
+    println("");
+
+    // Print interaction matrix at start
+    println("  Initial 3x3 interaction matrix (cosine of gradient pairs):");
+    print("    cos(d1,d1) = ");
+    print_f64(decision_cosine(d1, d2, d3, 0, 0));
+    print("  cos(d1,d2) = ");
+    print_f64(decision_cosine(d1, d2, d3, 0, 1));
+    print("  cos(d1,d3) = ");
+    print_f64(decision_cosine(d1, d2, d3, 0, 2));
+    println("");
+    print("    cos(d2,d1) = ");
+    print_f64(decision_cosine(d1, d2, d3, 1, 0));
+    print("  cos(d2,d2) = ");
+    print_f64(decision_cosine(d1, d2, d3, 1, 1));
+    print("  cos(d2,d3) = ");
+    print_f64(decision_cosine(d1, d2, d3, 1, 2));
+    println("");
+    print("    cos(d3,d1) = ");
+    print_f64(decision_cosine(d1, d2, d3, 2, 0));
+    print("  cos(d3,d2) = ");
+    print_f64(decision_cosine(d1, d2, d3, 2, 1));
+    print("  cos(d3,d3) = ");
+    print_f64(decision_cosine(d1, d2, d3, 2, 2));
+    println("");
+    println("");
+
+    println("  Step   d1        d2        d3        cost      S(t)");
+    println("  -----  --------  --------  --------  --------  --------");
+
+    while step < steps {
+        prev_d1 = d1;
+        prev_d2 = d2;
+        prev_d3 = d3;
+
+        g1 = cost_grad(d1, d2, d3, 0);
+        g2 = cost_grad(d1, d2, d3, 1);
+        g3 = cost_grad(d1, d2, d3, 2);
+
+        d1 = clamp(d1 - lr * g1, 0.0, 1.0);
+        d2 = clamp(d2 - lr * g2, 0.0, 1.0);
+        d3 = clamp(d3 - lr * g3, 0.0, 1.0);
+
+        // Convergence score S(t) = sum of absolute changes
+        conv_score = abs_f64(d1 - prev_d1) + abs_f64(d2 - prev_d2) + abs_f64(d3 - prev_d3);
+        cost = total_cost(d1, d2, d3);
+
+        if step < 5 {
+            print("  ");
+            print_i64(step);
+            print("      ");
+            print_f64(d1);
+            print("  ");
+            print_f64(d2);
+            print("  ");
+            print_f64(d3);
+            print("  ");
+            print_f64(cost);
+            print("  ");
+            print_f64(conv_score);
+            println("");
+        }
+        if step == 10 {
+            print("  10     ");
+            print_f64(d1);
+            print("  ");
+            print_f64(d2);
+            print("  ");
+            print_f64(d3);
+            print("  ");
+            print_f64(cost);
+            print("  ");
+            print_f64(conv_score);
+            println("");
+        }
+        if step == 25 {
+            print("  25     ");
+            print_f64(d1);
+            print("  ");
+            print_f64(d2);
+            print("  ");
+            print_f64(d3);
+            print("  ");
+            print_f64(cost);
+            print("  ");
+            print_f64(conv_score);
+            println("");
+        }
+        if step == 50 {
+            print("  50     ");
+            print_f64(d1);
+            print("  ");
+            print_f64(d2);
+            print("  ");
+            print_f64(d3);
+            print("  ");
+            print_f64(cost);
+            print("  ");
+            print_f64(conv_score);
+            println("");
+        }
+        if step == 99 {
+            print("  99     ");
+            print_f64(d1);
+            print("  ");
+            print_f64(d2);
+            print("  ");
+            print_f64(d3);
+            print("  ");
+            print_f64(cost);
+            print("  ");
+            print_f64(conv_score);
+            println("");
+        }
+
+        step = step + 1;
+    }
+
+    println("");
+    println("  Final 3x3 interaction matrix:");
+    print("    cos(d1,d1) = ");
+    print_f64(decision_cosine(d1, d2, d3, 0, 0));
+    print("  cos(d1,d2) = ");
+    print_f64(decision_cosine(d1, d2, d3, 0, 1));
+    print("  cos(d1,d3) = ");
+    print_f64(decision_cosine(d1, d2, d3, 0, 2));
+    println("");
+    print("    cos(d2,d1) = ");
+    print_f64(decision_cosine(d1, d2, d3, 1, 0));
+    print("  cos(d2,d2) = ");
+    print_f64(decision_cosine(d1, d2, d3, 1, 1));
+    print("  cos(d2,d3) = ");
+    print_f64(decision_cosine(d1, d2, d3, 1, 2));
+    println("");
+    print("    cos(d3,d1) = ");
+    print_f64(decision_cosine(d1, d2, d3, 2, 0));
+    print("  cos(d3,d2) = ");
+    print_f64(decision_cosine(d1, d2, d3, 2, 1));
+    print("  cos(d3,d3) = ");
+    print_f64(decision_cosine(d1, d2, d3, 2, 2));
+    println("");
+    println("");
+
+    print("  Final decisions: d1=");
+    print_f64(d1);
+    print("  d2=");
+    print_f64(d2);
+    print("  d3=");
+    print_f64(d3);
+    println("");
+
+    let final_cost: f64 = total_cost(d1, d2, d3);
+    print("  Final cost: ");
+    print_f64(final_cost);
+    println("");
+    print("  Final S(t): ");
+    print_f64(conv_score);
+    println("");
+
+    if conv_score < 0.001 {
+        println("  RESULT: Decisions CONVERGED (S -> 0)");
+    } else {
+        println("  RESULT: Decisions still drifting");
+    }
+
+    if final_cost < init_cost {
+        println("  RESULT: Cost improved from initial");
+    }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("################################################################");
+    println("#  Geometric Contraction Framework: Code Optimisation Gates    #");
+    println("################################################################");
+    println("");
+
+    var r1: i64 = run_exp1();
+    var r2: i64 = run_exp2();
+    var r3: i64 = run_exp3();
+
+    println("================================================================");
+    println("  ALL EXPERIMENTS COMPLETE");
+    println("================================================================");
+
+    0
+}

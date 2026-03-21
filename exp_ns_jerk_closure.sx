@@ -1,0 +1,556 @@
+// JERK-ENHANCED SATURATION: Closing the Remaining Gap
+//
+// Criterion L closed 54.6% (A* from 0.385 to 0.755).
+// Remaining gap: 0.755 to 1.136 — the zone where deceleration
+// exists but isn't confident enough to call saturation.
+//
+// From the derivative profile:
+//   A=1.0 (safe): d3Omega/dt3 (jerk) oscillates near zero
+//   A=1.2 (blow-up): jerk is positive AND GROWING (acceleration accelerating)
+//
+// New criterion N: L enhanced with jerk
+//   Blow-up predicted when EITHER:
+//     (a) L triggers (no predicted saturation for 8 checks), OR
+//     (b) Jerk is persistently positive while enstrophy accelerating
+//         (d3O > 0 AND d2O > 0 AND dO > 0 for N checks)
+//   BUT NOT when:
+//     (c) Deceleration ratio |d2O/dO^2| > threshold (strong deceleration)
+//         This overrides (a) and (b) — strong deceleration = definitely safe
+//
+// New criterion O: Adaptive saturation with confidence
+//   Same as L but saturation time must be within CONFIDENCE window:
+//     If sat_time < 2x remaining → high confidence → safe
+//     If sat_time > 2x remaining but < 10x → medium → check jerk
+//     If sat_time > 10x → low confidence → treat as no saturation
+//
+// New criterion P: Enstrophy doubling time
+//   Time for enstrophy to double from current value.
+//   If doubling time is SHRINKING → superexponential → blow-up
+//   If doubling time is GROWING → subexponential → saturating → safe
+//   This is the simplest possible discriminator.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn actually_blows_up(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                     dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion P: Enstrophy doubling time analysis
+// Track how long it takes enstrophy to double.
+// If doubling time is SHRINKING → superexponential → blow-up
+// If doubling time is STABLE or GROWING → subexponential → safe
+fn criterion_P(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var base_e: f64 = enstrophy3(ox, oy, oz);
+    var target_e: f64 = base_e * 2.0;
+    var prev_double_time: f64 = 0.0;
+    var shrink_count: i64 = 0;
+    var double_start: i64 = 0;
+    var looking: i64 = 1;
+
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+
+        if looking == 1 {
+            if e >= target_e {
+                // Doubled!
+                let double_time: f64 = (s - double_start) as f64;
+                if prev_double_time > 0.1 {
+                    if double_time < prev_double_time * 0.9 {
+                        // Doubling time shrank → accelerating growth
+                        shrink_count = shrink_count + 1;
+                    } else {
+                        shrink_count = 0;
+                    }
+                    if shrink_count >= persist { return 1; }
+                }
+                prev_double_time = double_time;
+                // Reset for next doubling
+                base_e = e;
+                target_e = base_e * 2.0;
+                double_start = s;
+            }
+        }
+
+        // If enstrophy drops below base, reset
+        if e < base_e * 0.5 {
+            base_e = e;
+            target_e = base_e * 2.0;
+            double_start = s;
+            prev_double_time = 0.0;
+            shrink_count = 0;
+        }
+
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion L (from previous — saturation predictor)
+fn criterion_L(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, ema_alpha: f64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var prev_e: f64 = enstrophy3(ox, oy, oz);
+    var prev_de: f64 = 0.0;
+    var ema_de: f64 = 0.0;
+    var ema_d2e: f64 = 0.0;
+    var no_sat_count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let de: f64 = e - prev_e;
+        let d2e: f64 = de - prev_de;
+        ema_de = ema_alpha * de + (1.0 - ema_alpha) * ema_de;
+        ema_d2e = ema_alpha * d2e + (1.0 - ema_alpha) * ema_d2e;
+        let check: i64 = s - (s / 500) * 500;
+        if check == 0 {
+            if ema_de > 0.0000001 {
+                if ema_d2e >= 0.0 {
+                    no_sat_count = no_sat_count + 1;
+                } else {
+                    let sat_t: f64 = 0.0 - ema_de / ema_d2e;
+                    let remaining: f64 = ((max_steps - s) as f64) * dt;
+                    if sat_t > remaining * 10.0 { no_sat_count = no_sat_count + 1; }
+                    else { no_sat_count = 0; }
+                }
+            } else { no_sat_count = 0; }
+            if no_sat_count >= persist { return 1; }
+        }
+        prev_de = de; prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion Q: Combined L + P — saturation AND doubling time
+// Blow-up if L says no saturation AND P says doubling time shrinking
+// OR if either alone says blow-up at high confidence
+fn criterion_Q(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var prev_e: f64 = enstrophy3(ox, oy, oz);
+    var prev_de: f64 = 0.0;
+    var ema_de: f64 = 0.0;
+    var ema_d2e: f64 = 0.0;
+    var ema_d3e: f64 = 0.0;
+    var prev_d2e: f64 = 0.0;
+    let ema_alpha: f64 = 0.0002;
+
+    // Saturation state
+    var no_sat_count: i64 = 0;
+
+    // Doubling time state
+    var base_e: f64 = prev_e;
+    var target_e: f64 = base_e * 2.0;
+    var prev_double_time: f64 = 0.0;
+    var double_start: i64 = 0;
+    var shrink_count: i64 = 0;
+
+    // Jerk state
+    var jerk_pos_count: i64 = 0;
+
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+
+        let de: f64 = e - prev_e;
+        let d2e: f64 = de - prev_de;
+        let d3e: f64 = d2e - prev_d2e;
+        ema_de = ema_alpha * de + (1.0 - ema_alpha) * ema_de;
+        ema_d2e = ema_alpha * d2e + (1.0 - ema_alpha) * ema_d2e;
+        ema_d3e = ema_alpha * d3e + (1.0 - ema_alpha) * ema_d3e;
+
+        // Update doubling time tracker
+        if e >= target_e {
+            let dtime: f64 = (s - double_start) as f64;
+            if prev_double_time > 0.1 {
+                if dtime < prev_double_time * 0.85 {
+                    shrink_count = shrink_count + 1;
+                } else { shrink_count = 0; }
+            }
+            prev_double_time = dtime;
+            base_e = e;
+            target_e = base_e * 2.0;
+            double_start = s;
+        }
+        if e < base_e * 0.5 {
+            base_e = e; target_e = base_e * 2.0;
+            double_start = s; prev_double_time = 0.0; shrink_count = 0;
+        }
+
+        let check: i64 = s - (s / 500) * 500;
+        if check == 0 {
+            // Saturation check
+            if ema_de > 0.0000001 {
+                if ema_d2e >= 0.0 {
+                    no_sat_count = no_sat_count + 1;
+                } else {
+                    let sat_t: f64 = 0.0 - ema_de / ema_d2e;
+                    let remaining: f64 = ((max_steps - s) as f64) * dt;
+                    if sat_t > remaining * 5.0 { no_sat_count = no_sat_count + 1; }
+                    else { no_sat_count = 0; }
+                }
+            } else { no_sat_count = 0; }
+
+            // Jerk check: acceleration accelerating
+            if ema_de > 0.0 {
+                if ema_d2e > 0.0 {
+                    if ema_d3e > 0.0 {
+                        jerk_pos_count = jerk_pos_count + 1;
+                    } else { jerk_pos_count = 0; }
+                } else { jerk_pos_count = 0; }
+            } else { jerk_pos_count = 0; }
+
+            // Combined decision:
+            // Strong signal: doubling time shrinking 3+ times
+            if shrink_count >= 3 { return 1; }
+            // Strong signal: no saturation for 10+ AND jerk positive for 3+
+            if no_sat_count >= 10 {
+                if jerk_pos_count >= 3 { return 1; }
+            }
+            // Strong signal: all three agree for 5+
+            if no_sat_count >= 5 {
+                if shrink_count >= 1 {
+                    if jerk_pos_count >= 2 { return 1; }
+                }
+            }
+        }
+
+        prev_d2e = d2e; prev_de = de; prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 1: Full test — all criteria at 20 amplitudes
+// ============================================================================
+
+fn test_full() -> i64 {
+    println("=== Exp 1: Full Test — 20 Amplitudes ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  Amp    Truth  L(sat)  P(dbl)  Q(combo)");
+
+    var score_l: i64 = 0;
+    var score_p: i64 = 0;
+    var score_q: i64 = 0;
+    var total: i64 = 0;
+
+    var ai: i64 = 0;
+    while ai < 20 {
+        var amp: f64 = 1.5;
+        if ai == 1 { amp = 1.3; }
+        if ai == 2 { amp = 1.2; }
+        if ai == 3 { amp = 1.15; }
+        if ai == 4 { amp = 1.13; }
+        if ai == 5 { amp = 1.1; }
+        if ai == 6 { amp = 1.05; }
+        if ai == 7 { amp = 1.0; }
+        if ai == 8 { amp = 0.95; }
+        if ai == 9 { amp = 0.9; }
+        if ai == 10 { amp = 0.8; }
+        if ai == 11 { amp = 0.7; }
+        if ai == 12 { amp = 0.6; }
+        if ai == 13 { amp = 0.5; }
+        if ai == 14 { amp = 0.4; }
+        if ai == 15 { amp = 0.3; }
+        if ai == 16 { amp = 0.25; }
+        if ai == 17 { amp = 0.2; }
+        if ai == 18 { amp = 0.15; }
+        if ai == 19 { amp = 0.1; }
+
+        let truth: i64 = actually_blows_up(amp, nu, sigma, lambda, lambda2, dt, max_s);
+        let pl: i64 = criterion_L(amp, nu, sigma, lambda, lambda2, dt, max_s, 0.0002, 8);
+        let pp: i64 = criterion_P(amp, nu, sigma, lambda, lambda2, dt, max_s, 2);
+        let pq: i64 = criterion_Q(amp, nu, sigma, lambda, lambda2, dt, max_s);
+
+        if pl == truth { score_l = score_l + 1; }
+        if pp == truth { score_p = score_p + 1; }
+        if pq == truth { score_q = score_q + 1; }
+        total = total + 1;
+
+        print("  ");
+        print_f64(amp);
+        if truth == 1 { print("  BLOW "); } else { print("  safe "); }
+        if pl == truth { print(" ok  "); } else { print(" MISS"); }
+        if pp == truth { print(" ok  "); } else { print(" MISS"); }
+        if pq == truth { print(" ok  "); } else { print(" MISS"); }
+        println("");
+
+        ai = ai + 1;
+    }
+
+    println("");
+    print("  L (saturation):  "); print_i64(score_l); println("/20");
+    print("  P (doubling):    "); print_i64(score_p); println("/20");
+    print("  Q (combined):    "); print_i64(score_q); println("/20");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: A* for all criteria
+// ============================================================================
+
+fn test_a_star() -> i64 {
+    println("=== Exp 2: A* Threshold ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    // Ground truth
+    var lo: f64 = 0.5; var hi: f64 = 2.0; var iter: i64 = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_truth: f64 = (lo + hi) / 2.0;
+
+    // L
+    lo = 0.1; hi = 2.0; iter = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_L(mid, nu, sigma, lambda, lambda2, dt, max_s, 0.0002, 8) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_l: f64 = (lo + hi) / 2.0;
+
+    // P
+    lo = 0.1; hi = 2.0; iter = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_P(mid, nu, sigma, lambda, lambda2, dt, max_s, 2) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_p: f64 = (lo + hi) / 2.0;
+
+    // Q
+    lo = 0.1; hi = 2.0; iter = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_Q(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_q: f64 = (lo + hi) / 2.0;
+
+    let gap: f64 = a_truth - 0.298;
+
+    println("  Criterion         A*          Error       Gap closed");
+    print("  Ground truth:     "); print_f64(a_truth); println("  ---         ---");
+    print("  Old H_v1:         0.298       0.838       0%"); println("");
+    print("  Old best (J):     0.385       0.751       10.4%"); println("");
+    print("  L (saturation):   "); print_f64(a_l); print("  ");
+    print_f64(abs_f64(a_l - a_truth)); print("  ");
+    print_f64((a_l - 0.298) / gap * 100.0); println("%");
+    print("  P (doubling):     "); print_f64(a_p); print("  ");
+    print_f64(abs_f64(a_p - a_truth)); print("  ");
+    print_f64((a_p - 0.298) / gap * 100.0); println("%");
+    print("  Q (L+P+jerk):     "); print_f64(a_q); print("  ");
+    print_f64(abs_f64(a_q - a_truth)); print("  ");
+    print_f64((a_q - 0.298) / gap * 100.0); println("%");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Universality
+// ============================================================================
+
+fn test_universal() -> i64 {
+    println("=== Exp 3: Universality Across Stretching ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  lambda2  A*(truth)  A*(Q)      Gap%");
+
+    var li: i64 = 0;
+    while li < 5 {
+        var lambda2: f64 = 0.0;
+        if li == 1 { lambda2 = 2.0; }
+        if li == 2 { lambda2 = 5.0; }
+        if li == 3 { lambda2 = 10.0; }
+        if li == 4 { lambda2 = 20.0; }
+
+        var lo: f64 = 0.1; var hi: f64 = 2.0; var iter: i64 = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let at: f64 = (lo + hi) / 2.0;
+
+        lo = 0.1; hi = 2.0; iter = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if criterion_Q(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let aq: f64 = (lo + hi) / 2.0;
+
+        let gap: f64 = at - 0.298;
+        var gp: f64 = 0.0;
+        if gap > 0.01 { gp = (aq - 0.298) / gap * 100.0; }
+
+        print("  ");
+        print_f64(lambda2);
+        print("  ");
+        print_f64(at);
+        print("  ");
+        print_f64(aq);
+        print("  ");
+        print_f64(gp);
+        println("%");
+
+        li = li + 1;
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  JERK-ENHANCED GAP CLOSURE                               #");
+    println("#                                                          #");
+    println("#  Criterion L: saturation predictor (54.6%)              #");
+    println("#  Criterion P: doubling time (shrinking = blow-up)       #");
+    println("#  Criterion Q: L + P + jerk (combined evidence)          #");
+    println("#                                                          #");
+    println("#  Levels 11-14 feed H: acceleration, decel ratio,        #");
+    println("#  jerk, saturation time. All dual numbers.               #");
+    println("############################################################");
+    println("");
+
+    test_full();
+    test_a_star();
+    test_universal();
+
+    println("############################################################");
+    println("#  GAP CLOSURE PROGRESS:                                  #");
+    println("#  Original H_v1:    A* = 0.298  (gap = 0.838)           #");
+    println("#  Criterion J:      A* = 0.385  (10.4% closed)          #");
+    println("#  Criterion L:      A* = 0.755  (54.6% closed)          #");
+    println("#  Current best:     see above                            #");
+    println("#                                                          #");
+    println("#  Every new level adds to H. Every level is a dual       #");
+    println("#  number. The gap narrows with each observation.         #");
+    println("############################################################");
+
+    0
+}

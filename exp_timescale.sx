@@ -1,0 +1,285 @@
+// Experiment 5: Timescale Separation
+//
+// Validates that when adaptive systems operate at different speeds,
+// the fast system equilibrates before the slow system updates.
+//
+// Pass criteria: fast system converged before >95% of slow updates.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 {
+        x
+    } else {
+        0.0 - x
+    }
+}
+
+// Helper to avoid mixed f64/i64 var codegen bug
+fn is_step_multiple(step: i64, k: i64) -> i64 {
+    let mod_check: i64 = step - (step / k) * k;
+    if mod_check == 0 { 1 } else { 0 }
+}
+
+// ============================================================================
+// Experiment 5a: Two-timescale system
+//
+// Fast system: gradient descent on w toward target (updates every step)
+// Slow system: shifts the target every K=50 steps
+//
+// Fast should converge between slow updates.
+// ============================================================================
+
+fn test_two_timescale() -> i64 {
+    var w: f64 = 0.0;
+    var target: f64 = 5.0;
+    var step: i64 = 0;
+    var slow_updates: i64 = 0;
+    var converged_before_update: i64 = 0;
+    var grad: f64 = 0.0;
+    var residual: f64 = 0.0;
+    var rate: f64 = 0.0;
+    var mod_check: i64 = 0;
+
+    println("--- Exp 5a: Two-Timescale Separation ---");
+
+    while step < 5000 {
+        // Fast update: gradient descent toward current target
+        grad = 2.0 * (w - target);
+        w = w - 0.2 * grad;
+
+        // Slow update: shift target every 50 steps
+        if step > 0 {
+            if is_step_multiple(step, 50) == 1 {
+                // Check: has fast system converged to current target?
+                residual = abs_f64(w - target);
+                if residual < 0.1 {
+                    converged_before_update = converged_before_update + 1;
+                }
+
+                slow_updates = slow_updates + 1;
+
+                // Shift target
+                target = target - 0.5;
+                if target < 0.0 - 5.0 {
+                    target = 5.0;
+                }
+            }
+        }
+
+        step = step + 1;
+    }
+
+    if slow_updates > 0 {
+        rate = (converged_before_update as f64) * 100.0 / (slow_updates as f64);
+    }
+
+    print("  Slow updates:       ");
+    print_i64(slow_updates);
+    println("");
+    print("  Fast converged:     ");
+    print_i64(converged_before_update);
+    println("");
+    print("  Convergence rate:   ");
+    print_f64(rate);
+    println("");
+
+    if rate >= 95.0 {
+        println("  PASS: Timescale separation maintained");
+        0
+    } else {
+        println("  FAIL: Fast system doesn't equilibrate before slow updates");
+        1
+    }
+}
+
+// ============================================================================
+// Experiment 5b: Three-timescale system
+//
+// Fast:   w updates every step (chases v)
+// Medium: v updates every K1=20 steps (chases target)
+// Slow:   target updates every K2=200 steps
+// ============================================================================
+
+fn test_three_timescale() -> i64 {
+    var w: f64 = 0.0;
+    var v: f64 = 0.0;
+    var target: f64 = 5.0;
+    var step: i64 = 0;
+    var v_updates: i64 = 0;
+    var w_converged_before_v: i64 = 0;
+    var target_updates: i64 = 0;
+    var v_converged_before_target: i64 = 0;
+    var g_w: f64 = 0.0;
+    var g_v: f64 = 0.0;
+    var w_residual: f64 = 0.0;
+    var v_residual: f64 = 0.0;
+    var rate_w: f64 = 0.0;
+    var rate_v: f64 = 0.0;
+    var mod_k1: i64 = 0;
+    var mod_k2: i64 = 0;
+
+    println("--- Exp 5b: Three-Timescale Separation ---");
+
+    while step < 10000 {
+        // Fast: w chases v
+        g_w = 2.0 * (w - v);
+        w = w - 0.3 * g_w;
+
+        // Medium: v chases target (every 20 steps)
+        if step > 0 {
+            if is_step_multiple(step, 20) == 1 {
+                // Check w convergence before v updates
+                w_residual = abs_f64(w - v);
+                if w_residual < 0.15 {
+                    w_converged_before_v = w_converged_before_v + 1;
+                }
+                v_updates = v_updates + 1;
+
+                g_v = 2.0 * (v - target);
+                v = v - 0.1 * g_v;
+            }
+        }
+
+        // Slow: target shifts (every 200 steps)
+        if step > 0 {
+            if is_step_multiple(step, 200) == 1 {
+                // Check v convergence before target updates
+                v_residual = abs_f64(v - target);
+                if v_residual < 0.15 {
+                    v_converged_before_target = v_converged_before_target + 1;
+                }
+                target_updates = target_updates + 1;
+
+                target = target - 0.3;
+                if target < 0.0 - 3.0 {
+                    target = 5.0;
+                }
+            }
+        }
+
+        step = step + 1;
+    }
+
+    if v_updates > 0 {
+        rate_w = (w_converged_before_v as f64) * 100.0 / (v_updates as f64);
+    }
+    if target_updates > 0 {
+        rate_v = (v_converged_before_target as f64) * 100.0 / (target_updates as f64);
+    }
+
+    print("  w converged before v:      ");
+    print_f64(rate_w);
+    println("");
+    print("  v converged before target: ");
+    print_f64(rate_v);
+    println("");
+
+    if rate_w >= 95.0 {
+        if rate_v >= 90.0 {
+            println("  PASS: Three-level timescale separation maintained");
+            0
+        } else {
+            println("  FAIL: v timescale separation violated");
+            1
+        }
+    } else {
+        println("  FAIL: w timescale separation violated");
+        1
+    }
+}
+
+// ============================================================================
+// Experiment 5c: Insufficient separation (adversarial)
+//
+// When K is too small and lr too slow, fast system CAN'T converge.
+// This should be detectable.
+// ============================================================================
+
+fn test_insufficient_separation() -> i64 {
+    var w: f64 = 0.0;
+    var target: f64 = 5.0;
+    var step: i64 = 0;
+    var slow_updates: i64 = 0;
+    var converged: i64 = 0;
+    var grad: f64 = 0.0;
+    var residual: f64 = 0.0;
+    var rate: f64 = 0.0;
+    var mod_check: i64 = 0;
+
+    println("--- Exp 5c: Insufficient Separation (Adversarial) ---");
+
+    while step < 3000 {
+        // Fast update with small learning rate — too slow to converge in K=3 steps
+        grad = 2.0 * (w - target);
+        w = w - 0.05 * grad;
+
+        if step > 0 {
+            if is_step_multiple(step, 3) == 1 {
+                residual = abs_f64(w - target);
+                if residual < 0.1 {
+                    converged = converged + 1;
+                }
+                slow_updates = slow_updates + 1;
+                target = target - 0.5;
+                if target < 0.0 - 5.0 {
+                    target = 5.0;
+                }
+            }
+        }
+
+        step = step + 1;
+    }
+
+    if slow_updates > 0 {
+        rate = (converged as f64) * 100.0 / (slow_updates as f64);
+    }
+
+    print("  Convergence rate: ");
+    print_f64(rate);
+    println("");
+
+    if rate < 50.0 {
+        println("  PASS: Correctly detected insufficient separation");
+        0
+    } else {
+        println("  FAIL: System shouldn't converge with K=3 and lr=0.05");
+        1
+    }
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    var failed: i64 = 0;
+    var r: i64 = 0;
+
+    println("============================================");
+    println("  EXPERIMENT 5: TIMESCALE SEPARATION");
+    println("============================================");
+    println("");
+
+    r = test_two_timescale();
+    failed = failed + r;
+    println("");
+
+    r = test_three_timescale();
+    failed = failed + r;
+    println("");
+
+    r = test_insufficient_separation();
+    failed = failed + r;
+
+    println("");
+    println("============================================");
+    if failed == 0 {
+        println("  EXPERIMENT 5: ALL TESTS PASSED");
+    } else {
+        print("  EXPERIMENT 5: ");
+        print_i64(failed);
+        println(" TEST(S) FAILED");
+    }
+    println("============================================");
+
+    failed
+}

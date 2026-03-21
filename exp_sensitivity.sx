@@ -1,0 +1,254 @@
+// Sensitivity Analysis: How Robust is the Theorem?
+//
+// Tests sensitivity to: learning rate, number of components,
+// dimensionality, imbalance, and convergence speed.
+// Uses direct f64 variables (no vecs) for reliability.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// 4D training with K=2 objectives (simplest case for sensitivity sweep)
+fn train_2obj(t0: f64, t1: f64, t2: f64, t3: f64,
+              u0: f64, u1: f64, u2: f64, u3: f64,
+              steps: i64, lr: f64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+
+    while step < steps {
+        g0 = (w0 - t0) + (w0 - u0);
+        g1 = (w1 - t1) + (w1 - u1);
+        g2 = (w2 - t2) + (w2 - u2);
+        g3 = (w3 - t3) + (w3 - u3);
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+        w3 = w3 - lr * g3;
+        step = step + 1;
+    }
+    let la: f64 = (w0 - t0) * (w0 - t0) + (w1 - t1) * (w1 - t1) + (w2 - t2) * (w2 - t2) + (w3 - t3) * (w3 - t3);
+    let lb: f64 = (w0 - u0) * (w0 - u0) + (w1 - u1) * (w1 - u1) + (w2 - u2) * (w2 - u2) + (w3 - u3) * (w3 - u3);
+    la + lb
+}
+
+// 4D training with K=3 objectives
+fn train_3obj(t0: f64, t1: f64, t2: f64, t3: f64,
+              u0: f64, u1: f64, u2: f64, u3: f64,
+              v0: f64, v1: f64, v2: f64, v3: f64,
+              steps: i64, lr: f64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+
+    while step < steps {
+        g0 = (w0 - t0) + (w0 - u0) + (w0 - v0);
+        g1 = (w1 - t1) + (w1 - u1) + (w1 - v1);
+        g2 = (w2 - t2) + (w2 - u2) + (w2 - v2);
+        g3 = (w3 - t3) + (w3 - u3) + (w3 - v3);
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+        w3 = w3 - lr * g3;
+        step = step + 1;
+    }
+    let la: f64 = (w0 - t0) * (w0 - t0) + (w1 - t1) * (w1 - t1) + (w2 - t2) * (w2 - t2) + (w3 - t3) * (w3 - t3);
+    let lb: f64 = (w0 - u0) * (w0 - u0) + (w1 - u1) * (w1 - u1) + (w2 - u2) * (w2 - u2) + (w3 - u3) * (w3 - u3);
+    let lc: f64 = (w0 - v0) * (w0 - v0) + (w1 - v1) * (w1 - v1) + (w2 - v2) * (w2 - v2) + (w3 - v3) * (w3 - v3);
+    la + lb + lc
+}
+
+// 4D training with K=5 objectives
+fn train_5obj(steps: i64, lr: f64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+    // 5 targets spread around
+    while step < steps {
+        g0 = (w0 - 3.0) + (w0 + 2.0) + (w0 - 1.0) + (w0 + 4.0) + (w0 - 0.5);
+        g1 = (w1 + 1.0) + (w1 - 3.0) + (w1 + 2.0) + (w1 - 0.5) + (w1 + 3.0);
+        g2 = (w2 - 4.0) + (w2 + 1.0) + (w2 + 3.0) + (w2 - 2.0) + (w2 - 1.0);
+        g3 = (w3 + 2.0) + (w3 - 4.0) + (w3 + 0.5) + (w3 + 1.0) + (w3 - 3.0);
+        w0 = w0 - lr * g0 / 5.0;
+        w1 = w1 - lr * g1 / 5.0;
+        w2 = w2 - lr * g2 / 5.0;
+        w3 = w3 - lr * g3 / 5.0;
+        step = step + 1;
+    }
+    // Sum losses for all 5
+    let l1: f64 = (w0 - 3.0) * (w0 - 3.0) + (w1 + 1.0) * (w1 + 1.0) + (w2 - 4.0) * (w2 - 4.0) + (w3 + 2.0) * (w3 + 2.0);
+    let l2: f64 = (w0 + 2.0) * (w0 + 2.0) + (w1 - 3.0) * (w1 - 3.0) + (w2 + 1.0) * (w2 + 1.0) + (w3 - 4.0) * (w3 - 4.0);
+    let l3: f64 = (w0 - 1.0) * (w0 - 1.0) + (w1 + 2.0) * (w1 + 2.0) + (w2 + 3.0) * (w2 + 3.0) + (w3 + 0.5) * (w3 + 0.5);
+    let l4: f64 = (w0 + 4.0) * (w0 + 4.0) + (w1 - 0.5) * (w1 - 0.5) + (w2 - 2.0) * (w2 - 2.0) + (w3 + 1.0) * (w3 + 1.0);
+    let l5: f64 = (w0 - 0.5) * (w0 - 0.5) + (w1 + 3.0) * (w1 + 3.0) + (w2 - 1.0) * (w2 - 1.0) + (w3 - 3.0) * (w3 - 3.0);
+    l1 + l2 + l3 + l4 + l5
+}
+
+// Higher dimensional: 8D with 3 objectives
+fn train_3obj_8d(steps: i64, lr: f64) -> f64 {
+    var w0: f64 = 0.0; var w1: f64 = 0.0; var w2: f64 = 0.0; var w3: f64 = 0.0;
+    var w4: f64 = 0.0; var w5: f64 = 0.0; var w6: f64 = 0.0; var w7: f64 = 0.0;
+    var step: i64 = 0;
+    // Targets: A=[3,1,-2,4,0,-1,2,-3], B=[-2,3,1,-1,4,-3,0,2], C=[1,-2,4,0,-3,2,-1,1]
+    while step < steps {
+        w0 = w0 - lr * ((w0 - 3.0) + (w0 + 2.0) + (w0 - 1.0));
+        w1 = w1 - lr * ((w1 - 1.0) + (w1 - 3.0) + (w1 + 2.0));
+        w2 = w2 - lr * ((w2 + 2.0) + (w2 - 1.0) + (w2 - 4.0));
+        w3 = w3 - lr * ((w3 - 4.0) + (w3 + 1.0) + (w3 - 0.0));
+        w4 = w4 - lr * ((w4 - 0.0) + (w4 - 4.0) + (w4 + 3.0));
+        w5 = w5 - lr * ((w5 + 1.0) + (w5 + 3.0) + (w5 - 2.0));
+        w6 = w6 - lr * ((w6 - 2.0) + (w6 - 0.0) + (w6 + 1.0));
+        w7 = w7 - lr * ((w7 + 3.0) + (w7 - 2.0) + (w7 - 1.0));
+        step = step + 1;
+    }
+    // Simplified: just return sum of squared w values as proxy for total loss
+    w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3 + w4 * w4 + w5 * w5 + w6 * w6 + w7 * w7
+}
+
+fn main() -> i64 {
+    println("============================================");
+    println("  SENSITIVITY ANALYSIS");
+    println("============================================");
+    println("");
+
+    // === Test 1: Learning Rate Sensitivity ===
+    println("--- LR Sensitivity (2 obj, 4D, 500 steps) ---");
+    println("  lr         Loss");
+
+    let loss_1: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 0.0001);
+    print("  0.0001     ");
+    print_f64(loss_1);
+    println("");
+
+    let loss_2: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 0.001);
+    print("  0.001      ");
+    print_f64(loss_2);
+    println("");
+
+    let loss_3: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 0.01);
+    print("  0.01       ");
+    print_f64(loss_3);
+    println("");
+
+    let loss_4: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 0.1);
+    print("  0.1        ");
+    print_f64(loss_4);
+    println("");
+
+    let loss_5: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 0.5);
+    print("  0.5        ");
+    print_f64(loss_5);
+    println("");
+
+    let loss_6: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 1.0);
+    print("  1.0        ");
+    print_f64(loss_6);
+    println("");
+    println("");
+
+    // === Test 2: Number of Components ===
+    println("--- Component Count (4D, lr=0.01, 500 steps) ---");
+    println("  K    Loss");
+
+    let lk2: f64 = train_2obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 500, 0.01);
+    print("  2    ");
+    print_f64(lk2);
+    println("");
+
+    let lk3: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 500, 0.01);
+    print("  3    ");
+    print_f64(lk3);
+    println("");
+
+    let lk5: f64 = train_5obj(500, 0.01);
+    print("  5    ");
+    print_f64(lk5);
+    println("");
+    println("");
+
+    // === Test 3: Dimensionality ===
+    println("--- Dimensionality (3 obj, lr=0.01, 500 steps) ---");
+    println("  Dim  Loss");
+
+    // 4D
+    let ld4: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 500, 0.01);
+    print("  4    ");
+    print_f64(ld4);
+    println("");
+
+    // 8D
+    let ld8: f64 = train_3obj_8d(500, 0.01);
+    print("  8    ");
+    print_f64(ld8);
+    println("");
+    println("");
+
+    // === Test 4: Imbalance ===
+    println("--- Objective Imbalance (2 obj, 4D) ---");
+
+    // Equal: A=[5,5,5,5], B=[-3,-3,-3,-3]
+    let eq: f64 = train_2obj(5.0, 5.0, 5.0, 5.0, -3.0, -3.0, -3.0, -3.0, 500, 0.01);
+    print("  Equal weight:  ");
+    print_f64(eq);
+    println("");
+
+    // Imbalanced: A's gradient is 10x by using target 10x further
+    let imbal: f64 = train_2obj(50.0, 50.0, 50.0, 50.0, -3.0, -3.0, -3.0, -3.0, 500, 0.001);
+    print("  10:1 imbalance:");
+    print_f64(imbal);
+    println("");
+    println("");
+
+    // === Test 5: Convergence Speed ===
+    println("--- Convergence Speed (3 obj, 4D, lr=0.01) ---");
+    println("  Steps   Loss");
+
+    let ls10: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 10, 0.01);
+    print("  10      ");
+    print_f64(ls10);
+    println("");
+
+    let ls50: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 50, 0.01);
+    print("  50      ");
+    print_f64(ls50);
+    println("");
+
+    let ls200: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 200, 0.01);
+    print("  200     ");
+    print_f64(ls200);
+    println("");
+
+    let ls1000: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 1000, 0.01);
+    print("  1000    ");
+    print_f64(ls1000);
+    println("");
+
+    let ls5000: f64 = train_3obj(3.0, 1.0, -2.0, 4.0, -2.0, 3.0, 1.0, -1.0, 0.0, -1.0, 4.0, 2.0, 5000, 0.01);
+    print("  5000    ");
+    print_f64(ls5000);
+    println("");
+
+    println("");
+    println("============================================");
+    println("  ANALYSIS COMPLETE");
+    println("============================================");
+    0
+}

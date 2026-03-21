@@ -1,0 +1,358 @@
+// Lyapunov Refinement — Finding Optimal V Function
+//
+// The standard V = w1*L_task + w2*L_ewc + w3*L_meta has issues:
+// - EWC drift grows as model converges to target (away from base)
+// - Meta-lr updates cause transient V spikes
+//
+// This experiment tests alternative Lyapunov constructions:
+//
+// 1. Standard V (baseline — 3.9% violations)
+// 2. Task-only V: just L_task (ignores EWC/meta)
+// 3. Exponential decay V: weight old V by decay factor
+// 4. Normalised V: divide each component by its initial value
+// 5. Capped-drift V: cap EWC at its initial value
+// 6. Sliding-window V: track V decrease over window, not per-step
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// ============================================================================
+// Shared training loop — returns violation count for a given V strategy
+// ============================================================================
+
+// Strategy 1: Standard V = w1*L + w2*D + w3*M
+fn test_standard() -> i64 {
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var w_2: f64 = 5.0;
+    var alpha: f64 = 0.1;
+    var prev_v: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var g_2: f64 = 0.0;
+    var l_task: f64 = 0.0;
+    var l_ewc: f64 = 0.0;
+    var l_meta: f64 = 0.0;
+    var v: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+    let w_star_2: f64 = 3.0;
+    let lambda: f64 = 0.3;
+    let alpha_target: f64 = 0.05;
+    let meta_lr: f64 = 0.0005;
+    let lw1: f64 = 1.0;
+    let lw2: f64 = 0.1;
+    let lw3: f64 = 0.01;
+
+    l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+    l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+    l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+    prev_v = lw1 * l_task + lw2 * l_ewc + lw3 * l_meta;
+
+    while step < 1000 {
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * w_0;
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * w_1;
+        g_2 = 2.0 * (w_2 - w_star_2) + lambda * w_2;
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+        w_2 = w_2 - alpha * g_2;
+
+        meta_grad = 2.0 * (alpha - alpha_target);
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.001 { alpha = 0.001; }
+
+        l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+        l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+        l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+        v = lw1 * l_task + lw2 * l_ewc + lw3 * l_meta;
+
+        if v > prev_v + 0.0000000001 { violations = violations + 1; }
+        prev_v = v;
+        step = step + 1;
+    }
+
+    let rate: f64 = (violations as f64) * 100.0 / 1000.0;
+    print("  Standard:           violations=");
+    print_i64(violations);
+    print("/1000 (");
+    print_f64(rate);
+    println("%)");
+    violations
+}
+
+// Strategy 2: Task-only V = L_task
+fn test_task_only() -> i64 {
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var w_2: f64 = 5.0;
+    var alpha: f64 = 0.1;
+    var prev_v: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var g_2: f64 = 0.0;
+    var v: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+    let w_star_2: f64 = 3.0;
+    let lambda: f64 = 0.3;
+    let alpha_target: f64 = 0.05;
+    let meta_lr: f64 = 0.0005;
+
+    prev_v = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+
+    while step < 1000 {
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * w_0;
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * w_1;
+        g_2 = 2.0 * (w_2 - w_star_2) + lambda * w_2;
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+        w_2 = w_2 - alpha * g_2;
+
+        meta_grad = 2.0 * (alpha - alpha_target);
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.001 { alpha = 0.001; }
+
+        v = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+
+        if v > prev_v + 0.0000000001 { violations = violations + 1; }
+        prev_v = v;
+        step = step + 1;
+    }
+
+    let rate: f64 = (violations as f64) * 100.0 / 1000.0;
+    print("  Task-only:          violations=");
+    print_i64(violations);
+    print("/1000 (");
+    print_f64(rate);
+    println("%)");
+    violations
+}
+
+// Strategy 4: Normalised V — each component divided by initial value
+fn test_normalised() -> i64 {
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var w_2: f64 = 5.0;
+    var alpha: f64 = 0.1;
+    var prev_v: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var g_2: f64 = 0.0;
+    var l_task: f64 = 0.0;
+    var l_ewc: f64 = 0.0;
+    var l_meta: f64 = 0.0;
+    var v: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+    let w_star_2: f64 = 3.0;
+    let lambda: f64 = 0.3;
+    let alpha_target: f64 = 0.05;
+    let meta_lr: f64 = 0.0005;
+
+    // Initial values for normalisation
+    let l_task_0: f64 = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+    let l_ewc_0: f64 = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+    let l_meta_0: f64 = (alpha - alpha_target) * (alpha - alpha_target);
+
+    prev_v = 1.0 + 1.0 + 1.0;
+
+    while step < 1000 {
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * w_0;
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * w_1;
+        g_2 = 2.0 * (w_2 - w_star_2) + lambda * w_2;
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+        w_2 = w_2 - alpha * g_2;
+
+        meta_grad = 2.0 * (alpha - alpha_target);
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.001 { alpha = 0.001; }
+
+        l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+        l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+        l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+
+        // Normalise by initial values — each component ∈ [0, ~1]
+        v = l_task / l_task_0 + l_ewc / l_ewc_0 + l_meta / l_meta_0;
+
+        if v > prev_v + 0.0000000001 { violations = violations + 1; }
+        prev_v = v;
+        step = step + 1;
+    }
+
+    let rate: f64 = (violations as f64) * 100.0 / 1000.0;
+    print("  Normalised:         violations=");
+    print_i64(violations);
+    print("/1000 (");
+    print_f64(rate);
+    println("%)");
+    violations
+}
+
+// Strategy 3: Exponential moving average — V_ema = decay * V_ema + (1-decay) * V
+fn test_ema() -> i64 {
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var w_2: f64 = 5.0;
+    var alpha: f64 = 0.1;
+    var prev_v_ema: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var g_2: f64 = 0.0;
+    var l_task: f64 = 0.0;
+    var l_ewc: f64 = 0.0;
+    var l_meta: f64 = 0.0;
+    var v: f64 = 0.0;
+    var v_ema: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+    let w_star_2: f64 = 3.0;
+    let lambda: f64 = 0.3;
+    let alpha_target: f64 = 0.05;
+    let meta_lr: f64 = 0.0005;
+    let lw1: f64 = 1.0;
+    let lw2: f64 = 0.1;
+    let lw3: f64 = 0.01;
+    let decay: f64 = 0.95;
+
+    l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+    l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+    l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+    prev_v_ema = lw1 * l_task + lw2 * l_ewc + lw3 * l_meta;
+
+    while step < 1000 {
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * w_0;
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * w_1;
+        g_2 = 2.0 * (w_2 - w_star_2) + lambda * w_2;
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+        w_2 = w_2 - alpha * g_2;
+
+        meta_grad = 2.0 * (alpha - alpha_target);
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.001 { alpha = 0.001; }
+
+        l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+        l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+        l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+        v = lw1 * l_task + lw2 * l_ewc + lw3 * l_meta;
+
+        // EMA smoothing — absorbs transient spikes
+        v_ema = decay * prev_v_ema + (1.0 - decay) * v;
+
+        if v_ema > prev_v_ema + 0.0000000001 { violations = violations + 1; }
+        prev_v_ema = v_ema;
+        step = step + 1;
+    }
+
+    let rate: f64 = (violations as f64) * 100.0 / 1000.0;
+    print("  EMA (decay=0.95):   violations=");
+    print_i64(violations);
+    print("/1000 (");
+    print_f64(rate);
+    println("%)");
+    violations
+}
+
+// Strategy 5: Capped-drift V — cap EWC at initial value
+fn test_capped_drift() -> i64 {
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var w_2: f64 = 5.0;
+    var alpha: f64 = 0.1;
+    var prev_v: f64 = 0.0;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var g_2: f64 = 0.0;
+    var l_task: f64 = 0.0;
+    var l_ewc: f64 = 0.0;
+    var l_meta: f64 = 0.0;
+    var v: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+    let w_star_2: f64 = 3.0;
+    let lambda: f64 = 0.3;
+    let alpha_target: f64 = 0.05;
+    let meta_lr: f64 = 0.0005;
+    let lw1: f64 = 1.0;
+    let lw2: f64 = 0.1;
+    let lw3: f64 = 0.01;
+    let l_ewc_cap: f64 = 75.0;
+
+    l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+    l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+    l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+    prev_v = lw1 * l_task + lw2 * l_ewc + lw3 * l_meta;
+
+    while step < 1000 {
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * w_0;
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * w_1;
+        g_2 = 2.0 * (w_2 - w_star_2) + lambda * w_2;
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+        w_2 = w_2 - alpha * g_2;
+
+        meta_grad = 2.0 * (alpha - alpha_target);
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.001 { alpha = 0.001; }
+
+        l_task = (w_0 - w_star_0) * (w_0 - w_star_0) + (w_1 - w_star_1) * (w_1 - w_star_1) + (w_2 - w_star_2) * (w_2 - w_star_2);
+        l_ewc = w_0 * w_0 + w_1 * w_1 + w_2 * w_2;
+        if l_ewc > l_ewc_cap { l_ewc = l_ewc_cap; }
+        l_meta = (alpha - alpha_target) * (alpha - alpha_target);
+        v = lw1 * l_task + lw2 * l_ewc + lw3 * l_meta;
+
+        if v > prev_v + 0.0000000001 { violations = violations + 1; }
+        prev_v = v;
+        step = step + 1;
+    }
+
+    let rate: f64 = (violations as f64) * 100.0 / 1000.0;
+    print("  Capped-drift:       violations=");
+    print_i64(violations);
+    print("/1000 (");
+    print_f64(rate);
+    println("%)");
+    violations
+}
+
+fn main() -> i64 {
+    println("============================================");
+    println("  LYAPUNOV REFINEMENT — FINDING OPTIMAL V");
+    println("============================================");
+    println("");
+
+    test_standard();
+    test_task_only();
+    test_normalised();
+    test_ema();
+    test_capped_drift();
+
+    println("");
+    println("============================================");
+    println("  Find the V with lowest violation rate");
+    println("============================================");
+
+    0
+}

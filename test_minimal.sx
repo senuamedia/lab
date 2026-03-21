@@ -1,0 +1,23 @@
+fn count_loop(steps: i64) -> i64 {
+    var sum: i64 = 0;
+    var i: i64 = 0;
+    while i < steps {
+        sum = sum + i;
+        i = i + 1;
+    }
+    sum
+}
+
+fn main() -> i64 {
+    let result: i64 = count_loop(10);
+    print("Sum 0..9 = ");
+    print_i64(result);
+    println("");
+    if result == 45 {
+        println("PASS");
+        0
+    } else {
+        println("FAIL");
+        1
+    }
+}

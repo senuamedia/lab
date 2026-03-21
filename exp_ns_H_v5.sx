@@ -1,0 +1,560 @@
+// H_v5: Backward-Informed Holistic Score
+//
+// Key insight from backward AD: the causal power peaks EARLY and decays.
+// Forward AD sees the consequence (late growth). Backward AD sees the cause
+// (early dynamics). H_v5 combines both.
+//
+// Design:
+//   H_v5(t) = w_fwd(t) * H_forward(t) + w_bwd(t) * I(t)
+//
+//   where:
+//     H_forward = production ratio (C1) + convergence (L2) + fragility (L4)
+//     I(t) = backward influence (adjoint sensitivity)
+//     w_fwd(t) increases over time (forward matters more as blow-up approaches)
+//     w_bwd(t) decreases over time (backward matters more early on)
+//
+// The weighting schedule is itself derived from the backward influence decay:
+//   w_bwd(t) = I(t) / I(0) — normalised backward influence
+//   w_fwd(t) = 1 - w_bwd(t)
+//
+// This means: early in the trajectory, backward dominance guides H.
+// Late in the trajectory, forward dominance takes over.
+// The crossover point is where causal power equals consequential power.
+//
+// We approximate I(t) without running full backward passes at every step
+// by using a DECAYING MEMORY of past states — an exponential moving average
+// of the production ratio. High past production → high backward influence.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { a } else { b } }
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn production_ratio(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+                    nu: f64, lambda: f64, lambda2: f64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let diff_rate: f64 = nu * 4.0 * omega_sq;
+    let s_ox: f64 = lambda * (oy * w + oz * u) + lambda2 * omega_sq * ox;
+    let s_oy: f64 = lambda * (oz * u + ox * w) + lambda2 * omega_sq * oy;
+    let s_oz: f64 = lambda * (ox * v + oy * u) + lambda2 * omega_sq * oz;
+    let stretch_rate: f64 = ox * s_ox + oy * s_oy + oz * s_oz;
+    if diff_rate > 0.0000001 { stretch_rate / diff_rate }
+    else { 0.0 }
+}
+
+fn evolve_from_enst(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+                    nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                    dt: f64, steps: i64) -> f64 {
+    var cu: f64 = u; var cv: f64 = v; var cw: f64 = w;
+    var cox: f64 = ox; var coy: f64 = oy; var coz: f64 = oz;
+    var s: i64 = 0;
+    while s < steps {
+        let n0: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(cu, cv, cw, cox, coy, coz, nu, sigma, lambda, lambda2, dt, 5);
+        cu = n0; cv = n1; cw = n2; cox = n3; coy = n4; coz = n5;
+        s = s + 1;
+    }
+    enstrophy3(cox, coy, coz)
+}
+
+// ============================================================================
+// Exp 1: H_v5 Along a Blow-Up Trajectory
+//
+// Track H_v1, H_v3 (forward-only), and H_v5 (backward-informed)
+// along the same trajectory. Compare when each warns.
+//
+// H_v5 uses:
+//   - Accumulated production ratio (backward proxy)
+//   - Current convergence and fragility (forward)
+//   - Decaying memory weight (early moments count more)
+// ============================================================================
+
+fn test_hv5_trajectory() -> i64 {
+    println("=== Exp 1: H_v5 Along Blow-Up Trajectory ===");
+    println("  H_v1: forward only (L1, L2, L4)");
+    println("  H_v3: forward + production ratio");
+    println("  H_v5: backward-informed (accumulated causal history)");
+    println("");
+
+    let pi: f64 = 3.14159265358979;
+    let amp: f64 = 2.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+
+    // Backward proxy: exponential moving average of production ratio
+    // This accumulates the HISTORY of stretching dominance
+    var causal_memory: f64 = 0.0;
+    let decay: f64 = 0.9999;
+
+    // Peak causal memory (for normalisation)
+    var peak_memory: f64 = 0.001;
+
+    var s: i64 = 0;
+    var prev_e: f64 = e0;
+    var prev_e2: f64 = e0;
+    var prev_h1: f64 = 0.0;
+    var prev_h3: f64 = 0.0;
+    var prev_h5: f64 = 0.0;
+
+    var pos1: i64 = 0;
+    var pos3: i64 = 0;
+    var pos5: i64 = 0;
+    var w1_step: i64 = 0;
+    var w3_step: i64 = 0;
+    var w5_step: i64 = 0;
+    var w1_done: i64 = 0;
+    var w3_done: i64 = 0;
+    var w5_done: i64 = 0;
+
+    println("  Step   H_v1    H_v3    H_v5    CausalMem  w_bwd    Phase");
+
+    while s < 25000 {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 {
+            print("  "); print_i64(s); println("  BLOW-UP");
+            println("");
+            print("  H_v1 warned at: "); print_i64(w1_step);
+            print("  (lead: "); print_i64(s - w1_step); println(")");
+            print("  H_v3 warned at: "); print_i64(w3_step);
+            print("  (lead: "); print_i64(s - w3_step); println(")");
+            print("  H_v5 warned at: "); print_i64(w5_step);
+            print("  (lead: "); print_i64(s - w5_step); println(")");
+            println("");
+            if w5_step < w3_step {
+                if w5_step < w1_step {
+                    let gain15: i64 = w1_step - w5_step;
+                    print("  H_v5 beats H_v1 by "); print_i64(gain15); println(" steps");
+                    let gain35: i64 = w3_step - w5_step;
+                    print("  H_v5 beats H_v3 by "); print_i64(gain35); println(" steps");
+                }
+            }
+            s = 25000;
+        } else {
+            // Forward components
+            var l1_n: f64 = 1.0;
+            if e0 > 0.00001 { l1_n = e / e0; }
+            let de_now: f64 = abs_f64(e - prev_e);
+            let de_old: f64 = abs_f64(prev_e - prev_e2);
+            var l2_est: f64 = 0.0;
+            if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+            else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+            var l4_n: f64 = 1.0;
+            if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+
+            // Production ratio
+            let prod: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+            var c1: f64 = 0.0;
+            if prod > 1.0 { c1 = prod - 1.0; }
+
+            // Update causal memory (backward proxy)
+            // Accumulate: if production > 1 now, it contributes to future blow-up
+            causal_memory = causal_memory * decay + c1 * dt;
+            if causal_memory > peak_memory { peak_memory = causal_memory; }
+
+            // Backward weight: high when causal memory is growing, low when stable
+            var w_bwd: f64 = 0.0;
+            if peak_memory > 0.00001 { w_bwd = causal_memory / peak_memory; }
+            let w_fwd: f64 = 1.0 - w_bwd * 0.5;
+
+            // H_v1: original forward
+            let h1: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2_est) + 0.3 * l4_n;
+
+            // H_v3: forward + production
+            let h3: f64 = 0.20 * l1_n + 0.25 * (0.0 - l2_est) + 0.15 * l4_n
+                        + 0.15 * c1 + 0.15 * l4_n * l1_n + 0.10;
+
+            // H_v5: backward-informed
+            // Forward component (current state)
+            let h_fwd: f64 = 0.25 * l1_n + 0.25 * (0.0 - l2_est) + 0.20 * l4_n + 0.15 * c1;
+            // Backward component (accumulated causal history)
+            let h_bwd: f64 = causal_memory * 100.0;
+            // Combined with adaptive weighting
+            let h5: f64 = w_fwd * h_fwd + 0.5 * w_bwd * h_bwd;
+
+            // Loop engagement detection
+            let dh1: f64 = h1 - prev_h1;
+            let dh3: f64 = h3 - prev_h3;
+            let dh5: f64 = h5 - prev_h5;
+
+            if dh1 > 0.0 { pos1 = pos1 + 1; } else { pos1 = 0; }
+            if dh3 > 0.0 { pos3 = pos3 + 1; } else { pos3 = 0; }
+            if dh5 > 0.0 { pos5 = pos5 + 1; } else { pos5 = 0; }
+
+            if pos1 > 500 { if w1_done == 0 { w1_step = s - 500; w1_done = 1; } }
+            if pos3 > 500 { if w3_done == 0 { w3_step = s - 500; w3_done = 1; } }
+            if pos5 > 500 { if w5_done == 0 { w5_step = s - 500; w5_done = 1; } }
+
+            let check: i64 = s - (s / 2000) * 2000;
+            if check == 0 {
+                print("  "); print_i64(s);
+                print("  "); print_f64(h1);
+                print("  "); print_f64(h3);
+                print("  "); print_f64(h5);
+                print("  "); print_f64(causal_memory);
+                print("  "); print_f64(w_bwd);
+
+                if w5_done == 1 {
+                    if w1_done == 0 { println("  H_v5 EARLY"); }
+                    else { println("  all warned"); }
+                } else {
+                    println("");
+                }
+            }
+
+            prev_h1 = h1; prev_h3 = h3; prev_h5 = h5;
+            prev_e2 = prev_e; prev_e = e;
+
+            let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+            let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+            let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+            let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+            let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+            let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+            u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+            s = s + 1;
+        }
+    }
+    0
+}
+
+// ============================================================================
+// Exp 2: H_v5 Scaffold — A* Threshold with Backward Information
+//
+// Binary search for A* using H_v5's loop engagement.
+// If A* is larger than H_v1's → backward information strengthens scaffold.
+// ============================================================================
+
+fn hv5_loop_engages(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                    dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+    var causal_memory: f64 = 0.0;
+    var peak_memory: f64 = 0.001;
+    var s: i64 = 0;
+    var prev_e: f64 = e0;
+    var prev_e2: f64 = e0;
+    var prev_h5: f64 = 0.0;
+    var pos5: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        var l1_n: f64 = 1.0;
+        if e0 > 0.00001 { l1_n = e / e0; }
+        let de_now: f64 = abs_f64(e - prev_e);
+        let de_old: f64 = abs_f64(prev_e - prev_e2);
+        var l2_est: f64 = 0.0;
+        if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+        else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+        var l4_n: f64 = 1.0;
+        if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+        let prod: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+        var c1: f64 = 0.0;
+        if prod > 1.0 { c1 = prod - 1.0; }
+        causal_memory = causal_memory * 0.9999 + c1 * dt;
+        if causal_memory > peak_memory { peak_memory = causal_memory; }
+        var w_bwd: f64 = 0.0;
+        if peak_memory > 0.00001 { w_bwd = causal_memory / peak_memory; }
+        let w_fwd: f64 = 1.0 - w_bwd * 0.5;
+        let h_fwd: f64 = 0.25 * l1_n + 0.25 * (0.0 - l2_est) + 0.20 * l4_n + 0.15 * c1;
+        let h_bwd: f64 = causal_memory * 100.0;
+        let h5: f64 = w_fwd * h_fwd + 0.5 * w_bwd * h_bwd;
+        let dh5: f64 = h5 - prev_h5;
+        if dh5 > 0.0 { pos5 = pos5 + 1; } else { pos5 = 0; }
+        if pos5 > 500 { return 1; }
+        prev_h5 = h5; prev_e2 = prev_e; prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+fn hv1_loop_engages(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                    dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    let e0: f64 = enstrophy3(ox, oy, oz);
+    var s: i64 = 0;
+    var prev_e: f64 = e0;
+    var prev_e2: f64 = e0;
+    var prev_h1: f64 = 0.0;
+    var pos1: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        var l1_n: f64 = 1.0;
+        if e0 > 0.00001 { l1_n = e / e0; }
+        let de_now: f64 = abs_f64(e - prev_e);
+        let de_old: f64 = abs_f64(prev_e - prev_e2);
+        var l2_est: f64 = 0.0;
+        if de_old > 0.0000001 { l2_est = 1.0 - de_now / de_old; }
+        else { if de_now < 0.0000001 { l2_est = 1.0; } else { l2_est = 0.0 - 1.0; } }
+        var l4_n: f64 = 1.0;
+        if e > prev_e { l4_n = 1.0 + (e - prev_e) / (e + 0.001); }
+        let h1: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2_est) + 0.3 * l4_n;
+        let dh1: f64 = h1 - prev_h1;
+        if dh1 > 0.0 { pos1 = pos1 + 1; } else { pos1 = 0; }
+        if pos1 > 500 { return 1; }
+        prev_h1 = h1; prev_e2 = prev_e; prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+fn test_hv5_scaffold() -> i64 {
+    println("");
+    println("=== Exp 2: H_v5 Scaffold — A* Threshold ===");
+    println("  Compare A* between H_v1 (forward) and H_v5 (backward-informed)");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 40000;
+
+    println("  lambda2   A*(H_v1)   A*(H_v5)   Ratio    Effect");
+
+    var li: i64 = 0;
+    while li < 5 {
+        var lambda2: f64 = 0.0;
+        if li == 1 { lambda2 = 2.0; }
+        if li == 2 { lambda2 = 5.0; }
+        if li == 3 { lambda2 = 10.0; }
+        if li == 4 { lambda2 = 20.0; }
+
+        // A* for H_v1
+        var lo1: f64 = 0.01;
+        var hi1: f64 = 4.0;
+        var iter: i64 = 0;
+        while iter < 12 {
+            let mid: f64 = (lo1 + hi1) / 2.0;
+            let eng: i64 = hv1_loop_engages(mid, nu, sigma, lambda, lambda2, dt, max_s);
+            if eng > 0 { hi1 = mid; } else { lo1 = mid; }
+            iter = iter + 1;
+        }
+        let a1: f64 = (lo1 + hi1) / 2.0;
+
+        // A* for H_v5
+        var lo5: f64 = 0.01;
+        var hi5: f64 = 4.0;
+        iter = 0;
+        while iter < 12 {
+            let mid: f64 = (lo5 + hi5) / 2.0;
+            let eng: i64 = hv5_loop_engages(mid, nu, sigma, lambda, lambda2, dt, max_s);
+            if eng > 0 { hi5 = mid; } else { lo5 = mid; }
+            iter = iter + 1;
+        }
+        let a5: f64 = (lo5 + hi5) / 2.0;
+
+        var ratio: f64 = 0.0;
+        if a1 > 0.001 { ratio = a5 / a1; }
+
+        print("  ");
+        print_f64(lambda2);
+        print("   ");
+        print_f64(a1);
+        print("  ");
+        print_f64(a5);
+        print("  ");
+        print_f64(ratio);
+
+        if ratio > 1.05 { println("  H_v5 STRONGER"); }
+        else {
+            if ratio > 0.95 { println("  SIMILAR"); }
+            else { println("  H_v5 more conservative"); }
+        }
+
+        li = li + 1;
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: True Backward Validation — Does H_v5 Catch Things H_v1 Misses?
+//
+// Run at amplitudes near A* where the outcome is marginal.
+// Does H_v5 correctly predict blow-up/stable where H_v1 fails?
+// ============================================================================
+
+fn test_marginal_cases() -> i64 {
+    println("=== Exp 3: Marginal Cases — H_v5 vs H_v1 ===");
+    println("  Amplitudes near A* where prediction is hardest");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  Amplitude  Blows up?  H_v1 says  H_v5 says  Correct?");
+
+    var ai: i64 = 0;
+    while ai < 8 {
+        var amp: f64 = 0.35;
+        if ai == 1 { amp = 0.32; }
+        if ai == 2 { amp = 0.30; }
+        if ai == 3 { amp = 0.28; }
+        if ai == 4 { amp = 0.26; }
+        if ai == 5 { amp = 0.24; }
+        if ai == 6 { amp = 0.22; }
+        if ai == 7 { amp = 0.20; }
+
+        // Actual outcome
+        let pi: f64 = 3.14159265358979;
+        var u: f64 = amp * sin(pi * 0.3);
+        var v: f64 = amp * sin(pi * 0.7);
+        var w: f64 = amp * sin(pi * 1.1);
+        var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+        var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+        var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+        var s: i64 = 0;
+        var blew_up: i64 = 0;
+        while s < max_s {
+            let e: f64 = enstrophy3(ox, oy, oz);
+            if e > 100.0 { blew_up = 1; s = max_s; }
+            else {
+                let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+                let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+                let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+                let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+                let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+                let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+                u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+                s = s + 1;
+            }
+        }
+
+        // H_v1 prediction
+        let h1_eng: i64 = hv1_loop_engages(amp, nu, sigma, lambda, lambda2, dt, max_s);
+        // H_v5 prediction
+        let h5_eng: i64 = hv5_loop_engages(amp, nu, sigma, lambda, lambda2, dt, max_s);
+
+        print("  ");
+        print_f64(amp);
+        if blew_up == 1 { print("     YES      "); } else { print("     NO       "); }
+        if h1_eng == 1 { print("BLOW-UP  "); } else { print("STABLE   "); }
+        if h5_eng == 1 { print("BLOW-UP  "); } else { print("STABLE   "); }
+
+        // Check correctness
+        let h1_correct: i64 = if h1_eng == blew_up { 1 } else { 0 };
+        let h5_correct: i64 = if h5_eng == blew_up { 1 } else { 0 };
+
+        if h1_correct == 1 {
+            if h5_correct == 1 { println("BOTH correct"); }
+            else { println("H_v1 correct, H_v5 WRONG"); }
+        } else {
+            if h5_correct == 1 { println("H_v5 correct, H_v1 WRONG"); }
+            else { println("BOTH wrong"); }
+        }
+
+        ai = ai + 1;
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  H_v5: BACKWARD-INFORMED HOLISTIC SCORE                  #");
+    println("#                                                          #");
+    println("#  Forward AD predicts the future.                        #");
+    println("#  Backward AD attributes the past.                       #");
+    println("#  H_v5 combines both: causal memory + current state.     #");
+    println("#                                                          #");
+    println("#  Causal memory: exponential accumulation of production   #");
+    println("#  ratio history. High past stretching dominance →         #");
+    println("#  higher backward influence → earlier warning.            #");
+    println("############################################################");
+    println("");
+
+    test_hv5_trajectory();
+    test_hv5_scaffold();
+    test_marginal_cases();
+
+    println("############################################################");
+    println("#  H_v5 — RESULTS:                                        #");
+    println("#                                                          #");
+    println("#  1. Does H_v5 warn earlier than H_v1 and H_v3?         #");
+    println("#  2. Does H_v5 give a stronger A* threshold?             #");
+    println("#  3. Does H_v5 get marginal cases right?                 #");
+    println("#                                                          #");
+    println("#  Backward information makes H aware of its own history. #");
+    println("#  The causal memory IS the backward AD approximation.    #");
+    println("############################################################");
+
+    0
+}

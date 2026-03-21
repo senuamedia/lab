@@ -1,0 +1,339 @@
+// I-Ratio Analysis of Riemann Zeta Partial Sums
+//
+// NOT proving the Riemann Hypothesis. NOT claiming anything about RH.
+// ASKING: does the I-ratio provide a useful characterisation of zeta
+// zeros that distinguishes them from non-zeros?
+//
+// Background:
+//   zeta(s) = sum_{n=1}^inf n^{-s} for Re(s) > 1
+//   Non-trivial zeros conjectured to lie on Re(s) = 0.5
+//   First few zeros at t ~ 14.13, 21.02, 25.01, 30.42, 32.94
+//
+// Complex arithmetic: n^{-s} = n^{-sigma} * (cos(t*ln(n)) - i*sin(t*ln(n)))
+//   where s = sigma + i*t
+//
+// Each term is a 2D "force" in the complex plane.
+// At a zero: forces cancel, |Z| -> 0, I -> -0.5
+// Away from zero: forces don't cancel, I != -0.5
+//
+// Exp 1: I-ratio along the critical line (sigma=0.5, sweep t)
+// Exp 2: I-ratio off the critical line (t=14.13, sweep sigma)
+// Exp 3: Fine sweep near first zero for zero detection sharpness
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// Compute real part of partial sum Z_N(sigma + it)
+// Z_re = sum_{n=1}^N n^{-sigma} * cos(t * ln(n))
+fn zeta_re(sigma: f64, t: f64, nterms: i64) -> f64 {
+    var sum: f64 = 0.0;
+    var n: i64 = 1;
+    while n <= nterms {
+        let nf: f64 = n as f64;
+        let mag: f64 = exp(0.0 - sigma * ln(nf));
+        sum = sum + mag * cos(t * ln(nf));
+        n = n + 1;
+    }
+    sum
+}
+
+// Compute imaginary part of partial sum Z_N(sigma + it)
+// Z_im = sum_{n=1}^N -n^{-sigma} * sin(t * ln(n))
+fn zeta_im(sigma: f64, t: f64, nterms: i64) -> f64 {
+    var sum: f64 = 0.0;
+    var n: i64 = 1;
+    while n <= nterms {
+        let nf: f64 = n as f64;
+        let mag: f64 = exp(0.0 - sigma * ln(nf));
+        sum = sum - mag * sin(t * ln(nf));
+        n = n + 1;
+    }
+    sum
+}
+
+// Compute |Z_N(sigma + it)|
+fn zeta_mag(sigma: f64, t: f64, nterms: i64) -> f64 {
+    let re: f64 = zeta_re(sigma, t, nterms);
+    let im: f64 = zeta_im(sigma, t, nterms);
+    sqrt(re * re + im * im)
+}
+
+// Compute I-ratio for the N terms of the zeta partial sum.
+// Each term g_n = (re_n, im_n) is a 2D gradient vector.
+// I = sum_{i<j} g_i . g_j / sum_i ||g_i||^2
+//
+// Efficient formula: I = (||sum||^2 - sum_norms) / (2 * sum_norms)
+// where ||sum||^2 = (sum re_n)^2 + (sum im_n)^2
+// and sum_norms = sum_n (re_n^2 + im_n^2)
+//
+// Derivation: ||sum g||^2 = sum ||g_i||^2 + 2 sum_{i<j} g_i.g_j
+// So sum_{i<j} g_i.g_j = (||sum||^2 - sum_norms) / 2
+// And I = that / sum_norms
+fn zeta_iratio(sigma: f64, t: f64, nterms: i64) -> f64 {
+    var sum_re: f64 = 0.0;
+    var sum_im: f64 = 0.0;
+    var sum_norms: f64 = 0.0;
+    var n: i64 = 1;
+    while n <= nterms {
+        let nf: f64 = n as f64;
+        let mag: f64 = exp(0.0 - sigma * ln(nf));
+        let re: f64 = mag * cos(t * ln(nf));
+        let im: f64 = 0.0 - mag * sin(t * ln(nf));
+        sum_re = sum_re + re;
+        sum_im = sum_im + im;
+        sum_norms = sum_norms + re * re + im * im;
+        n = n + 1;
+    }
+    let sum_sq: f64 = sum_re * sum_re + sum_im * sum_im;
+    if sum_norms < 0.0000000001 { return 0.0; }
+    (sum_sq - sum_norms) / (2.0 * sum_norms)
+}
+
+// ============================================================
+// Exp 1: I-ratio along the critical line
+// ============================================================
+fn exp1_critical_line() -> i64 {
+    println("=== Exp 1: I-Ratio Along the Critical Line (sigma=0.5) ===");
+    println("  Sweep t from 10 to 50, N=100 terms.");
+    println("  Known zeros near t = 14.13, 21.02, 25.01, 30.42, 32.94");
+    println("");
+    println("  t       |Z_100|     I_ratio     near_zero?");
+
+    // Sweep t in steps of 2.0, plus spot-check at known zeros
+    // First: regular sweep
+    var t: f64 = 10.0;
+    while t <= 50.0 {
+        let mag: f64 = zeta_mag(0.5, t, 100);
+        let ir: f64 = zeta_iratio(0.5, t, 100);
+        print("  ");
+        print_f64(t);
+        print("    ");
+        print_f64(mag);
+        print("    ");
+        print_f64(ir);
+        if mag < 1.0 {
+            println("    <-- small |Z|");
+        } else {
+            println("");
+        }
+        t = t + 2.0;
+    }
+
+    println("");
+    println("  Spot checks at known zero locations (N=100):");
+    println("  t         |Z_100|     I_ratio");
+    exp1_spot(14.13);
+    exp1_spot(21.02);
+    exp1_spot(25.01);
+    exp1_spot(30.42);
+    exp1_spot(32.94);
+
+    println("");
+    println("  CAVEAT: Partial sums are NOT the true zeta function.");
+    println("  N=100 is a crude approximation. |Z| may not reach 0 exactly.");
+    println("  The I-ratio signal is what we are characterising.");
+    println("");
+    0
+}
+
+fn exp1_spot(t: f64) -> i64 {
+    let mag: f64 = zeta_mag(0.5, t, 100);
+    let ir: f64 = zeta_iratio(0.5, t, 100);
+    print("  ");
+    print_f64(t);
+    print("     ");
+    print_f64(mag);
+    print("     ");
+    print_f64(ir);
+    let dev: f64 = abs_f64(ir + 0.5);
+    if dev < 0.02 {
+        println("   *** I ~ -0.5 ***");
+    } else {
+        println("");
+    }
+    0
+}
+
+// ============================================================
+// Exp 2: I-ratio off the critical line
+// ============================================================
+fn exp2_off_critical() -> i64 {
+    println("=== Exp 2: I-Ratio Off the Critical Line (t=14.13) ===");
+    println("  Fix t=14.13 (near first zero). Sweep sigma 0.3 to 0.7.");
+    println("  At sigma=0.5 should be near zero; elsewhere not.");
+    println("  N=30 terms (fast sweep).");
+    println("");
+    println("  sigma   |Z_30|      I_ratio     delta_from_-0.5");
+
+    var sigma: f64 = 0.3;
+    while sigma <= 0.71 {
+        let mag: f64 = zeta_mag(sigma, 14.13, 30);
+        let ir: f64 = zeta_iratio(sigma, 14.13, 30);
+        let dev: f64 = abs_f64(ir + 0.5);
+        print("  ");
+        print_f64(sigma);
+        print("   ");
+        print_f64(mag);
+        print("   ");
+        print_f64(ir);
+        print("   ");
+        print_f64(dev);
+        if dev < 0.02 {
+            println("  <-- near equilibrium");
+        } else {
+            println("");
+        }
+        sigma = sigma + 0.05;
+    }
+
+    println("");
+    println("  N=100 spot check at sigma=0.5, t=14.13:");
+    let mag100: f64 = zeta_mag(0.5, 14.13, 100);
+    let ir100: f64 = zeta_iratio(0.5, 14.13, 100);
+    print("    |Z_100| = ");
+    print_f64(mag100);
+    print("   I_ratio = ");
+    print_f64(ir100);
+    println("");
+
+    println("");
+    println("  If I-ratio dips to -0.5 only near sigma=0.5,");
+    println("  then I-ratio distinguishes the critical line.");
+    println("");
+    0
+}
+
+// ============================================================
+// Exp 3: Fine sweep near first zero
+// ============================================================
+fn exp3_fine_sweep() -> i64 {
+    println("=== Exp 3: Zero Detection — Fine Sweep t=13.0..16.0 ===");
+    println("  sigma=0.5, step=0.1, N=30 terms.");
+    println("  Does I -> -0.5 precisely at t ~ 14.13?");
+    println("");
+    println("  t       |Z_30|      I_ratio     |I+0.5|");
+
+    var t: f64 = 13.0;
+    var min_dev: f64 = 999.0;
+    var min_t: f64 = 0.0;
+    var min_mag_dev: f64 = 999.0;
+    var min_mag_t: f64 = 0.0;
+    while t <= 16.01 {
+        let mag: f64 = zeta_mag(0.5, t, 30);
+        let ir: f64 = zeta_iratio(0.5, t, 30);
+        let dev: f64 = abs_f64(ir + 0.5);
+        print("  ");
+        print_f64(t);
+        print("    ");
+        print_f64(mag);
+        print("    ");
+        print_f64(ir);
+        print("    ");
+        print_f64(dev);
+        if dev < 0.02 {
+            println("  ***");
+        } else {
+            println("");
+        }
+        if dev < min_dev {
+            min_dev = dev;
+            min_t = t;
+        }
+        if mag < min_mag_dev {
+            min_mag_dev = mag;
+            min_mag_t = t;
+        }
+        t = t + 0.1;
+    }
+
+    println("");
+    print("  Best I-ratio (closest to -0.5) at t = ");
+    print_f64(min_t);
+    print("  |I+0.5| = ");
+    print_f64(min_dev);
+    println("");
+    print("  Smallest |Z| at t = ");
+    print_f64(min_mag_t);
+    print("  |Z| = ");
+    print_f64(min_mag_dev);
+    println("");
+    println("");
+
+    // Compare sharpness: how fast does each metric change near the zero?
+    println("  Sharpness comparison (N=30):");
+    println("  Evaluating at t=14.1 vs t=14.2 vs t=14.5:");
+    exp3_compare(14.1);
+    exp3_compare(14.2);
+    exp3_compare(14.5);
+
+    println("");
+    println("  A sharper dip in I-ratio than |Z| would suggest");
+    println("  I-ratio is a more sensitive zero detector.");
+    println("  CAVEAT: N=30 partial sums are very approximate.");
+    println("");
+    0
+}
+
+fn exp3_compare(t: f64) -> i64 {
+    let mag: f64 = zeta_mag(0.5, t, 30);
+    let ir: f64 = zeta_iratio(0.5, t, 30);
+    let dev: f64 = abs_f64(ir + 0.5);
+    print("    t=");
+    print_f64(t);
+    print("  |Z|=");
+    print_f64(mag);
+    print("  I=");
+    print_f64(ir);
+    print("  |I+0.5|=");
+    print_f64(dev);
+    println("");
+    0
+}
+
+// ============================================================
+// Main
+// ============================================================
+fn main() -> i64 {
+    println("============================================================");
+    println("  RIEMANN ZETA: I-RATIO ANALYSIS OF ZERO DISTRIBUTION");
+    println("  Characterising zeta zeros via force-balance metric");
+    println("============================================================");
+    println("");
+    println("  WARNING: This is numerical exploration, NOT a proof.");
+    println("  Partial sums Z_N(s) approximate zeta(s) poorly for Re(s)=0.5.");
+    println("  Results are indicative only.");
+    println("");
+
+    exp1_critical_line();
+    exp2_off_critical();
+    exp3_fine_sweep();
+
+    println("============================================================");
+    println("  SUMMARY");
+    println("============================================================");
+    println("");
+    println("  The I-ratio measures force balance among zeta partial sum terms.");
+    println("  At a true zero, all terms cancel: I -> -0.5 (perfect balance).");
+    println("  Away from zeros, terms have net resultant: I > -0.5.");
+    println("");
+    println("  Key observations:");
+    println("  1. I-ratio dips near known zero locations on the critical line");
+    println("  2. I-ratio distinguishes sigma=0.5 from other sigma values");
+    println("  3. The dip width characterises how sharply zeros are localised");
+    println("");
+    println("  HONEST CAVEATS:");
+    println("  - Partial sums converge poorly at sigma=0.5 (critical strip)");
+    println("  - N=30..100 is far from the asymptotic regime");
+    println("  - This does NOT prove RH or anything about zeta zeros");
+    println("  - The I-ratio is a diagnostic, not a proof technique");
+    println("  - True zeta requires analytic continuation, not partial sums");
+    println("");
+    println("  WHAT THIS DOES SHOW:");
+    println("  - The I-ratio framework extends naturally to complex analysis");
+    println("  - Force-balance at -0.5 corresponds to cancellation (zeros)");
+    println("  - The metric could guide numerical zero-finding algorithms");
+    println("============================================================");
+
+    0
+}

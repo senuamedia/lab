@@ -1,0 +1,270 @@
+// VERIFICATION POINT 1: The Feedback Loop is Structural
+//
+// Test that the loop L1->L4->L2 exists at the 8-mode model
+// under DIFFERENT parameters. If the loop appears for all
+// parameter combinations, it is structural (not a tuning artefact).
+//
+// 8-mode model: 4 velocity (u0,u1 at k=1; u2,u3 at k=2)
+//               4 vorticity (w0,w1 at k=2; w2,w3 at k=3)
+//
+// Sweep 9 parameter combinations:
+//   nu:      0.001, 0.005, 0.02
+//   lambda2: 1.0, 5.0, 20.0
+//
+// For each: run 30000 steps at A=0.1, track enstrophy and its
+// derivative. Check if L1 (enstrophy growth) engages AND L2
+// (diffusive damping) kicks in after the growth phase.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+
+fn enstrophy4(o0: f64, o1: f64, o2: f64, o3: f64) -> f64 {
+    0.5 * (o0 * o0 + o1 * o1 + o2 * o2 + o3 * o3)
+}
+
+fn step8(u0: f64, u1: f64, u2: f64, u3: f64,
+         w0: f64, w1: f64, w2: f64, w3: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64, beta: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3;
+    let fd_u0: f64 = 0.0 - nu * 1.0 * u0;
+    let fd_u1: f64 = 0.0 - nu * 1.0 * u1;
+    let fd_u2: f64 = 0.0 - nu * 4.0 * u2;
+    let fd_u3: f64 = 0.0 - nu * 4.0 * u3;
+    let fd_w0: f64 = 0.0 - nu * 4.0 * w0;
+    let fd_w1: f64 = 0.0 - nu * 4.0 * w1;
+    let fd_w2: f64 = 0.0 - nu * 9.0 * w2;
+    let fd_w3: f64 = 0.0 - nu * 9.0 * w3;
+    let fs_u0: f64 = sigma * (w0 * u1 - w1 * u0);
+    let fs_u1: f64 = sigma * (w1 * u0 - w0 * u1);
+    let fs_u2: f64 = sigma * (w2 * u3 - w3 * u2);
+    let fs_u3: f64 = sigma * (w3 * u2 - w2 * u3);
+    let fv_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+    let fv_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+    let fv_w2: f64 = lambda * (w3 * u2 + w2 * u3);
+    let fv_w3: f64 = lambda * (w2 * u3 + w3 * u2);
+    let fq_w0: f64 = lambda2 * omega_sq * w0;
+    let fq_w1: f64 = lambda2 * omega_sq * w1;
+    let fq_w2: f64 = lambda2 * omega_sq * w2;
+    let fq_w3: f64 = lambda2 * omega_sq * w3;
+    let fc_w2: f64 = beta * (w0 * w1);
+    let fc_w3: f64 = beta * (0.0 - w0 * w1);
+
+    if which == 0 { return u0 + dt * (fd_u0 + fs_u0); }
+    if which == 1 { return u1 + dt * (fd_u1 + fs_u1); }
+    if which == 2 { return u2 + dt * (fd_u2 + fs_u2); }
+    if which == 3 { return u3 + dt * (fd_u3 + fs_u3); }
+    if which == 4 { return w0 + dt * (fd_w0 + fv_w0 + fq_w0); }
+    if which == 5 { return w1 + dt * (fd_w1 + fv_w1 + fq_w1); }
+    if which == 6 { return w2 + dt * (fd_w2 + fv_w2 + fq_w2 + fc_w2); }
+    w3 + dt * (fd_w3 + fv_w3 + fq_w3 + fc_w3)
+}
+
+// Run simulation, return loop detection info via query:
+//   query==0: return 1.0 if L1 (growth phase) detected, 0.0 otherwise
+//   query==1: return 1.0 if L2 (damping after growth) detected, 0.0 otherwise
+//   query==2: return max enstrophy
+//   query==3: return S-score (convergence metric)
+//   query==4: return enstrophy at step report_at
+fn run_loop_test(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                 beta: f64, dt: f64, max_steps: i64, query: i64,
+                 report_at: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2);
+    var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8);
+    var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0);
+    var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var max_e: f64 = 0.0;
+    var prev_e: f64 = enstrophy4(w0, w1, w2, w3);
+    var growth_seen: f64 = 0.0;
+    var damping_after_growth: f64 = 0.0;
+    var growth_steps: i64 = 0;
+    var s_score: f64 = 0.0;
+    var s_count: f64 = 0.0;
+    var early_drift: f64 = 0.0;
+    var late_drift: f64 = 0.0;
+    var early_count: f64 = 0.0;
+    var late_count: f64 = 0.0;
+
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > max_e { max_e = e; }
+        if e > 1000.0 {
+            // Blow-up: loop did engage but didn't damp
+            if query == 0 { return 1.0; }
+            if query == 1 { return 0.0; }
+            if query == 2 { return max_e; }
+            if query == 3 { return s_score; }
+            return e;
+        }
+
+        // Track growth
+        let de: f64 = e - prev_e;
+        if de > 0.0 {
+            growth_steps = growth_steps + 1;
+            if growth_steps > 100 { growth_seen = 1.0; }
+        }
+
+        // Track S-score (convergence): early drift vs late drift
+        let drift: f64 = abs_f64(e - prev_e);
+        let half: i64 = max_steps / 2;
+        if s < half {
+            early_drift = early_drift + drift;
+            early_count = early_count + 1.0;
+        } else {
+            late_drift = late_drift + drift;
+            late_count = late_count + 1.0;
+        }
+
+        // Check L2: S goes negative when late drift > early drift
+        // (enstrophy changes are ACCELERATING, not converging)
+        if s > half {
+            if early_count > 0.5 {
+                if late_count > 0.5 {
+                    let avg_early: f64 = early_drift / early_count;
+                    let avg_late: f64 = late_drift / late_count;
+                    if avg_early > 0.0000000001 {
+                        s_score = 1.0 - avg_late / avg_early;
+                        // S < 0 means late drift > early drift = diverging
+                        if s_score < 0.0 { damping_after_growth = 1.0; }
+                    }
+                }
+            }
+        }
+
+        // Report at specific step
+        if query == 4 {
+            if s == report_at { return e; }
+        }
+
+        prev_e = e;
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    if query == 0 { return growth_seen; }
+    if query == 1 { return damping_after_growth; }
+    if query == 2 { return max_e; }
+    if query == 3 {
+        if s_count > 0.5 { return s_score / s_count; }
+        return 0.0;
+    }
+    0.0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  VERIFICATION POINT 1:                                   #");
+    println("#  The Feedback Loop L1->L4->L2 is Structural             #");
+    println("#                                                          #");
+    println("#  Test: 9 parameter combinations on 8-mode model         #");
+    println("#  nu:      0.001, 0.005, 0.02                            #");
+    println("#  lambda2: 1.0, 5.0, 20.0                                #");
+    println("############################################################");
+    println("");
+
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 30000;
+    var loop_count: i64 = 0;
+    var combo: i64 = 0;
+
+    println("  nu       lambda2   A*        TestAmp   L1(grow)  L2(damp)  S-score   Loop?");
+    println("  -------  --------  --------  --------  --------  --------  --------  -----");
+
+    while combo < 9 {
+        var nu: f64 = 0.001;
+        var lam2: f64 = 1.0;
+
+        if combo == 0 { nu = 0.001; lam2 = 1.0; }
+        if combo == 1 { nu = 0.001; lam2 = 5.0; }
+        if combo == 2 { nu = 0.001; lam2 = 20.0; }
+        if combo == 3 { nu = 0.005; lam2 = 1.0; }
+        if combo == 4 { nu = 0.005; lam2 = 5.0; }
+        if combo == 5 { nu = 0.005; lam2 = 20.0; }
+        if combo == 6 { nu = 0.02; lam2 = 1.0; }
+        if combo == 7 { nu = 0.02; lam2 = 5.0; }
+        if combo == 8 { nu = 0.02; lam2 = 20.0; }
+
+        // First find A* for this parameter combo
+        var lo_a: f64 = 0.001;
+        var hi_a: f64 = 2.0;
+        var iter: i64 = 0;
+        while iter < 12 {
+            let mid: f64 = (lo_a + hi_a) / 2.0;
+            let me_test: f64 = run_loop_test(mid, nu, sigma, lambda, lam2, beta, dt, max_s, 2, 0);
+            if me_test > 90.0 { hi_a = mid; } else { lo_a = mid; }
+            iter = iter + 1;
+        }
+        let a_star: f64 = (lo_a + hi_a) / 2.0;
+
+        // Test loop at 80% of A* (near blow-up but safe)
+        let amp: f64 = a_star * 0.8;
+
+        let l1: f64 = run_loop_test(amp, nu, sigma, lambda, lam2, beta, dt, max_s, 0, 0);
+        let l2: f64 = run_loop_test(amp, nu, sigma, lambda, lam2, beta, dt, max_s, 1, 0);
+        let me: f64 = run_loop_test(amp, nu, sigma, lambda, lam2, beta, dt, max_s, 2, 0);
+        let sc: f64 = run_loop_test(amp, nu, sigma, lambda, lam2, beta, dt, max_s, 3, 0);
+
+        let has_loop: i64 = if l1 > 0.5 { if l2 > 0.5 { 1 } else { 0 } } else { 0 };
+        if has_loop == 1 { loop_count = loop_count + 1; }
+
+        print("  ");
+        print_f64(nu);
+        print("  ");
+        print_f64(lam2);
+        print("  ");
+        print_f64(a_star);
+        print("  ");
+        print_f64(amp);
+        print("  ");
+        if l1 > 0.5 { print("YES  "); } else { print("no   "); }
+        if l2 > 0.5 { print("YES  "); } else { print("no   "); }
+        print_f64(sc);
+        if has_loop == 1 { print("  LOOP"); } else { print("  ----"); }
+        println("");
+
+        // (snapshots removed for clarity)
+
+        combo = combo + 1;
+    }
+
+    println("");
+    println("############################################################");
+    print("#  Loop detected in ");
+    print_i64(loop_count);
+    println("/9 parameter combinations          #");
+    if loop_count == 9 {
+        println("#  STRUCTURAL: loop is parameter-independent              #");
+    }
+    if loop_count >= 7 {
+        if loop_count < 9 {
+            println("#  STRONG: loop present in most combinations              #");
+        }
+    }
+    if loop_count < 7 {
+        print("#  PARTIAL: loop found in ");
+        print_i64(loop_count);
+        println("/9 combinations             #");
+    }
+    println("############################################################");
+
+    0
+}

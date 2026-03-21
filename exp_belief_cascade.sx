@@ -1,0 +1,790 @@
+// Experiment: Belief Cascades
+//
+// Tests chains of correlated beliefs where information flows through the chain.
+//
+// Exp 1: Belief Chain (A->B->C->D->E)
+//   5 beliefs in a chain, each influencing the next.
+//   True values: A=0.8, B=0.7, C=0.5, D=0.3, E=0.2
+//   Learnable chain interaction alphas.
+//   Compare: no interaction, uniform interaction, learned chain.
+//
+// Exp 2: Circular Beliefs (A->B->C->A)
+//   3 beliefs in a cycle. Does interaction converge or oscillate?
+//   Does the system break the cycle by zeroing one alpha?
+//
+// Exp 3: Cascade Delay
+//   Chain of 4 beliefs with delayed evidence propagation.
+//   Evidence reaches D 10 observations after reaching A.
+//   Does learned interaction speed up information propagation?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn lcg_next(state: i64) -> i64 {
+    state * 1664525 + 1013904223
+}
+
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    (s % 10000) as f64 / 10000.0
+}
+
+fn beta_mean(a: f64, b: f64) -> f64 {
+    a / (a + b)
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+// ============================================================================
+// Exp 1: Belief Chain A->B->C->D->E
+// ============================================================================
+
+// Train a 5-belief chain. alphas[i] = interaction from belief i to belief i+1.
+// Returns sum of squared errors across all 5 beliefs.
+fn train_chain(a0: f64, a1: f64, a2: f64, a3: f64,
+               obs: i64, seed: i64) -> f64 {
+    // Priors: Beta(2,2) for each belief
+    var al_a: f64 = 2.0;
+    var be_a: f64 = 2.0;
+    var al_b: f64 = 2.0;
+    var be_b: f64 = 2.0;
+    var al_c: f64 = 2.0;
+    var be_c: f64 = 2.0;
+    var al_d: f64 = 2.0;
+    var be_d: f64 = 2.0;
+    var al_e: f64 = 2.0;
+    var be_e: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var boost: f64 = 0.0;
+
+    // True values
+    let t_a: f64 = 0.8;
+    let t_b: f64 = 0.7;
+    let t_c: f64 = 0.5;
+    let t_d: f64 = 0.3;
+    let t_e: f64 = 0.2;
+
+    while step < obs {
+        // Observe A
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_a {
+            al_a = al_a + 1.0;
+            // A boosts B
+            boost = a0 * (beta_mean(al_a, be_a) - 0.5) * 0.3;
+            if boost > 0.0 { al_b = al_b + boost; }
+        } else {
+            be_a = be_a + 1.0;
+        }
+
+        // Observe B
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_b {
+            al_b = al_b + 1.0;
+            // B boosts C
+            boost = a1 * (beta_mean(al_b, be_b) - 0.5) * 0.3;
+            if boost > 0.0 { al_c = al_c + boost; }
+        } else {
+            be_b = be_b + 1.0;
+        }
+
+        // Observe C
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_c {
+            al_c = al_c + 1.0;
+            // C boosts D
+            boost = a2 * (beta_mean(al_c, be_c) - 0.5) * 0.3;
+            if boost > 0.0 { al_d = al_d + boost; }
+        } else {
+            be_c = be_c + 1.0;
+        }
+
+        // Observe D
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_d {
+            al_d = al_d + 1.0;
+            // D boosts E
+            boost = a3 * (beta_mean(al_d, be_d) - 0.5) * 0.3;
+            if boost > 0.0 { al_e = al_e + boost; }
+        } else {
+            be_d = be_d + 1.0;
+        }
+
+        // Observe E
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_e {
+            al_e = al_e + 1.0;
+        } else {
+            be_e = be_e + 1.0;
+        }
+
+        step = step + 1;
+    }
+
+    let ea: f64 = beta_mean(al_a, be_a) - t_a;
+    let eb: f64 = beta_mean(al_b, be_b) - t_b;
+    let ec: f64 = beta_mean(al_c, be_c) - t_c;
+    let ed: f64 = beta_mean(al_d, be_d) - t_d;
+    let ee: f64 = beta_mean(al_e, be_e) - t_e;
+    ea * ea + eb * eb + ec * ec + ed * ed + ee * ee
+}
+
+// Average chain loss over 3 seeds
+fn chain_loss_avg(a0: f64, a1: f64, a2: f64, a3: f64, obs: i64) -> f64 {
+    let l1: f64 = train_chain(a0, a1, a2, a3, obs, 42);
+    let l2: f64 = train_chain(a0, a1, a2, a3, obs, 137);
+    let l3: f64 = train_chain(a0, a1, a2, a3, obs, 999);
+    (l1 + l2 + l3) / 3.0
+}
+
+// Meta-gradient for chain alpha[which] via finite difference
+fn mg_chain(a0: f64, a1: f64, a2: f64, a3: f64,
+            which: i64, obs: i64) -> f64 {
+    let h: f64 = 0.005;
+    var p0: f64 = a0;
+    var p1: f64 = a1;
+    var p2: f64 = a2;
+    var p3: f64 = a3;
+    var m0: f64 = a0;
+    var m1: f64 = a1;
+    var m2: f64 = a2;
+    var m3: f64 = a3;
+
+    if which == 0 { p0 = a0 + h; m0 = a0 - h; }
+    if which == 1 { p1 = a1 + h; m1 = a1 - h; }
+    if which == 2 { p2 = a2 + h; m2 = a2 - h; }
+    if which == 3 { p3 = a3 + h; m3 = a3 - h; }
+
+    let lp: f64 = chain_loss_avg(p0, p1, p2, p3, obs);
+    let lm: f64 = chain_loss_avg(m0, m1, m2, m3, obs);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp1() -> i64 {
+    println("============================================");
+    println("  EXP 1: BELIEF CHAIN  A->B->C->D->E");
+    println("  True: A=0.8 B=0.7 C=0.5 D=0.3 E=0.2");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 150;
+    let meta_cycles: i64 = 40;
+    let meta_lr: f64 = 0.1;
+
+    // Baseline: no interaction
+    let loss_none: f64 = chain_loss_avg(0.0, 0.0, 0.0, 0.0, obs);
+    print("  No interaction:       loss=");
+    print_f64(loss_none);
+    println("");
+
+    // Baseline: uniform interaction
+    let loss_unif: f64 = chain_loss_avg(1.0, 1.0, 1.0, 1.0, obs);
+    print("  Uniform (alpha=1.0):  loss=");
+    print_f64(loss_unif);
+    println("");
+
+    // Learn chain alphas
+    var a0: f64 = 0.5;
+    var a1: f64 = 0.5;
+    var a2: f64 = 0.5;
+    var a3: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+
+    println("");
+    println("  Cycle  Loss       a_AB     a_BC     a_CD     a_DE");
+    println("  -----  ---------  -------  -------  -------  -------");
+
+    while cycle < meta_cycles {
+        mg = mg_chain(a0, a1, a2, a3, 0, obs);
+        a0 = clamp(a0 - meta_lr * mg, 0.0, 3.0);
+        mg = mg_chain(a0, a1, a2, a3, 1, obs);
+        a1 = clamp(a1 - meta_lr * mg, 0.0, 3.0);
+        mg = mg_chain(a0, a1, a2, a3, 2, obs);
+        a2 = clamp(a2 - meta_lr * mg, 0.0, 3.0);
+        mg = mg_chain(a0, a1, a2, a3, 3, obs);
+        a3 = clamp(a3 - meta_lr * mg, 0.0, 3.0);
+
+        loss = chain_loss_avg(a0, a1, a2, a3, obs);
+
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(loss);
+            print("  ");
+            print_f64(a0);
+            print("  ");
+            print_f64(a1);
+            print("  ");
+            print_f64(a2);
+            print("  ");
+            print_f64(a3);
+            println("");
+        }
+        if cycle == 19 {
+            print("  19     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(a0);
+            print("  ");
+            print_f64(a1);
+            print("  ");
+            print_f64(a2);
+            print("  ");
+            print_f64(a3);
+            println("");
+        }
+        if cycle == 39 {
+            print("  39     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(a0);
+            print("  ");
+            print_f64(a1);
+            print("  ");
+            print_f64(a2);
+            print("  ");
+            print_f64(a3);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let loss_learned: f64 = chain_loss_avg(a0, a1, a2, a3, obs);
+
+    println("");
+    println("  --- Chain Results ---");
+    print("  Learned chain:        loss=");
+    print_f64(loss_learned);
+    println("");
+    print("  alpha A->B: ");
+    print_f64(a0);
+    println("");
+    print("  alpha B->C: ");
+    print_f64(a1);
+    println("");
+    print("  alpha C->D: ");
+    print_f64(a2);
+    println("");
+    print("  alpha D->E: ");
+    print_f64(a3);
+    println("");
+
+    // Coupling decay analysis: do adjacent beliefs couple more strongly?
+    if a0 > a3 {
+        println("  FINDING: Early chain links (A->B) couple stronger than late (D->E)");
+    }
+    if loss_learned < loss_none {
+        println("  FINDING: Learned chain BEATS independent beliefs");
+    }
+    if loss_learned < loss_unif {
+        println("  FINDING: Learned chain BEATS uniform interaction");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Circular Beliefs A->B->C->A
+// ============================================================================
+
+fn train_circular(a_ab: f64, a_bc: f64, a_ca: f64,
+                  obs: i64, seed: i64) -> f64 {
+    var al_a: f64 = 2.0;
+    var be_a: f64 = 2.0;
+    var al_b: f64 = 2.0;
+    var be_b: f64 = 2.0;
+    var al_c: f64 = 2.0;
+    var be_c: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var boost: f64 = 0.0;
+
+    let t_a: f64 = 0.7;
+    let t_b: f64 = 0.4;
+    let t_c: f64 = 0.8;
+
+    while step < obs {
+        // Observe A
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_a {
+            al_a = al_a + 1.0;
+            boost = a_ab * (beta_mean(al_a, be_a) - 0.5) * 0.3;
+            if boost > 0.0 { al_b = al_b + boost; }
+        } else {
+            be_a = be_a + 1.0;
+        }
+
+        // Observe B
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_b {
+            al_b = al_b + 1.0;
+            boost = a_bc * (beta_mean(al_b, be_b) - 0.5) * 0.3;
+            if boost > 0.0 { al_c = al_c + boost; }
+        } else {
+            be_b = be_b + 1.0;
+        }
+
+        // Observe C — completes the cycle: C boosts A
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_c {
+            al_c = al_c + 1.0;
+            boost = a_ca * (beta_mean(al_c, be_c) - 0.5) * 0.3;
+            if boost > 0.0 { al_a = al_a + boost; }
+        } else {
+            be_c = be_c + 1.0;
+        }
+
+        step = step + 1;
+    }
+
+    let ea: f64 = beta_mean(al_a, be_a) - t_a;
+    let eb: f64 = beta_mean(al_b, be_b) - t_b;
+    let ec: f64 = beta_mean(al_c, be_c) - t_c;
+    ea * ea + eb * eb + ec * ec
+}
+
+fn circ_loss_avg(a_ab: f64, a_bc: f64, a_ca: f64, obs: i64) -> f64 {
+    let l1: f64 = train_circular(a_ab, a_bc, a_ca, obs, 42);
+    let l2: f64 = train_circular(a_ab, a_bc, a_ca, obs, 137);
+    let l3: f64 = train_circular(a_ab, a_bc, a_ca, obs, 999);
+    (l1 + l2 + l3) / 3.0
+}
+
+fn mg_circ(ab: f64, bc: f64, ca: f64, which: i64, obs: i64) -> f64 {
+    let h: f64 = 0.005;
+    var abp: f64 = ab;
+    var bcp: f64 = bc;
+    var cap: f64 = ca;
+    var abm: f64 = ab;
+    var bcm: f64 = bc;
+    var cam: f64 = ca;
+
+    if which == 0 { abp = ab + h; abm = ab - h; }
+    if which == 1 { bcp = bc + h; bcm = bc - h; }
+    if which == 2 { cap = ca + h; cam = ca - h; }
+
+    let lp: f64 = circ_loss_avg(abp, bcp, cap, obs);
+    let lm: f64 = circ_loss_avg(abm, bcm, cam, obs);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp2() -> i64 {
+    println("============================================");
+    println("  EXP 2: CIRCULAR BELIEFS  A->B->C->A");
+    println("  True: A=0.7 B=0.4 C=0.8");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 150;
+    let meta_cycles: i64 = 40;
+    let meta_lr: f64 = 0.1;
+
+    let loss_none: f64 = circ_loss_avg(0.0, 0.0, 0.0, obs);
+    print("  No interaction:       loss=");
+    print_f64(loss_none);
+    println("");
+
+    let loss_unif: f64 = circ_loss_avg(1.0, 1.0, 1.0, obs);
+    print("  Uniform (alpha=1.0):  loss=");
+    print_f64(loss_unif);
+    println("");
+
+    var ab: f64 = 0.5;
+    var bc: f64 = 0.5;
+    var ca: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+    var prev_ab: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var osc_count: i64 = 0;
+
+    println("");
+    println("  Cycle  Loss       a_AB     a_BC     a_CA");
+    println("  -----  ---------  -------  -------  -------");
+
+    while cycle < meta_cycles {
+        prev_ab = ab;
+        prev_bc = bc;
+        prev_ca = ca;
+
+        mg = mg_circ(ab, bc, ca, 0, obs);
+        ab = clamp(ab - meta_lr * mg, 0.0, 3.0);
+        mg = mg_circ(ab, bc, ca, 1, obs);
+        bc = clamp(bc - meta_lr * mg, 0.0, 3.0);
+        mg = mg_circ(ab, bc, ca, 2, obs);
+        ca = clamp(ca - meta_lr * mg, 0.0, 3.0);
+
+        loss = circ_loss_avg(ab, bc, ca, obs);
+
+        // Detect oscillation: direction change in any alpha
+        if cycle > 1 {
+            if (ab - prev_ab) * (prev_ab - 0.5) < 0.0 {
+                osc_count = osc_count + 1;
+            }
+        }
+
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(loss);
+            print("  ");
+            print_f64(ab);
+            print("  ");
+            print_f64(bc);
+            print("  ");
+            print_f64(ca);
+            println("");
+        }
+        if cycle == 19 {
+            print("  19     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(ab);
+            print("  ");
+            print_f64(bc);
+            print("  ");
+            print_f64(ca);
+            println("");
+        }
+        if cycle == 39 {
+            print("  39     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(ab);
+            print("  ");
+            print_f64(bc);
+            print("  ");
+            print_f64(ca);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let loss_learned: f64 = circ_loss_avg(ab, bc, ca, obs);
+
+    println("");
+    println("  --- Circular Results ---");
+    print("  Learned cycle:        loss=");
+    print_f64(loss_learned);
+    println("");
+    print("  alpha A->B: ");
+    print_f64(ab);
+    println("");
+    print("  alpha B->C: ");
+    print_f64(bc);
+    println("");
+    print("  alpha C->A: ");
+    print_f64(ca);
+    println("");
+
+    // Check if cycle was broken
+    let min_alpha: f64 = ab;
+    var broke_cycle: i64 = 0;
+    if bc < min_alpha {
+        if bc < 0.1 { broke_cycle = 1; }
+    }
+    if ca < min_alpha {
+        if ca < 0.1 { broke_cycle = 1; }
+    }
+    if ab < 0.1 { broke_cycle = 1; }
+
+    if broke_cycle == 1 {
+        println("  FINDING: System BROKE the cycle (one alpha near zero)");
+    } else {
+        println("  FINDING: Cycle maintained — all alphas remain positive");
+    }
+
+    print("  Oscillation events detected: ");
+    print_i64(osc_count);
+    println("");
+
+    if loss_learned < loss_none {
+        println("  FINDING: Circular interaction IMPROVES accuracy");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Cascade Delay — evidence reaches D with 10-obs delay from A
+// ============================================================================
+
+// Train 4-belief chain with delayed evidence propagation.
+// Evidence arrives at belief i after delay_per_link * i observations.
+fn train_delayed(a0: f64, a1: f64, a2: f64,
+                 obs: i64, delay: i64, seed: i64) -> f64 {
+    var al_a: f64 = 2.0;
+    var be_a: f64 = 2.0;
+    var al_b: f64 = 2.0;
+    var be_b: f64 = 2.0;
+    var al_c: f64 = 2.0;
+    var be_c: f64 = 2.0;
+    var al_d: f64 = 2.0;
+    var be_d: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var boost: f64 = 0.0;
+
+    let t_a: f64 = 0.75;
+    let t_b: f64 = 0.6;
+    let t_c: f64 = 0.45;
+    let t_d: f64 = 0.3;
+
+    // delay_b = delay, delay_c = 2*delay, delay_d = 3*delay
+    let delay_b: i64 = delay;
+    let delay_c: i64 = delay * 2;
+    let delay_d: i64 = delay * 3;
+
+    while step < obs {
+        // A always gets evidence
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_a {
+            al_a = al_a + 1.0;
+            // A boosts B via interaction (immediate)
+            boost = a0 * (beta_mean(al_a, be_a) - 0.5) * 0.3;
+            if boost > 0.0 { al_b = al_b + boost; }
+        } else {
+            be_a = be_a + 1.0;
+        }
+
+        // B gets direct evidence only after delay_b
+        if step >= delay_b {
+            rng = lcg_next(rng);
+            if lcg_f64(rng) < t_b {
+                al_b = al_b + 1.0;
+                boost = a1 * (beta_mean(al_b, be_b) - 0.5) * 0.3;
+                if boost > 0.0 { al_c = al_c + boost; }
+            } else {
+                be_b = be_b + 1.0;
+            }
+        }
+
+        // C gets direct evidence only after delay_c
+        if step >= delay_c {
+            rng = lcg_next(rng);
+            if lcg_f64(rng) < t_c {
+                al_c = al_c + 1.0;
+                boost = a2 * (beta_mean(al_c, be_c) - 0.5) * 0.3;
+                if boost > 0.0 { al_d = al_d + boost; }
+            } else {
+                be_c = be_c + 1.0;
+            }
+        }
+
+        // D gets direct evidence only after delay_d
+        if step >= delay_d {
+            rng = lcg_next(rng);
+            if lcg_f64(rng) < t_d {
+                al_d = al_d + 1.0;
+            } else {
+                be_d = be_d + 1.0;
+            }
+        }
+
+        step = step + 1;
+    }
+
+    let ea: f64 = beta_mean(al_a, be_a) - t_a;
+    let eb: f64 = beta_mean(al_b, be_b) - t_b;
+    let ec: f64 = beta_mean(al_c, be_c) - t_c;
+    let ed: f64 = beta_mean(al_d, be_d) - t_d;
+    ea * ea + eb * eb + ec * ec + ed * ed
+}
+
+fn delay_loss_avg(a0: f64, a1: f64, a2: f64,
+                  obs: i64, delay: i64) -> f64 {
+    let l1: f64 = train_delayed(a0, a1, a2, obs, delay, 42);
+    let l2: f64 = train_delayed(a0, a1, a2, obs, delay, 137);
+    let l3: f64 = train_delayed(a0, a1, a2, obs, delay, 999);
+    (l1 + l2 + l3) / 3.0
+}
+
+fn mg_delay(a0: f64, a1: f64, a2: f64,
+            which: i64, obs: i64, delay: i64) -> f64 {
+    let h: f64 = 0.005;
+    var p0: f64 = a0;
+    var p1: f64 = a1;
+    var p2: f64 = a2;
+    var m0: f64 = a0;
+    var m1: f64 = a1;
+    var m2: f64 = a2;
+
+    if which == 0 { p0 = a0 + h; m0 = a0 - h; }
+    if which == 1 { p1 = a1 + h; m1 = a1 - h; }
+    if which == 2 { p2 = a2 + h; m2 = a2 - h; }
+
+    let lp: f64 = delay_loss_avg(p0, p1, p2, obs, delay);
+    let lm: f64 = delay_loss_avg(m0, m1, m2, obs, delay);
+    (lp - lm) / (2.0 * h)
+}
+
+// Measure error at specific observation count (early snapshot)
+fn snapshot_error(a0: f64, a1: f64, a2: f64,
+                  snap_obs: i64, delay: i64) -> f64 {
+    delay_loss_avg(a0, a1, a2, snap_obs, delay)
+}
+
+fn run_exp3() -> i64 {
+    println("============================================");
+    println("  EXP 3: CASCADE DELAY");
+    println("  4 beliefs, evidence delay=10 per link");
+    println("  True: A=0.75 B=0.6 C=0.45 D=0.3");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 150;
+    let delay: i64 = 10;
+    let meta_cycles: i64 = 40;
+    let meta_lr: f64 = 0.1;
+
+    let loss_none: f64 = delay_loss_avg(0.0, 0.0, 0.0, obs, delay);
+    print("  No interaction:       loss=");
+    print_f64(loss_none);
+    println("");
+
+    let loss_unif: f64 = delay_loss_avg(1.0, 1.0, 1.0, obs, delay);
+    print("  Uniform (alpha=1.0):  loss=");
+    print_f64(loss_unif);
+    println("");
+
+    // Learn delay chain alphas
+    var a0: f64 = 0.5;
+    var a1: f64 = 0.5;
+    var a2: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+
+    println("");
+    println("  Cycle  Loss       a_AB     a_BC     a_CD");
+    println("  -----  ---------  -------  -------  -------");
+
+    while cycle < meta_cycles {
+        mg = mg_delay(a0, a1, a2, 0, obs, delay);
+        a0 = clamp(a0 - meta_lr * mg, 0.0, 3.0);
+        mg = mg_delay(a0, a1, a2, 1, obs, delay);
+        a1 = clamp(a1 - meta_lr * mg, 0.0, 3.0);
+        mg = mg_delay(a0, a1, a2, 2, obs, delay);
+        a2 = clamp(a2 - meta_lr * mg, 0.0, 3.0);
+
+        loss = delay_loss_avg(a0, a1, a2, obs, delay);
+
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(loss);
+            print("  ");
+            print_f64(a0);
+            print("  ");
+            print_f64(a1);
+            print("  ");
+            print_f64(a2);
+            println("");
+        }
+        if cycle == 19 {
+            print("  19     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(a0);
+            print("  ");
+            print_f64(a1);
+            print("  ");
+            print_f64(a2);
+            println("");
+        }
+        if cycle == 39 {
+            print("  39     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(a0);
+            print("  ");
+            print_f64(a1);
+            print("  ");
+            print_f64(a2);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let loss_learned: f64 = delay_loss_avg(a0, a1, a2, obs, delay);
+
+    println("");
+    println("  --- Delay Results ---");
+    print("  Learned delay chain:  loss=");
+    print_f64(loss_learned);
+    println("");
+    print("  alpha A->B: ");
+    print_f64(a0);
+    println("");
+    print("  alpha B->C: ");
+    print_f64(a1);
+    println("");
+    print("  alpha C->D: ");
+    print_f64(a2);
+    println("");
+
+    // Early propagation test: check error at obs=50 (before D gets direct evidence)
+    println("");
+    println("  --- Information Propagation Speed ---");
+    let early_none: f64 = snapshot_error(0.0, 0.0, 0.0, 50, delay);
+    let early_learn: f64 = snapshot_error(a0, a1, a2, 50, delay);
+    print("  Error at obs=50 (no interaction):  ");
+    print_f64(early_none);
+    println("");
+    print("  Error at obs=50 (learned chain):   ");
+    print_f64(early_learn);
+    println("");
+
+    if early_learn < early_none {
+        println("  FINDING: Learned interaction SPEEDS UP information propagation");
+        let speedup: f64 = (early_none - early_learn) / (early_none + 0.0000001);
+        print("  Speedup factor: ");
+        print_f64(speedup);
+        println("");
+    }
+
+    // Check if early links get stronger alpha (compensating for more delay)
+    if a0 > a2 {
+        println("  FINDING: Early links (A->B) have stronger coupling");
+        println("           Compensates for longer propagation delay to D");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("############################################");
+    println("#      BELIEF CASCADE EXPERIMENTS          #");
+    println("#  Information flow through belief chains   #");
+    println("############################################");
+    println("");
+
+    run_exp1();
+    run_exp2();
+    run_exp3();
+
+    println("============================================");
+    println("  ALL EXPERIMENTS COMPLETE");
+    println("============================================");
+    0
+}

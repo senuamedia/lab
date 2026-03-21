@@ -1,0 +1,332 @@
+// test_math_functions.sx — Comprehensive math function tests
+//
+// Tests: f64 returns, parameters, mixed types, composition,
+//        recursion, conditionals, multi-param calling convention,
+//        dot product, quadratic formula, distance, casting, nesting.
+
+// ============================================================================
+// Utility
+// ============================================================================
+
+fn approx(a: f64, b: f64, tol: f64) -> i64 {
+    var diff: f64 = a - b;
+    if diff < 0.0 { diff = 0.0 - diff; }
+    if diff < tol { 1 } else { 0 }
+}
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// ============================================================================
+// Test 1: f64 return value
+// ============================================================================
+
+fn circle_area(radius: f64) -> f64 {
+    3.14159265358979 * radius * radius
+}
+
+fn test_f64_return() -> i64 {
+    let result: f64 = circle_area(1.0);
+    if approx(result, 3.14159265358979, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 2: f64 parameters — two params, returns f64
+// ============================================================================
+
+fn hypotenuse_sq(a: f64, b: f64) -> f64 {
+    a * a + b * b
+}
+
+fn test_f64_params() -> i64 {
+    let result: f64 = hypotenuse_sq(3.0, 4.0);
+    if approx(result, 25.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 3: mixed i64 and f64 params
+// ============================================================================
+
+fn scale_by_int(n: i64, x: f64) -> f64 {
+    (n as f64) * x
+}
+
+fn test_mixed_params() -> i64 {
+    let result: f64 = scale_by_int(7, 3.5);
+    if approx(result, 24.5, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 4: function composition f(g(x))
+// ============================================================================
+
+fn double_f64(x: f64) -> f64 {
+    x * 2.0
+}
+
+fn add_one_f64(x: f64) -> f64 {
+    x + 1.0
+}
+
+fn test_composition() -> i64 {
+    // double(add_one(5.0)) = double(6.0) = 12.0
+    let result: f64 = double_f64(add_one_f64(5.0));
+    if approx(result, 12.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 5a: recursive f64 — factorial
+// ============================================================================
+
+fn factorial_f64(n: i64) -> f64 {
+    if n <= 1 { 1.0 } else { (n as f64) * factorial_f64(n - 1) }
+}
+
+fn test_factorial() -> i64 {
+    let result: f64 = factorial_f64(10);
+    // 10! = 3628800
+    if approx(result, 3628800.0, 1.0) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 5b: recursive f64 — fibonacci
+// ============================================================================
+
+fn fib(n: i64) -> i64 {
+    if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn test_fibonacci() -> i64 {
+    // fib(10) = 55
+    let result: i64 = fib(10);
+    if result == 55 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 6: f64 returned from conditional
+// ============================================================================
+
+fn clamp_f64(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { lo } else { if x > hi { hi } else { x } }
+}
+
+fn test_conditional_return() -> i64 {
+    var failures: i64 = 0;
+    let r1: f64 = clamp_f64(0.0 - 5.0, 0.0, 10.0);
+    let r2: f64 = clamp_f64(7.0, 0.0, 10.0);
+    let r3: f64 = clamp_f64(15.0, 0.0, 10.0);
+    if approx(r1, 0.0, 0.0001) == 0 { failures = failures + 1; }
+    if approx(r2, 7.0, 0.0001) == 0 { failures = failures + 1; }
+    if approx(r3, 10.0, 0.0001) == 0 { failures = failures + 1; }
+    if failures == 0 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 7: multiple f64 function calls in one expression
+// ============================================================================
+
+fn square_f64(x: f64) -> f64 {
+    x * x
+}
+
+fn cube_f64(x: f64) -> f64 {
+    x * x * x
+}
+
+fn test_multi_call_expr() -> i64 {
+    // square(3.0) + cube(2.0) = 9.0 + 8.0 = 17.0
+    let result: f64 = square_f64(3.0) + cube_f64(2.0);
+    if approx(result, 17.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 8: function with many f64 params (tests calling convention)
+// ============================================================================
+
+fn weighted_sum5(a: f64, b: f64, c: f64, d: f64, e: f64) -> f64 {
+    a * 1.0 + b * 2.0 + c * 3.0 + d * 4.0 + e * 5.0
+}
+
+fn test_many_params() -> i64 {
+    // 1*1 + 2*2 + 3*3 + 4*4 + 5*5 = 1 + 4 + 9 + 16 + 25 = 55
+    let result: f64 = weighted_sum5(1.0, 2.0, 3.0, 4.0, 5.0);
+    if approx(result, 55.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 9: dot product via function (6 f64 params)
+// ============================================================================
+
+fn dot3(a0: f64, a1: f64, a2: f64, b0: f64, b1: f64, b2: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2
+}
+
+fn test_dot_product() -> i64 {
+    // dot([1,2,3], [4,5,6]) = 4 + 10 + 18 = 32
+    let result: f64 = dot3(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+    if approx(result, 32.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 10: quadratic formula components
+// ============================================================================
+
+fn discriminant(a: f64, b: f64, c: f64) -> f64 {
+    b * b - 4.0 * a * c
+}
+
+fn quadratic_root_pos(a: f64, b: f64, disc: f64) -> f64 {
+    (0.0 - b + sqrt(disc)) / (2.0 * a)
+}
+
+fn quadratic_root_neg(a: f64, b: f64, disc: f64) -> f64 {
+    (0.0 - b - sqrt(disc)) / (2.0 * a)
+}
+
+fn test_quadratic() -> i64 {
+    // x^2 - 5x + 6 = 0  =>  roots 2 and 3
+    var failures: i64 = 0;
+    let a: f64 = 1.0;
+    let b: f64 = 0.0 - 5.0;
+    let c: f64 = 6.0;
+    let disc: f64 = discriminant(a, b, c);
+    // disc = 25 - 24 = 1
+    if approx(disc, 1.0, 0.0001) == 0 { failures = failures + 1; }
+    let r1: f64 = quadratic_root_pos(a, b, disc);
+    let r2: f64 = quadratic_root_neg(a, b, disc);
+    // r1 = (5 + 1) / 2 = 3,  r2 = (5 - 1) / 2 = 2
+    if approx(r1, 3.0, 0.0001) == 0 { failures = failures + 1; }
+    if approx(r2, 2.0, 0.0001) == 0 { failures = failures + 1; }
+    if failures == 0 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 11: distance function
+// ============================================================================
+
+fn distance_2d(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    var dx: f64 = x1 - x2;
+    var dy: f64 = y1 - y2;
+    sqrt(dx * dx + dy * dy)
+}
+
+fn test_distance() -> i64 {
+    // distance from (0,0) to (3,4) = 5
+    let result: f64 = distance_2d(0.0, 0.0, 3.0, 4.0);
+    if approx(result, 5.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 12: i64 to f64 conversion in function
+// ============================================================================
+
+fn int_to_celsius(fahrenheit: i64) -> f64 {
+    let f: f64 = fahrenheit as f64;
+    (f - 32.0) * 5.0 / 9.0
+}
+
+fn test_i64_to_f64() -> i64 {
+    // 212F = 100C,  32F = 0C
+    var failures: i64 = 0;
+    let boiling: f64 = int_to_celsius(212);
+    let freezing: f64 = int_to_celsius(32);
+    if approx(boiling, 100.0, 0.0001) == 0 { failures = failures + 1; }
+    if approx(freezing, 0.0, 0.0001) == 0 { failures = failures + 1; }
+    if failures == 0 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Test 13: nested function calls a(b(c(x)))
+// ============================================================================
+
+fn negate_f64(x: f64) -> f64 {
+    0.0 - x
+}
+
+fn test_nested_calls() -> i64 {
+    // double(negate(add_one(4.0))) = double(negate(5.0)) = double(-5.0) = -10.0
+    let result: f64 = double_f64(negate_f64(add_one_f64(4.0)));
+    if approx(result, 0.0 - 10.0, 0.0001) == 1 { 0 } else { 1 }
+}
+
+// ============================================================================
+// Main — run all tests, print results, accumulate failures
+// ============================================================================
+
+fn main() -> i64 {
+    var failures: i64 = 0;
+    var r: i64 = 0;
+
+    println("========================================");
+    println("  MATH FUNCTION TESTS");
+    println("========================================");
+
+    r = test_f64_return();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 01 f64 return value"); } else { println("  [FAIL] 01 f64 return value"); }
+
+    r = test_f64_params();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 02 f64 parameters"); } else { println("  [FAIL] 02 f64 parameters"); }
+
+    r = test_mixed_params();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 03 mixed i64/f64 params"); } else { println("  [FAIL] 03 mixed i64/f64 params"); }
+
+    r = test_composition();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 04 function composition"); } else { println("  [FAIL] 04 function composition"); }
+
+    r = test_factorial();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 05a recursive factorial"); } else { println("  [FAIL] 05a recursive factorial"); }
+
+    r = test_fibonacci();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 05b recursive fibonacci"); } else { println("  [FAIL] 05b recursive fibonacci"); }
+
+    r = test_conditional_return();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 06 conditional f64 return"); } else { println("  [FAIL] 06 conditional f64 return"); }
+
+    r = test_multi_call_expr();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 07 multi-call expression"); } else { println("  [FAIL] 07 multi-call expression"); }
+
+    r = test_many_params();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 08 many f64 params (5)"); } else { println("  [FAIL] 08 many f64 params (5)"); }
+
+    r = test_dot_product();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 09 dot product (6 params)"); } else { println("  [FAIL] 09 dot product (6 params)"); }
+
+    r = test_quadratic();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 10 quadratic formula"); } else { println("  [FAIL] 10 quadratic formula"); }
+
+    r = test_distance();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 11 distance function"); } else { println("  [FAIL] 11 distance function"); }
+
+    r = test_i64_to_f64();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 12 i64 to f64 conversion"); } else { println("  [FAIL] 12 i64 to f64 conversion"); }
+
+    r = test_nested_calls();
+    failures = failures + r;
+    if r == 0 { println("  [PASS] 13 nested calls a(b(c(x)))"); } else { println("  [FAIL] 13 nested calls a(b(c(x)))"); }
+
+    println("========================================");
+    if failures == 0 {
+        println("  ALL 13 TESTS PASSED");
+    } else {
+        print("  FAILURES: ");
+        print_i64(failures);
+        println(" test(s) failed");
+    }
+    println("========================================");
+
+    failures
+}

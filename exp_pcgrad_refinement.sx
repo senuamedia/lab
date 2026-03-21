@@ -1,0 +1,393 @@
+// PCGrad Refinement — Finding Optimal Gradient Arbitration
+//
+// The Riemannian PCGrad (Fisher-weighted) overshoots at 66%.
+// This experiment tests several mathematical alternatives:
+//
+// 1. Euclidean PCGrad (baseline — 100%)
+// 2. Riemannian PCGrad (current — 66%)
+// 3. Damped Riemannian: scale projection by damping factor
+// 4. Adaptive damping: use condition number to blend Euclidean/Riemannian
+// 5. Gradient averaging: instead of projection, use weighted average
+// 6. Cosine-scaled projection: project proportional to conflict severity
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn loss1(w0: f64, w1: f64, w2: f64) -> f64 {
+    (w0 - 3.0) * (w0 - 3.0) + (w1 - 1.0) * (w1 - 1.0) + (w2 + 2.0) * (w2 + 2.0)
+}
+
+fn loss2(w0: f64, w1: f64, w2: f64) -> f64 {
+    (w0 + 1.0) * (w0 + 1.0) + (w1 - 4.0) * (w1 - 4.0) + (w2 - 1.0) * (w2 - 1.0)
+}
+
+fn grad1_0(w0: f64) -> f64 { 2.0 * (w0 - 3.0) }
+fn grad1_1(w1: f64) -> f64 { 2.0 * (w1 - 1.0) }
+fn grad1_2(w2: f64) -> f64 { 2.0 * (w2 + 2.0) }
+fn grad2_0(w0: f64) -> f64 { 2.0 * (w0 + 1.0) }
+fn grad2_1(w1: f64) -> f64 { 2.0 * (w1 - 4.0) }
+fn grad2_2(w2: f64) -> f64 { 2.0 * (w2 - 1.0) }
+
+fn dot3(a0: f64, a1: f64, a2: f64, b0: f64, b1: f64, b2: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2
+}
+
+fn fdot3(a0: f64, a1: f64, a2: f64, b0: f64, b1: f64, b2: f64, f0: f64, f1: f64, f2: f64) -> f64 {
+    f0 * a0 * b0 + f1 * a1 * b1 + f2 * a2 * b2
+}
+
+fn check_resolved(w0: f64, w1: f64, w2: f64, r1_0: f64, r1_1: f64, r1_2: f64, r2_0: f64, r2_1: f64, r2_2: f64, lr: f64) -> i64 {
+    let l1_before: f64 = loss1(w0, w1, w2);
+    let l2_before: f64 = loss2(w0, w1, w2);
+    let tw0: f64 = w0 - lr * (r1_0 + r2_0);
+    let tw1: f64 = w1 - lr * (r1_1 + r2_1);
+    let tw2: f64 = w2 - lr * (r1_2 + r2_2);
+    let l1_after: f64 = loss1(tw0, tw1, tw2);
+    let l2_after: f64 = loss2(tw0, tw1, tw2);
+    let tol: f64 = 0.00000001;
+    if l1_after <= l1_before + tol {
+        if l2_after <= l2_before + tol {
+            return 1;
+        }
+    }
+    0
+}
+
+// ============================================================================
+// Test a specific PCGrad variant over 500 steps
+// Returns: conflicts, resolved_ok, final_loss1, final_loss2
+// ============================================================================
+
+// Method 3: Damped Riemannian — scale the projection by a damping factor
+fn test_damped_riemannian(damping: f64) -> i64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var step: i64 = 0;
+    var conflicts: i64 = 0;
+    var resolved_ok: i64 = 0;
+    var resolved_fail: i64 = 0;
+    var g1_0: f64 = 0.0;
+    var g1_1: f64 = 0.0;
+    var g1_2: f64 = 0.0;
+    var g2_0: f64 = 0.0;
+    var g2_1: f64 = 0.0;
+    var g2_2: f64 = 0.0;
+    var r1_0: f64 = 0.0;
+    var r1_1: f64 = 0.0;
+    var r1_2: f64 = 0.0;
+    var r2_0: f64 = 0.0;
+    var r2_1: f64 = 0.0;
+    var r2_2: f64 = 0.0;
+    var fdot_val: f64 = 0.0;
+    var g1_fsq: f64 = 0.0;
+    var g2_fsq: f64 = 0.0;
+    var proj: f64 = 0.0;
+    var cosine: f64 = 0.0;
+    var fnorm1: f64 = 0.0;
+    var fnorm2: f64 = 0.0;
+
+    let lr: f64 = 0.01;
+    let f0: f64 = 1.0;
+    let f1: f64 = 10.0;
+    let f2: f64 = 0.5;
+    let eps: f64 = 0.000000000001;
+
+    while step < 500 {
+        g1_0 = grad1_0(w0);
+        g1_1 = grad1_1(w1);
+        g1_2 = grad1_2(w2);
+        g2_0 = grad2_0(w0);
+        g2_1 = grad2_1(w1);
+        g2_2 = grad2_2(w2);
+
+        r1_0 = g1_0;
+        r1_1 = g1_1;
+        r1_2 = g1_2;
+        r2_0 = g2_0;
+        r2_1 = g2_1;
+        r2_2 = g2_2;
+
+        fdot_val = fdot3(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2, f0, f1, f2);
+        fnorm1 = sqrt(fdot3(g1_0, g1_1, g1_2, g1_0, g1_1, g1_2, f0, f1, f2));
+        fnorm2 = sqrt(fdot3(g2_0, g2_1, g2_2, g2_0, g2_1, g2_2, f0, f1, f2));
+        cosine = fdot_val / (fnorm1 * fnorm2 + eps);
+
+        if cosine < 0.0 {
+            conflicts = conflicts + 1;
+
+            // Damped Riemannian: project with damping factor
+            g1_fsq = fdot3(g1_0, g1_1, g1_2, g1_0, g1_1, g1_2, f0, f1, f2) + eps;
+            proj = damping * fdot3(g2_0, g2_1, g2_2, g1_0, g1_1, g1_2, f0, f1, f2) / g1_fsq;
+            r2_0 = g2_0 - proj * g1_0;
+            r2_1 = g2_1 - proj * g1_1;
+            r2_2 = g2_2 - proj * g1_2;
+
+            g2_fsq = fdot3(g2_0, g2_1, g2_2, g2_0, g2_1, g2_2, f0, f1, f2) + eps;
+            proj = damping * fdot3(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2, f0, f1, f2) / g2_fsq;
+            r1_0 = g1_0 - proj * g2_0;
+            r1_1 = g1_1 - proj * g2_1;
+            r1_2 = g1_2 - proj * g2_2;
+
+            if check_resolved(w0, w1, w2, r1_0, r1_1, r1_2, r2_0, r2_1, r2_2, lr) == 1 {
+                resolved_ok = resolved_ok + 1;
+            } else {
+                resolved_fail = resolved_fail + 1;
+            }
+        }
+
+        w0 = w0 - lr * (r1_0 + r2_0);
+        w1 = w1 - lr * (r1_1 + r2_1);
+        w2 = w2 - lr * (r1_2 + r2_2);
+        step = step + 1;
+    }
+
+    let rate: f64 = if conflicts > 0 {
+        (resolved_ok as f64) / (conflicts as f64)
+    } else {
+        1.0
+    };
+
+    print("    damping=");
+    print_f64(damping);
+    print("  conflicts=");
+    print_i64(conflicts);
+    print("  resolved=");
+    print_i64(resolved_ok);
+    print("  rate=");
+    print_f64(rate);
+    println("");
+
+    if rate >= 0.95 { 0 } else { 1 }
+}
+
+// Method 5: Gradient averaging — blend conflicting gradients by weights
+fn test_weighted_average() -> i64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var step: i64 = 0;
+    var conflicts: i64 = 0;
+    var resolved_ok: i64 = 0;
+    var resolved_fail: i64 = 0;
+    var g1_0: f64 = 0.0;
+    var g1_1: f64 = 0.0;
+    var g1_2: f64 = 0.0;
+    var g2_0: f64 = 0.0;
+    var g2_1: f64 = 0.0;
+    var g2_2: f64 = 0.0;
+    var r1_0: f64 = 0.0;
+    var r1_1: f64 = 0.0;
+    var r1_2: f64 = 0.0;
+    var r2_0: f64 = 0.0;
+    var r2_1: f64 = 0.0;
+    var r2_2: f64 = 0.0;
+    var cosine: f64 = 0.0;
+    var n1: f64 = 0.0;
+    var n2: f64 = 0.0;
+    var w_1_weight: f64 = 0.0;
+    var w_2_weight: f64 = 0.0;
+
+    let lr: f64 = 0.01;
+    let eps: f64 = 0.000000000001;
+
+    while step < 500 {
+        g1_0 = grad1_0(w0);
+        g1_1 = grad1_1(w1);
+        g1_2 = grad1_2(w2);
+        g2_0 = grad2_0(w0);
+        g2_1 = grad2_1(w1);
+        g2_2 = grad2_2(w2);
+
+        r1_0 = g1_0;
+        r1_1 = g1_1;
+        r1_2 = g1_2;
+        r2_0 = g2_0;
+        r2_1 = g2_1;
+        r2_2 = g2_2;
+
+        n1 = sqrt(dot3(g1_0, g1_1, g1_2, g1_0, g1_1, g1_2));
+        n2 = sqrt(dot3(g2_0, g2_1, g2_2, g2_0, g2_1, g2_2));
+        cosine = dot3(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2) / (n1 * n2 + eps);
+
+        if cosine < 0.0 {
+            conflicts = conflicts + 1;
+
+            // Weighted average: weight by inverse magnitude (smaller gradient
+            // gets more influence — it's closer to its optimum)
+            w_1_weight = 1.0 / (n1 + eps);
+            w_2_weight = 1.0 / (n2 + eps);
+            // Normalise weights
+            w_1_weight = w_1_weight / (w_1_weight + w_2_weight);
+            w_2_weight = 1.0 - w_1_weight;
+
+            r1_0 = w_1_weight * g1_0;
+            r1_1 = w_1_weight * g1_1;
+            r1_2 = w_1_weight * g1_2;
+            r2_0 = w_2_weight * g2_0;
+            r2_1 = w_2_weight * g2_1;
+            r2_2 = w_2_weight * g2_2;
+
+            if check_resolved(w0, w1, w2, r1_0, r1_1, r1_2, r2_0, r2_1, r2_2, lr) == 1 {
+                resolved_ok = resolved_ok + 1;
+            } else {
+                resolved_fail = resolved_fail + 1;
+            }
+        }
+
+        w0 = w0 - lr * (r1_0 + r2_0);
+        w1 = w1 - lr * (r1_1 + r2_1);
+        w2 = w2 - lr * (r1_2 + r2_2);
+        step = step + 1;
+    }
+
+    let rate: f64 = if conflicts > 0 {
+        (resolved_ok as f64) / (conflicts as f64)
+    } else {
+        1.0
+    };
+
+    print("    weighted_avg  conflicts=");
+    print_i64(conflicts);
+    print("  resolved=");
+    print_i64(resolved_ok);
+    print("  rate=");
+    print_f64(rate);
+    println("");
+
+    if rate >= 0.95 { 0 } else { 1 }
+}
+
+// Method 6: Cosine-scaled projection — project proportional to conflict severity
+fn test_cosine_scaled() -> i64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var step: i64 = 0;
+    var conflicts: i64 = 0;
+    var resolved_ok: i64 = 0;
+    var resolved_fail: i64 = 0;
+    var g1_0: f64 = 0.0;
+    var g1_1: f64 = 0.0;
+    var g1_2: f64 = 0.0;
+    var g2_0: f64 = 0.0;
+    var g2_1: f64 = 0.0;
+    var g2_2: f64 = 0.0;
+    var r1_0: f64 = 0.0;
+    var r1_1: f64 = 0.0;
+    var r1_2: f64 = 0.0;
+    var r2_0: f64 = 0.0;
+    var r2_1: f64 = 0.0;
+    var r2_2: f64 = 0.0;
+    var cosine: f64 = 0.0;
+    var n1: f64 = 0.0;
+    var n2: f64 = 0.0;
+    var scale: f64 = 0.0;
+    var proj: f64 = 0.0;
+    var g1_sq: f64 = 0.0;
+    var g2_sq: f64 = 0.0;
+
+    let lr: f64 = 0.01;
+    let eps: f64 = 0.000000000001;
+
+    while step < 500 {
+        g1_0 = grad1_0(w0);
+        g1_1 = grad1_1(w1);
+        g1_2 = grad1_2(w2);
+        g2_0 = grad2_0(w0);
+        g2_1 = grad2_1(w1);
+        g2_2 = grad2_2(w2);
+
+        r1_0 = g1_0;
+        r1_1 = g1_1;
+        r1_2 = g1_2;
+        r2_0 = g2_0;
+        r2_1 = g2_1;
+        r2_2 = g2_2;
+
+        n1 = sqrt(dot3(g1_0, g1_1, g1_2, g1_0, g1_1, g1_2));
+        n2 = sqrt(dot3(g2_0, g2_1, g2_2, g2_0, g2_1, g2_2));
+        cosine = dot3(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2) / (n1 * n2 + eps);
+
+        if cosine < 0.0 {
+            conflicts = conflicts + 1;
+
+            // Scale projection by |cosine| — mild conflicts get mild projection,
+            // severe conflicts (cosine near -1) get full projection
+            scale = 0.0 - cosine;
+
+            g1_sq = dot3(g1_0, g1_1, g1_2, g1_0, g1_1, g1_2) + eps;
+            proj = scale * dot3(g2_0, g2_1, g2_2, g1_0, g1_1, g1_2) / g1_sq;
+            r2_0 = g2_0 - proj * g1_0;
+            r2_1 = g2_1 - proj * g1_1;
+            r2_2 = g2_2 - proj * g1_2;
+
+            g2_sq = dot3(g2_0, g2_1, g2_2, g2_0, g2_1, g2_2) + eps;
+            proj = scale * dot3(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2) / g2_sq;
+            r1_0 = g1_0 - proj * g2_0;
+            r1_1 = g1_1 - proj * g2_1;
+            r1_2 = g1_2 - proj * g2_2;
+
+            if check_resolved(w0, w1, w2, r1_0, r1_1, r1_2, r2_0, r2_1, r2_2, lr) == 1 {
+                resolved_ok = resolved_ok + 1;
+            } else {
+                resolved_fail = resolved_fail + 1;
+            }
+        }
+
+        w0 = w0 - lr * (r1_0 + r2_0);
+        w1 = w1 - lr * (r1_1 + r2_1);
+        w2 = w2 - lr * (r1_2 + r2_2);
+        step = step + 1;
+    }
+
+    let rate: f64 = if conflicts > 0 {
+        (resolved_ok as f64) / (conflicts as f64)
+    } else {
+        1.0
+    };
+
+    print("    cosine_scaled  conflicts=");
+    print_i64(conflicts);
+    print("  resolved=");
+    print_i64(resolved_ok);
+    print("  rate=");
+    print_f64(rate);
+    println("");
+
+    if rate >= 0.95 { 0 } else { 1 }
+}
+
+fn main() -> i64 {
+    var best: i64 = 0;
+
+    println("============================================");
+    println("  PCGRAD REFINEMENT — FINDING OPTIMAL");
+    println("  GRADIENT ARBITRATION");
+    println("============================================");
+    println("");
+
+    println("--- Method 3: Damped Riemannian (sweep damping factor) ---");
+    test_damped_riemannian(0.1);
+    test_damped_riemannian(0.2);
+    test_damped_riemannian(0.3);
+    test_damped_riemannian(0.5);
+    test_damped_riemannian(0.7);
+    test_damped_riemannian(1.0);
+    println("");
+
+    println("--- Method 5: Weighted Average (inverse magnitude) ---");
+    test_weighted_average();
+    println("");
+
+    println("--- Method 6: Cosine-Scaled Projection ---");
+    test_cosine_scaled();
+    println("");
+
+    println("============================================");
+    println("  Find the method with highest success rate");
+    println("============================================");
+
+    0
+}

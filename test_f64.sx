@@ -1,0 +1,47 @@
+fn vfill(n: i64, val: f64) -> i64 {
+    let v: i64 = vec_new();
+    var i: i64 = 0;
+    while i < n { vec_push(v, val); i = i + 1; }
+    v
+}
+
+fn main() -> i64 {
+    let n: i64 = 8;
+    let w: i64 = vfill(n, 0.0);
+    let target: i64 = vfill(n, 3.0);
+    let lr: f64 = 0.001;
+
+    var step: i64 = 0;
+    while step < 500 {
+        var i: i64 = 0;
+        while i < n {
+            let wi: f64 = vec_get(w, i);
+            let ti: f64 = vec_get(target, i);
+            let grad: f64 = 2.0 * (wi - ti);
+            let new_wi: f64 = wi - lr * grad;
+            vec_set(w, i, new_wi);
+            i = i + 1;
+        }
+        step = step + 1;
+    }
+
+    // Print each w[i] and target[i] individually
+    var j: i64 = 0;
+    while j < n {
+        let wj: f64 = vec_get(w, j);
+        let tj: f64 = vec_get(target, j);
+        let dj: f64 = wj - tj;
+        let dsq: f64 = dj * dj;
+        print("j=");
+        print_i64(j);
+        print(" w=");
+        print_f64(wj);
+        print(" t=");
+        print_f64(tj);
+        print(" d^2=");
+        print_f64(dsq);
+        println("");
+        j = j + 1;
+    }
+    0
+}

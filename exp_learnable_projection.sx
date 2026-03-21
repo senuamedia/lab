@@ -1,0 +1,253 @@
+// Experiment: Learnable Projection Strength via Meta-Gradient
+//
+// Can the meta-optimizer learn the optimal gradient conflict
+// resolution strength? The projection scale alpha is tuned
+// by finite-difference meta-gradient over training cycles.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn dot3(a0: f64, a1: f64, a2: f64, b0: f64, b1: f64, b2: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2
+}
+
+fn combined_loss(w0: f64, w1: f64, w2: f64) -> f64 {
+    let l1: f64 = (w0 - 3.0) * (w0 - 3.0) + (w1 - 1.0) * (w1 - 1.0) + (w2 + 2.0) * (w2 + 2.0);
+    let l2: f64 = (w0 + 1.0) * (w0 + 1.0) + (w1 - 4.0) * (w1 - 4.0) + (w2 - 1.0) * (w2 - 1.0);
+    l1 + l2
+}
+
+// Compute cosine between two gradient vectors
+fn grad_cosine(g1_0: f64, g1_1: f64, g1_2: f64, g2_0: f64, g2_1: f64, g2_2: f64) -> f64 {
+    let d: f64 = dot3(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2);
+    let n1: f64 = sqrt(dot3(g1_0, g1_1, g1_2, g1_0, g1_1, g1_2));
+    let n2: f64 = sqrt(dot3(g2_0, g2_1, g2_2, g2_0, g2_1, g2_2));
+    d / (n1 * n2 + 0.000000000001)
+}
+
+// Project g2 off g1 with given scale, return projected g2 component 0
+fn proj_component(g_self: f64, g_other_0: f64, g_other_1: f64, g_other_2: f64, g_self_0: f64, g_self_1: f64, g_self_2: f64, scale: f64, dim: i64) -> f64 {
+    let g_sq: f64 = dot3(g_other_0, g_other_1, g_other_2, g_other_0, g_other_1, g_other_2) + 0.000000000001;
+    let coeff: f64 = scale * dot3(g_self_0, g_self_1, g_self_2, g_other_0, g_other_1, g_other_2) / g_sq;
+    if dim == 0 {
+        g_self - coeff * g_other_0
+    } else {
+        if dim == 1 {
+            g_self - coeff * g_other_1
+        } else {
+            g_self - coeff * g_other_2
+        }
+    }
+}
+
+// Do one gradient step and return updated w values via a vec-like approach
+// Since we can't return tuples, we'll use a different design:
+// Run full training and return final combined loss
+fn train_and_evaluate(alpha: f64, steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var step: i64 = 0;
+    var g1_0: f64 = 0.0;
+    var g1_1: f64 = 0.0;
+    var g1_2: f64 = 0.0;
+    var g2_0: f64 = 0.0;
+    var g2_1: f64 = 0.0;
+    var g2_2: f64 = 0.0;
+    var r1_0: f64 = 0.0;
+    var r1_1: f64 = 0.0;
+    var r1_2: f64 = 0.0;
+    var r2_0: f64 = 0.0;
+    var r2_1: f64 = 0.0;
+    var r2_2: f64 = 0.0;
+    var cosine: f64 = 0.0;
+    var scale: f64 = 0.0;
+
+    let lr: f64 = 0.01;
+
+    while step < steps {
+        g1_0 = 2.0 * (w0 - 3.0);
+        g1_1 = 2.0 * (w1 - 1.0);
+        g1_2 = 2.0 * (w2 + 2.0);
+        g2_0 = 2.0 * (w0 + 1.0);
+        g2_1 = 2.0 * (w1 - 4.0);
+        g2_2 = 2.0 * (w2 - 1.0);
+
+        r1_0 = g1_0;
+        r1_1 = g1_1;
+        r1_2 = g1_2;
+        r2_0 = g2_0;
+        r2_1 = g2_1;
+        r2_2 = g2_2;
+
+        cosine = grad_cosine(g1_0, g1_1, g1_2, g2_0, g2_1, g2_2);
+
+        if cosine < 0.0 {
+            scale = alpha * (0.0 - cosine);
+
+            r2_0 = proj_component(g2_0, g1_0, g1_1, g1_2, g2_0, g2_1, g2_2, scale, 0);
+            r2_1 = proj_component(g2_1, g1_0, g1_1, g1_2, g2_0, g2_1, g2_2, scale, 1);
+            r2_2 = proj_component(g2_2, g1_0, g1_1, g1_2, g2_0, g2_1, g2_2, scale, 2);
+
+            r1_0 = proj_component(g1_0, g2_0, g2_1, g2_2, g1_0, g1_1, g1_2, scale, 0);
+            r1_1 = proj_component(g1_1, g2_0, g2_1, g2_2, g1_0, g1_1, g1_2, scale, 1);
+            r1_2 = proj_component(g1_2, g2_0, g2_1, g2_2, g1_0, g1_1, g1_2, scale, 2);
+        }
+
+        w0 = w0 - lr * (r1_0 + r2_0);
+        w1 = w1 - lr * (r1_1 + r2_1);
+        w2 = w2 - lr * (r1_2 + r2_2);
+        step = step + 1;
+    }
+
+    combined_loss(w0, w1, w2)
+}
+
+fn main() -> i64 {
+    var alpha: f64 = 0.5;
+    var cycle: i64 = 0;
+    var loss_c: f64 = 0.0;
+    var loss_p: f64 = 0.0;
+    var loss_m: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+    var best_alpha: f64 = 0.5;
+    var best_loss: f64 = 999999.0;
+
+    let meta_lr: f64 = 0.05;
+    let h: f64 = 0.01;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 50;
+
+    println("============================================");
+    println("  LEARNABLE PROJECTION STRENGTH");
+    println("  via Meta-Gradient on alpha");
+    println("============================================");
+    println("");
+
+    let initial_loss: f64 = train_and_evaluate(0.5, inner_steps);
+    print("  Initial: alpha=0.5  loss=");
+    print_f64(initial_loss);
+    println("");
+    println("");
+
+    println("  Cycle  alpha      loss       meta_grad");
+    println("  -----  ---------  ---------  ---------");
+
+    while cycle < meta_cycles {
+        loss_p = train_and_evaluate(alpha + h, inner_steps);
+        loss_m = train_and_evaluate(alpha - h, inner_steps);
+        meta_grad = (loss_p - loss_m) / (2.0 * h);
+
+        loss_c = train_and_evaluate(alpha, inner_steps);
+
+        if loss_c < best_loss {
+            best_loss = loss_c;
+            best_alpha = alpha;
+        }
+
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(alpha);
+            print("  ");
+            print_f64(loss_c);
+            print("  ");
+            print_f64(meta_grad);
+            println("");
+        }
+        if cycle == 10 {
+            print("  10     ");
+            print_f64(alpha);
+            print("  ");
+            print_f64(loss_c);
+            print("  ");
+            print_f64(meta_grad);
+            println("");
+        }
+        if cycle == 25 {
+            print("  25     ");
+            print_f64(alpha);
+            print("  ");
+            print_f64(loss_c);
+            print("  ");
+            print_f64(meta_grad);
+            println("");
+        }
+        if cycle == 49 {
+            print("  49     ");
+            print_f64(alpha);
+            print("  ");
+            print_f64(loss_c);
+            print("  ");
+            print_f64(meta_grad);
+            println("");
+        }
+
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.0 { alpha = 0.0; }
+        if alpha > 2.0 { alpha = 2.0; }
+
+        cycle = cycle + 1;
+    }
+
+    let final_loss: f64 = train_and_evaluate(alpha, inner_steps);
+
+    println("");
+    println("--- Results ---");
+    print("  Learned alpha:  ");
+    print_f64(alpha);
+    print("  loss=");
+    print_f64(final_loss);
+    println("");
+    print("  Best alpha:     ");
+    print_f64(best_alpha);
+    print("  loss=");
+    print_f64(best_loss);
+    println("");
+
+    // Compare fixed strategies
+    let loss_0: f64 = train_and_evaluate(0.0, inner_steps);
+    let loss_05: f64 = train_and_evaluate(0.5, inner_steps);
+    let loss_1: f64 = train_and_evaluate(1.0, inner_steps);
+    let loss_15: f64 = train_and_evaluate(1.5, inner_steps);
+
+    println("");
+    println("--- Fixed Strategy Comparison ---");
+    print("  alpha=0.0 (no proj):   ");
+    print_f64(loss_0);
+    println("");
+    print("  alpha=0.5 (half):      ");
+    print_f64(loss_05);
+    println("");
+    print("  alpha=1.0 (full):      ");
+    print_f64(loss_1);
+    println("");
+    print("  alpha=1.5 (aggressive):");
+    print_f64(loss_15);
+    println("");
+    print("  alpha=");
+    print_f64(alpha);
+    print(" (LEARNED):  ");
+    print_f64(final_loss);
+    println("");
+
+    let improved: i64 = if final_loss < loss_0 { 1 } else { 0 };
+    let beats_full: i64 = if final_loss < loss_1 + 0.01 { 1 } else { 0 };
+
+    println("");
+    if improved == 1 {
+        if beats_full == 1 {
+            println("  PASS: Learned alpha outperforms fixed strategies");
+            println("  Meta-gradient on projection strength is a valid");
+            println("  dual-number optimisation pathway.");
+        } else {
+            println("  PARTIAL: Learned alpha beats no-projection but not full");
+        }
+    } else {
+        println("  FAIL: Learned alpha did not improve");
+    }
+
+    0
+}

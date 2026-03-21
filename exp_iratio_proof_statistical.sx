@@ -1,0 +1,178 @@
+// PROOF 3 (FIXED): Statistical validation of I = -0.5
+//
+// 50 random problems using FIXED dimensions (4D) and varying K.
+// No vec storage — use direct computation to avoid NaN.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+fn lcg_next(state: i64) -> i64 { state * 1664525 + 1013904223 }
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    (s % 10000) as f64 / 10000.0
+}
+
+// Fixed 4D, K=3 random targets, compute I at mean
+fn iratio_k3(seed: i64) -> f64 {
+    var rng: i64 = seed;
+    rng = lcg_next(rng); let a0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let a1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let a2: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let a3: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let b0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let b1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let b2: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let b3: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let c0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let c1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let c2: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let c3: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+
+    let m0: f64 = (a0 + b0 + c0) / 3.0;
+    let m1: f64 = (a1 + b1 + c1) / 3.0;
+    let m2: f64 = (a2 + b2 + c2) / 3.0;
+    let m3: f64 = (a3 + b3 + c3) / 3.0;
+
+    let ga0: f64 = 2.0 * (m0 - a0); let ga1: f64 = 2.0 * (m1 - a1);
+    let ga2: f64 = 2.0 * (m2 - a2); let ga3: f64 = 2.0 * (m3 - a3);
+    let gb0: f64 = 2.0 * (m0 - b0); let gb1: f64 = 2.0 * (m1 - b1);
+    let gb2: f64 = 2.0 * (m2 - b2); let gb3: f64 = 2.0 * (m3 - b3);
+    let gc0: f64 = 2.0 * (m0 - c0); let gc1: f64 = 2.0 * (m1 - c1);
+    let gc2: f64 = 2.0 * (m2 - c2); let gc3: f64 = 2.0 * (m3 - c3);
+
+    let dab: f64 = ga0 * gb0 + ga1 * gb1 + ga2 * gb2 + ga3 * gb3;
+    let dac: f64 = ga0 * gc0 + ga1 * gc1 + ga2 * gc2 + ga3 * gc3;
+    let dbc: f64 = gb0 * gc0 + gb1 * gc1 + gb2 * gc2 + gb3 * gc3;
+    let cross: f64 = dab + dac + dbc;
+
+    let na: f64 = ga0 * ga0 + ga1 * ga1 + ga2 * ga2 + ga3 * ga3;
+    let nb: f64 = gb0 * gb0 + gb1 * gb1 + gb2 * gb2 + gb3 * gb3;
+    let nc: f64 = gc0 * gc0 + gc1 * gc1 + gc2 * gc2 + gc3 * gc3;
+    let ind: f64 = na + nb + nc;
+
+    if ind < 0.000000001 { return 0.0; }
+    cross / ind
+}
+
+// K=5
+fn iratio_k5(seed: i64) -> f64 {
+    var rng: i64 = seed;
+    rng = lcg_next(rng); let a0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let a1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let b0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let b1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let c0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let c1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let d0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let d1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let e0: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+    rng = lcg_next(rng); let e1: f64 = (lcg_f64(rng) - 0.5) * 10.0;
+
+    let m0: f64 = (a0 + b0 + c0 + d0 + e0) / 5.0;
+    let m1: f64 = (a1 + b1 + c1 + d1 + e1) / 5.0;
+
+    let ga0: f64 = 2.0 * (m0 - a0); let ga1: f64 = 2.0 * (m1 - a1);
+    let gb0: f64 = 2.0 * (m0 - b0); let gb1: f64 = 2.0 * (m1 - b1);
+    let gc0: f64 = 2.0 * (m0 - c0); let gc1: f64 = 2.0 * (m1 - c1);
+    let gd0: f64 = 2.0 * (m0 - d0); let gd1: f64 = 2.0 * (m1 - d1);
+    let ge0: f64 = 2.0 * (m0 - e0); let ge1: f64 = 2.0 * (m1 - e1);
+
+    let c_ab: f64 = ga0 * gb0 + ga1 * gb1;
+    let c_ac: f64 = ga0 * gc0 + ga1 * gc1;
+    let c_ad: f64 = ga0 * gd0 + ga1 * gd1;
+    let c_ae: f64 = ga0 * ge0 + ga1 * ge1;
+    let c_bc: f64 = gb0 * gc0 + gb1 * gc1;
+    let c_bd: f64 = gb0 * gd0 + gb1 * gd1;
+    let c_be: f64 = gb0 * ge0 + gb1 * ge1;
+    let c_cd: f64 = gc0 * gd0 + gc1 * gd1;
+    let c_ce: f64 = gc0 * ge0 + gc1 * ge1;
+    let c_de: f64 = gd0 * ge0 + gd1 * ge1;
+    let cross: f64 = c_ab + c_ac + c_ad + c_ae + c_bc + c_bd + c_be + c_cd + c_ce + c_de;
+
+    let na: f64 = ga0 * ga0 + ga1 * ga1;
+    let nb: f64 = gb0 * gb0 + gb1 * gb1;
+    let nc: f64 = gc0 * gc0 + gc1 * gc1;
+    let nd: f64 = gd0 * gd0 + gd1 * gd1;
+    let ne: f64 = ge0 * ge0 + ge1 * ge1;
+    let ind: f64 = na + nb + nc + nd + ne;
+
+    if ind < 0.000000001 { return 0.0; }
+    cross / ind
+}
+
+fn main() -> i64 {
+    println("=== PROOF 3 (FIXED): Statistical Validation ===");
+    println("  50 random K=3 problems (4D) + 20 random K=5 problems (2D)");
+    println("");
+
+    var pass: i64 = 0;
+    var fail: i64 = 0;
+    var max_err: f64 = 0.0;
+    var rng: i64 = 31415;
+    var test: i64 = 0;
+
+    // K=3, 4D: 50 tests
+    println("  K=3, 4D (50 tests):");
+    while test < 50 {
+        rng = lcg_next(rng);
+        let ir: f64 = iratio_k3(rng);
+        let err: f64 = abs_f64(ir + 0.5);
+        if err > max_err { max_err = err; }
+        if err < 0.0001 { pass = pass + 1; }
+        else {
+            fail = fail + 1;
+            print("  FAIL test ");
+            print_i64(test);
+            print(": I=");
+            print_f64(ir);
+            println("");
+        }
+        test = test + 1;
+    }
+    print("  K=3 passed: ");
+    print_i64(pass);
+    println("/50");
+
+    // K=5, 2D: 20 tests
+    var pass5: i64 = 0;
+    test = 0;
+    println("");
+    println("  K=5, 2D (20 tests):");
+    while test < 20 {
+        rng = lcg_next(rng);
+        let ir: f64 = iratio_k5(rng);
+        let err: f64 = abs_f64(ir + 0.5);
+        if err > max_err { max_err = err; }
+        if err < 0.0001 { pass5 = pass5 + 1; pass = pass + 1; }
+        else {
+            fail = fail + 1;
+            print("  FAIL test ");
+            print_i64(test);
+            print(": I=");
+            print_f64(ir);
+            println("");
+        }
+        test = test + 1;
+    }
+    print("  K=5 passed: ");
+    print_i64(pass5);
+    println("/20");
+
+    println("");
+    print("  TOTAL: ");
+    print_i64(pass);
+    print("/70 passed, max |I+0.5| = ");
+    print_f64(max_err);
+    println("");
+
+    if fail == 0 {
+        println("  PROVEN: I = -0.5 for ALL 70 random problems");
+    } else {
+        print("  FAILED: ");
+        print_i64(fail);
+        println("");
+    }
+
+    fail
+}

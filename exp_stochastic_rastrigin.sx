@@ -1,0 +1,225 @@
+// Stochastic Projection on Rastrigin (Multimodal)
+//
+// Rastrigin has hundreds of local minima. Deterministic GD gets trapped.
+// Noise should help escape local minima — the meta-gradient should
+// learn a nonzero noise amplitude.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+fn lcg_next(state: i64) -> i64 { state * 1664525 + 1013904223 }
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    let r: i64 = s % 2147483647;
+    (r as f64) / 2147483647.0
+}
+
+fn rastrigin_4d(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    let r0: f64 = w0 * w0 - 10.0 * cos(2.0 * pi * w0);
+    let r1: f64 = w1 * w1 - 10.0 * cos(2.0 * pi * w1);
+    let r2: f64 = w2 * w2 - 10.0 * cos(2.0 * pi * w2);
+    let r3: f64 = w3 * w3 - 10.0 * cos(2.0 * pi * w3);
+    40.0 + r0 + r1 + r2 + r3
+}
+
+fn rast_grad(w: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    2.0 * w + 20.0 * pi * sin(2.0 * pi * w)
+}
+
+// Train on shifted Rastrigin with 3 conflicting targets
+fn train_rastrigin(t0: f64, t1: f64, t2: f64, t3: f64,
+                   u0: f64, u1: f64, u2: f64, u3: f64,
+                   v0: f64, v1: f64, v2: f64, v3: f64,
+                   noise_amp: f64, steps: i64, lr: f64, seed: i64) -> f64 {
+    // Start away from origin to get trapped in local minima
+    var w0: f64 = 2.5;
+    var w1: f64 = 0.0 - 1.5;
+    var w2: f64 = 3.0;
+    var w3: f64 = 0.0 - 2.0;
+    var step: i64 = 0;
+    var rng: i64 = seed;
+    var ga0: f64 = 0.0;
+    var ga1: f64 = 0.0;
+    var ga2: f64 = 0.0;
+    var ga3: f64 = 0.0;
+    var gb0: f64 = 0.0;
+    var gb1: f64 = 0.0;
+    var gb2: f64 = 0.0;
+    var gb3: f64 = 0.0;
+    var gc0: f64 = 0.0;
+    var gc1: f64 = 0.0;
+    var gc2: f64 = 0.0;
+    var gc3: f64 = 0.0;
+    var wa: f64 = 0.0;
+    var wb: f64 = 0.0;
+    var wc: f64 = 0.0;
+    var noise: f64 = 0.0;
+
+    while step < steps {
+        ga0 = rast_grad(w0 - t0);
+        ga1 = rast_grad(w1 - t1);
+        ga2 = rast_grad(w2 - t2);
+        ga3 = rast_grad(w3 - t3);
+
+        gb0 = rast_grad(w0 - u0);
+        gb1 = rast_grad(w1 - u1);
+        gb2 = rast_grad(w2 - u2);
+        gb3 = rast_grad(w3 - u3);
+
+        gc0 = rast_grad(w0 - v0);
+        gc1 = rast_grad(w1 - v1);
+        gc2 = rast_grad(w2 - v2);
+        gc3 = rast_grad(w3 - v3);
+
+        // Stochastic weights
+        rng = lcg_next(rng);
+        noise = (lcg_f64(rng) - 0.5) * 2.0 * noise_amp;
+        wa = 1.0 + noise;
+        rng = lcg_next(rng);
+        noise = (lcg_f64(rng) - 0.5) * 2.0 * noise_amp;
+        wb = 1.0 + noise;
+        rng = lcg_next(rng);
+        noise = (lcg_f64(rng) - 0.5) * 2.0 * noise_amp;
+        wc = 1.0 + noise;
+
+        w0 = w0 - lr * (wa * ga0 + wb * gb0 + wc * gc0);
+        w1 = w1 - lr * (wa * ga1 + wb * gb1 + wc * gc1);
+        w2 = w2 - lr * (wa * ga2 + wb * gb2 + wc * gc2);
+        w3 = w3 - lr * (wa * ga3 + wb * gb3 + wc * gc3);
+
+        step = step + 1;
+    }
+
+    // Shifted Rastrigin loss for each target
+    let la: f64 = rastrigin_4d(w0 - t0, w1 - t1, w2 - t2, w3 - t3);
+    let lb: f64 = rastrigin_4d(w0 - u0, w1 - u1, w2 - u2, w3 - u3);
+    let lc: f64 = rastrigin_4d(w0 - v0, w1 - v1, w2 - v2, w3 - v3);
+    la + lb + lc
+}
+
+fn avg_loss(t0: f64, t1: f64, t2: f64, t3: f64,
+            u0: f64, u1: f64, u2: f64, u3: f64,
+            v0: f64, v1: f64, v2: f64, v3: f64,
+            amp: f64, steps: i64, lr: f64) -> f64 {
+    let l1: f64 = train_rastrigin(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, amp, steps, lr, 42);
+    let l2: f64 = train_rastrigin(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, amp, steps, lr, 137);
+    let l3: f64 = train_rastrigin(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, amp, steps, lr, 999);
+    (l1 + l2 + l3) / 3.0
+}
+
+fn main() -> i64 {
+    println("============================================");
+    println("  STOCHASTIC RASTRIGIN (MULTIMODAL)");
+    println("  Can noise escape local minima?");
+    println("============================================");
+    println("");
+
+    // Conflicting targets on Rastrigin landscape
+    let t0: f64 = 1.0;
+    let t1: f64 = 2.0;
+    let t2: f64 = 0.0 - 1.0;
+    let t3: f64 = 0.5;
+    let u0: f64 = 0.0 - 1.5;
+    let u1: f64 = 0.0 - 0.5;
+    let u2: f64 = 2.5;
+    let u3: f64 = 0.0 - 2.0;
+    let v0: f64 = 0.5;
+    let v1: f64 = 0.0 - 2.0;
+    let v2: f64 = 0.0 - 0.5;
+    let v3: f64 = 3.0;
+
+    let steps: i64 = 2000;
+    let lr: f64 = 0.001;
+
+    println("--- Noise amplitude sweep (avg 3 seeds) ---");
+    println("  Amp     Loss");
+    println("  ------  ------");
+
+    var best_amp: f64 = 0.0;
+    var best_loss: f64 = 999999.0;
+    var sweep: i64 = 0;
+    var amp: f64 = 0.0;
+
+    while sweep < 11 {
+        amp = (sweep as f64) * 0.1;
+        let loss: f64 = avg_loss(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, amp, steps, lr);
+        print("  ");
+        print_f64(amp);
+        print("    ");
+        print_f64(loss);
+        println("");
+        if loss < best_loss {
+            best_loss = loss;
+            best_amp = amp;
+        }
+        sweep = sweep + 1;
+    }
+
+    println("");
+    print("  Best: amp=");
+    print_f64(best_amp);
+    print(" loss=");
+    print_f64(best_loss);
+    println("");
+
+    // Learn optimal amplitude
+    println("");
+    println("--- Learning noise amplitude ---");
+    var learned: f64 = 0.5;
+    var cycle: i64 = 0;
+    let h: f64 = 0.01;
+    let mlr: f64 = 0.1;
+
+    while cycle < 20 {
+        let lp: f64 = avg_loss(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, learned + h, steps, lr);
+        let lm: f64 = avg_loss(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, learned - h, steps, lr);
+        let mg: f64 = (lp - lm) / (2.0 * h);
+        learned = learned - mlr * mg;
+        if learned < 0.0 { learned = 0.0; }
+        if learned > 2.0 { learned = 2.0; }
+
+        if cycle < 3 {
+            print("  cycle ");
+            print_i64(cycle);
+            print(": amp=");
+            print_f64(learned);
+            print(" grad=");
+            print_f64(mg);
+            println("");
+        }
+        if cycle == 19 {
+            print("  cycle 19: amp=");
+            print_f64(learned);
+            println("");
+        }
+        cycle = cycle + 1;
+    }
+
+    let final_loss: f64 = avg_loss(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, learned, steps, lr);
+    let zero_loss: f64 = avg_loss(t0, t1, t2, t3, u0, u1, u2, u3, v0, v1, v2, v3, 0.0, steps, lr);
+
+    println("");
+    print("  Deterministic (amp=0):  ");
+    print_f64(zero_loss);
+    println("");
+    print("  Learned (amp=");
+    print_f64(learned);
+    print("):  ");
+    print_f64(final_loss);
+    println("");
+
+    if final_loss < zero_loss {
+        println("");
+        println("  PASS: Stochastic noise IMPROVES multimodal convergence");
+        println("  The noise amplitude is a learnable dual-number parameter");
+        println("  — a sixth level in the differentiable hierarchy.");
+    } else {
+        println("");
+        println("  Noise did not help on this landscape");
+    }
+
+    0
+}

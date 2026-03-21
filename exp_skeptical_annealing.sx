@@ -1,0 +1,738 @@
+// Skeptical Desire Annealing
+//
+// Previous finding: a MISALIGNED desire at coupling=1.0 reduces error by 31%
+// vs no desire, and OUTPERFORMS aligned desires. Skepticism is valuable.
+//
+// This experiment asks: what if we ANNEAL skepticism over time?
+// Start highly skeptical (misaligned desire), then gradually shift
+// toward alignment as evidence accumulates — like temperature in
+// simulated annealing.
+//
+// Exp 1: Fixed-phase annealing schedule (skeptical -> aligned)
+// Exp 2: Learnable continuous desire trajectory via meta-gradient
+// Exp 3: Adversarial challenge — trusting vs skeptical agent
+// Exp 4: Ensemble of skepticism levels with learnable weights
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+fn lcg_next(state: i64) -> i64 { state * 1664525 + 1013904223 }
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    (s % 10000) as f64 / 10000.0
+}
+fn beta_mean(a: f64, b: f64) -> f64 { a / (a + b) }
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+// Core: train a belief with desire-driven evidence boosting
+fn train_belief(desire: f64, coupling: f64, true_val: f64,
+                observations: i64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var conf: f64 = 0.0;
+    var alignment: f64 = 0.0;
+    var boost: f64 = 0.0;
+
+    while step < observations {
+        conf = beta_mean(al, be);
+        alignment = 1.0 - abs_f64(conf - desire);
+        boost = 1.0 + coupling * alignment;
+
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + boost;
+        } else {
+            be = be + boost;
+        }
+        step = step + 1;
+    }
+
+    let posterior: f64 = beta_mean(al, be);
+    let err: f64 = posterior - true_val;
+    err * err
+}
+
+// ============================================================================
+// Exp 1: Skepticism Annealing Schedule
+//
+// Phase 1 (obs 0-50):   desire=0.2 (skeptical), coupling=1.0
+// Phase 2 (obs 50-100): desire=0.4 (warming),   coupling=0.7
+// Phase 3 (obs 100-150): desire=0.65 (aligned), coupling=0.3
+//
+// Compare: fixed skeptical, fixed aligned, annealed, no desire
+// ============================================================================
+
+fn train_annealed(true_val: f64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var conf: f64 = 0.0;
+    var desire: f64 = 0.0;
+    var coupling: f64 = 0.0;
+    var alignment: f64 = 0.0;
+    var boost: f64 = 0.0;
+
+    while step < 150 {
+        conf = beta_mean(al, be);
+
+        // Annealing schedule: skeptical -> aligned
+        if step < 50 {
+            desire = 0.2;
+            coupling = 1.0;
+        } else {
+            if step < 100 {
+                desire = 0.4;
+                coupling = 0.7;
+            } else {
+                desire = 0.65;
+                coupling = 0.3;
+            }
+        }
+
+        alignment = 1.0 - abs_f64(conf - desire);
+        boost = 1.0 + coupling * alignment;
+
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + boost;
+        } else {
+            be = be + boost;
+        }
+        step = step + 1;
+    }
+
+    let posterior: f64 = beta_mean(al, be);
+    let err: f64 = posterior - true_val;
+    err * err
+}
+
+fn avg_loss_fixed(desire: f64, coupling: f64, true_val: f64) -> f64 {
+    let l1: f64 = train_belief(desire, coupling, true_val, 150, 42);
+    let l2: f64 = train_belief(desire, coupling, true_val, 150, 137);
+    let l3: f64 = train_belief(desire, coupling, true_val, 150, 999);
+    let l4: f64 = train_belief(desire, coupling, true_val, 150, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+fn avg_loss_annealed(true_val: f64) -> f64 {
+    let l1: f64 = train_annealed(true_val, 42);
+    let l2: f64 = train_annealed(true_val, 137);
+    let l3: f64 = train_annealed(true_val, 999);
+    let l4: f64 = train_annealed(true_val, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+fn test_annealing_schedule() -> i64 {
+    println("--- Exp 1: Skepticism Annealing Schedule ---");
+    println("  True value=0.65, 150 observations, Beta(2,2) prior");
+    println("  Schedule: skeptical(0.2,c=1.0) -> warm(0.4,c=0.7) -> aligned(0.65,c=0.3)");
+    println("");
+
+    let true_val: f64 = 0.65;
+
+    let loss_none: f64 = avg_loss_fixed(0.5, 0.0, true_val);
+    let loss_aligned: f64 = avg_loss_fixed(0.65, 0.5, true_val);
+    let loss_skeptical: f64 = avg_loss_fixed(0.2, 1.0, true_val);
+    let loss_annealed: f64 = avg_loss_annealed(true_val);
+
+    print("  No desire:        loss=");
+    print_f64(loss_none);
+    println("");
+    print("  Fixed aligned:    loss=");
+    print_f64(loss_aligned);
+    println("");
+    print("  Fixed skeptical:  loss=");
+    print_f64(loss_skeptical);
+    println("");
+    print("  ANNEALED:         loss=");
+    print_f64(loss_annealed);
+    println("");
+    println("");
+
+    // Rank them
+    var best_name: i64 = 0;
+    var best_loss: f64 = loss_none;
+    if loss_aligned < best_loss { best_loss = loss_aligned; best_name = 1; }
+    if loss_skeptical < best_loss { best_loss = loss_skeptical; best_name = 2; }
+    if loss_annealed < best_loss { best_loss = loss_annealed; best_name = 3; }
+
+    if best_name == 0 { println("  WINNER: No desire"); }
+    if best_name == 1 { println("  WINNER: Fixed aligned"); }
+    if best_name == 2 { println("  WINNER: Fixed skeptical"); }
+    if best_name == 3 { println("  WINNER: Annealed (skeptical -> aligned)"); }
+
+    if loss_annealed < loss_skeptical {
+        println("  FINDING: Annealing BEATS fixed skepticism");
+    } else {
+        println("  FINDING: Fixed skepticism still competitive with annealing");
+    }
+    if loss_annealed < loss_aligned {
+        println("  FINDING: Annealing BEATS fixed alignment");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Learnable Skepticism Schedule
+//
+// Instead of fixed phases, the desire at each step is a continuous
+// parameter. We discretise into 6 time-bins, each with a learnable
+// desire value. The meta-gradient optimises each bin independently.
+//
+// Question: does the learned trajectory start skeptical and end aligned?
+// ============================================================================
+
+fn train_binned(d0: f64, d1: f64, d2: f64, d3: f64, d4: f64, d5: f64,
+                coupling: f64, true_val: f64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var conf: f64 = 0.0;
+    var desire: f64 = 0.0;
+    var alignment: f64 = 0.0;
+    var boost: f64 = 0.0;
+    var bin: i64 = 0;
+
+    while step < 150 {
+        conf = beta_mean(al, be);
+        bin = step / 25;
+
+        if bin == 0 { desire = d0; }
+        if bin == 1 { desire = d1; }
+        if bin == 2 { desire = d2; }
+        if bin == 3 { desire = d3; }
+        if bin == 4 { desire = d4; }
+        if bin == 5 { desire = d5; }
+
+        alignment = 1.0 - abs_f64(conf - desire);
+        boost = 1.0 + coupling * alignment;
+
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + boost;
+        } else {
+            be = be + boost;
+        }
+        step = step + 1;
+    }
+
+    let posterior: f64 = beta_mean(al, be);
+    let err: f64 = posterior - true_val;
+    err * err
+}
+
+fn avg_binned(d0: f64, d1: f64, d2: f64, d3: f64, d4: f64, d5: f64,
+              coupling: f64, true_val: f64) -> f64 {
+    let l1: f64 = train_binned(d0, d1, d2, d3, d4, d5, coupling, true_val, 42);
+    let l2: f64 = train_binned(d0, d1, d2, d3, d4, d5, coupling, true_val, 137);
+    let l3: f64 = train_binned(d0, d1, d2, d3, d4, d5, coupling, true_val, 999);
+    (l1 + l2 + l3) / 3.0
+}
+
+fn mg_bin(d0: f64, d1: f64, d2: f64, d3: f64, d4: f64, d5: f64,
+          coupling: f64, true_val: f64, which: i64) -> f64 {
+    let h: f64 = 0.005;
+    var d0p: f64 = d0; var d1p: f64 = d1; var d2p: f64 = d2;
+    var d3p: f64 = d3; var d4p: f64 = d4; var d5p: f64 = d5;
+    var d0m: f64 = d0; var d1m: f64 = d1; var d2m: f64 = d2;
+    var d3m: f64 = d3; var d4m: f64 = d4; var d5m: f64 = d5;
+
+    if which == 0 { d0p = d0 + h; d0m = d0 - h; }
+    if which == 1 { d1p = d1 + h; d1m = d1 - h; }
+    if which == 2 { d2p = d2 + h; d2m = d2 - h; }
+    if which == 3 { d3p = d3 + h; d3m = d3 - h; }
+    if which == 4 { d4p = d4 + h; d4m = d4 - h; }
+    if which == 5 { d5p = d5 + h; d5m = d5 - h; }
+
+    let lp: f64 = avg_binned(d0p, d1p, d2p, d3p, d4p, d5p, coupling, true_val);
+    let lm: f64 = avg_binned(d0m, d1m, d2m, d3m, d4m, d5m, coupling, true_val);
+    (lp - lm) / (2.0 * h)
+}
+
+fn test_learnable_schedule() -> i64 {
+    println("--- Exp 2: Learnable Skepticism Schedule ---");
+    println("  6 time-bins (25 obs each), learn desire per bin");
+    println("  Coupling=0.8, true value=0.65");
+    println("");
+
+    let true_val: f64 = 0.65;
+    let coupling: f64 = 0.8;
+    let lr: f64 = 0.08;
+
+    // Initialise all bins at 0.5 (neutral)
+    var d0: f64 = 0.5;
+    var d1: f64 = 0.5;
+    var d2: f64 = 0.5;
+    var d3: f64 = 0.5;
+    var d4: f64 = 0.5;
+    var d5: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+
+    let loss_init: f64 = avg_binned(d0, d1, d2, d3, d4, d5, coupling, true_val);
+    print("  Initial loss (all 0.5): ");
+    print_f64(loss_init);
+    println("");
+
+    while cycle < 50 {
+        mg = mg_bin(d0, d1, d2, d3, d4, d5, coupling, true_val, 0);
+        d0 = clamp(d0 - lr * mg, 0.05, 0.95);
+        mg = mg_bin(d0, d1, d2, d3, d4, d5, coupling, true_val, 1);
+        d1 = clamp(d1 - lr * mg, 0.05, 0.95);
+        mg = mg_bin(d0, d1, d2, d3, d4, d5, coupling, true_val, 2);
+        d2 = clamp(d2 - lr * mg, 0.05, 0.95);
+        mg = mg_bin(d0, d1, d2, d3, d4, d5, coupling, true_val, 3);
+        d3 = clamp(d3 - lr * mg, 0.05, 0.95);
+        mg = mg_bin(d0, d1, d2, d3, d4, d5, coupling, true_val, 4);
+        d4 = clamp(d4 - lr * mg, 0.05, 0.95);
+        mg = mg_bin(d0, d1, d2, d3, d4, d5, coupling, true_val, 5);
+        d5 = clamp(d5 - lr * mg, 0.05, 0.95);
+        cycle = cycle + 1;
+    }
+
+    let loss_learned: f64 = avg_binned(d0, d1, d2, d3, d4, d5, coupling, true_val);
+    print("  Learned loss:           ");
+    print_f64(loss_learned);
+    println("");
+    println("");
+
+    println("  Learned desire trajectory:");
+    print("    Bin 0 (obs  0-24):  desire=");
+    print_f64(d0);
+    println("");
+    print("    Bin 1 (obs 25-49):  desire=");
+    print_f64(d1);
+    println("");
+    print("    Bin 2 (obs 50-74):  desire=");
+    print_f64(d2);
+    println("");
+    print("    Bin 3 (obs 75-99):  desire=");
+    print_f64(d3);
+    println("");
+    print("    Bin 4 (obs 100-124): desire=");
+    print_f64(d4);
+    println("");
+    print("    Bin 5 (obs 125-149): desire=");
+    print_f64(d5);
+    println("");
+    println("");
+
+    // Check: does early desire differ from late desire?
+    let early_avg: f64 = (d0 + d1) / 2.0;
+    let late_avg: f64 = (d4 + d5) / 2.0;
+    print("  Early avg desire (bins 0-1): ");
+    print_f64(early_avg);
+    println("");
+    print("  Late avg desire  (bins 4-5): ");
+    print_f64(late_avg);
+    println("");
+
+    if late_avg > early_avg + 0.05 {
+        println("  FINDING: Desire trajectory moves from SKEPTICAL to ALIGNED");
+        println("  The meta-gradient discovers annealing spontaneously!");
+    } else {
+        if early_avg > late_avg + 0.05 {
+            println("  FINDING: Desire stays SKEPTICAL throughout");
+            println("  Skepticism is valuable at all stages");
+        } else {
+            println("  FINDING: Desire trajectory is roughly FLAT");
+            println("  Annealing not clearly preferred over fixed schedule");
+        }
+    }
+
+    if loss_learned < loss_init {
+        println("  FINDING: Learned schedule beats uniform neutral");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Adversarial Belief Challenge
+//
+// Agent A: trusting desire (aligned=0.65, coupling=0.5)
+// Agent B: skeptical desire (misaligned=0.2, coupling=0.5)
+// Same evidence stream. Compare errors at obs=20 (early) and obs=200 (late).
+// ============================================================================
+
+fn train_agent_snapshot(desire: f64, coupling: f64, true_val: f64,
+                        observations: i64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var conf: f64 = 0.0;
+    var alignment: f64 = 0.0;
+    var boost: f64 = 0.0;
+
+    while step < observations {
+        conf = beta_mean(al, be);
+        alignment = 1.0 - abs_f64(conf - desire);
+        boost = 1.0 + coupling * alignment;
+
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + boost;
+        } else {
+            be = be + boost;
+        }
+        step = step + 1;
+    }
+
+    let posterior: f64 = beta_mean(al, be);
+    let err: f64 = posterior - true_val;
+    abs_f64(err)
+}
+
+fn avg_agent_error(desire: f64, coupling: f64, true_val: f64, obs: i64) -> f64 {
+    let e1: f64 = train_agent_snapshot(desire, coupling, true_val, obs, 42);
+    let e2: f64 = train_agent_snapshot(desire, coupling, true_val, obs, 137);
+    let e3: f64 = train_agent_snapshot(desire, coupling, true_val, obs, 999);
+    let e4: f64 = train_agent_snapshot(desire, coupling, true_val, obs, 2023);
+    let e5: f64 = train_agent_snapshot(desire, coupling, true_val, obs, 7777);
+    (e1 + e2 + e3 + e4 + e5) / 5.0
+}
+
+fn test_adversarial_challenge() -> i64 {
+    println("--- Exp 3: Adversarial Belief Challenge ---");
+    println("  Agent A: trusting  (desire=0.65, coupling=0.5)");
+    println("  Agent B: skeptical (desire=0.20, coupling=0.5)");
+    println("  Agent N: no desire (neutral baseline)");
+    println("  True value=0.65, same evidence stream");
+    println("");
+
+    let true_val: f64 = 0.65;
+
+    // Early snapshot (20 obs)
+    let trust_early: f64 = avg_agent_error(0.65, 0.5, true_val, 20);
+    let skept_early: f64 = avg_agent_error(0.2, 0.5, true_val, 20);
+    let none_early: f64 = avg_agent_error(0.5, 0.0, true_val, 20);
+
+    println("  After 20 observations (early):");
+    print("    Trusting error:  ");
+    print_f64(trust_early);
+    println("");
+    print("    Skeptical error: ");
+    print_f64(skept_early);
+    println("");
+    print("    No-desire error: ");
+    print_f64(none_early);
+    println("");
+
+    if skept_early < trust_early {
+        println("    -> Skeptic WINS early");
+    } else {
+        println("    -> Truster WINS early");
+    }
+    println("");
+
+    // Mid snapshot (80 obs)
+    let trust_mid: f64 = avg_agent_error(0.65, 0.5, true_val, 80);
+    let skept_mid: f64 = avg_agent_error(0.2, 0.5, true_val, 80);
+    let none_mid: f64 = avg_agent_error(0.5, 0.0, true_val, 80);
+
+    println("  After 80 observations (mid):");
+    print("    Trusting error:  ");
+    print_f64(trust_mid);
+    println("");
+    print("    Skeptical error: ");
+    print_f64(skept_mid);
+    println("");
+    print("    No-desire error: ");
+    print_f64(none_mid);
+    println("");
+
+    if skept_mid < trust_mid {
+        println("    -> Skeptic WINS mid");
+    } else {
+        println("    -> Truster WINS mid");
+    }
+    println("");
+
+    // Late snapshot (200 obs)
+    let trust_late: f64 = avg_agent_error(0.65, 0.5, true_val, 200);
+    let skept_late: f64 = avg_agent_error(0.2, 0.5, true_val, 200);
+    let none_late: f64 = avg_agent_error(0.5, 0.0, true_val, 200);
+
+    println("  After 200 observations (late):");
+    print("    Trusting error:  ");
+    print_f64(trust_late);
+    println("");
+    print("    Skeptical error: ");
+    print_f64(skept_late);
+    println("");
+    print("    No-desire error: ");
+    print_f64(none_late);
+    println("");
+
+    if skept_late < trust_late {
+        println("    -> Skeptic WINS late");
+    } else {
+        println("    -> Truster WINS late");
+    }
+    println("");
+
+    // Crossover analysis
+    if skept_early < trust_early {
+        if trust_late < skept_late {
+            println("  FINDING: CROSSOVER detected! Skeptic better early, truster better late");
+            println("  This validates the annealing hypothesis");
+        } else {
+            println("  FINDING: Skeptic dominates at ALL horizons");
+            println("  Sustained skepticism > trust even with abundant evidence");
+        }
+    } else {
+        println("  FINDING: Truster dominates at ALL horizons");
+        println("  Alignment helps from the start");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Ensemble of Skepticisms
+//
+// 3 agents: trusting (desire=0.65), neutral (0.5), skeptical (0.2)
+// All observe same evidence. Combine posterior means via learnable weights.
+// Does meta-gradient learn to weight skeptic more early, truster more late?
+// ============================================================================
+
+fn train_ensemble(w_trust: f64, w_neutral: f64, w_skept: f64,
+                  true_val: f64, observations: i64, seed: i64) -> f64 {
+    // Run all three agents in parallel (simulated)
+    var t_al: f64 = 2.0;
+    var t_be: f64 = 2.0;
+    var n_al: f64 = 2.0;
+    var n_be: f64 = 2.0;
+    var s_al: f64 = 2.0;
+    var s_be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var conf: f64 = 0.0;
+    var alignment: f64 = 0.0;
+    var boost: f64 = 0.0;
+    var obs_val: f64 = 0.0;
+
+    let coupling: f64 = 0.5;
+    let d_trust: f64 = 0.65;
+    let d_neutral: f64 = 0.5;
+    let d_skept: f64 = 0.2;
+
+    while step < observations {
+        // Same evidence for all agents
+        rng = lcg_next(rng);
+        obs_val = lcg_f64(rng);
+
+        // Trusting agent
+        conf = beta_mean(t_al, t_be);
+        alignment = 1.0 - abs_f64(conf - d_trust);
+        boost = 1.0 + coupling * alignment;
+        if obs_val < true_val {
+            t_al = t_al + boost;
+        } else {
+            t_be = t_be + boost;
+        }
+
+        // Neutral agent
+        conf = beta_mean(n_al, n_be);
+        alignment = 1.0 - abs_f64(conf - d_neutral);
+        boost = 1.0 + coupling * alignment;
+        if obs_val < true_val {
+            n_al = n_al + boost;
+        } else {
+            n_be = n_be + boost;
+        }
+
+        // Skeptical agent
+        conf = beta_mean(s_al, s_be);
+        alignment = 1.0 - abs_f64(conf - d_skept);
+        boost = 1.0 + coupling * alignment;
+        if obs_val < true_val {
+            s_al = s_al + boost;
+        } else {
+            s_be = s_be + boost;
+        }
+
+        step = step + 1;
+    }
+
+    // Weighted combination (softmax-like normalisation)
+    let w_sum: f64 = abs_f64(w_trust) + abs_f64(w_neutral) + abs_f64(w_skept) + 0.001;
+    let wt: f64 = abs_f64(w_trust) / w_sum;
+    let wn: f64 = abs_f64(w_neutral) / w_sum;
+    let ws: f64 = abs_f64(w_skept) / w_sum;
+
+    let ensemble: f64 = wt * beta_mean(t_al, t_be)
+                      + wn * beta_mean(n_al, n_be)
+                      + ws * beta_mean(s_al, s_be);
+
+    let err: f64 = ensemble - true_val;
+    err * err
+}
+
+fn avg_ensemble(wt: f64, wn: f64, ws: f64, true_val: f64, obs: i64) -> f64 {
+    let l1: f64 = train_ensemble(wt, wn, ws, true_val, obs, 42);
+    let l2: f64 = train_ensemble(wt, wn, ws, true_val, obs, 137);
+    let l3: f64 = train_ensemble(wt, wn, ws, true_val, obs, 999);
+    (l1 + l2 + l3) / 3.0
+}
+
+fn mg_ensemble(wt: f64, wn: f64, ws: f64, true_val: f64,
+               obs: i64, which: i64) -> f64 {
+    let h: f64 = 0.005;
+    var wtp: f64 = wt; var wnp: f64 = wn; var wsp: f64 = ws;
+    var wtm: f64 = wt; var wnm: f64 = wn; var wsm: f64 = ws;
+
+    if which == 0 { wtp = wt + h; wtm = wt - h; }
+    if which == 1 { wnp = wn + h; wnm = wn - h; }
+    if which == 2 { wsp = ws + h; wsm = ws - h; }
+
+    let lp: f64 = avg_ensemble(wtp, wnp, wsp, true_val, obs);
+    let lm: f64 = avg_ensemble(wtm, wnm, wsm, true_val, obs);
+    (lp - lm) / (2.0 * h)
+}
+
+fn learn_weights(true_val: f64, obs: i64) -> i64 {
+    var wt: f64 = 1.0;
+    var wn: f64 = 1.0;
+    var ws: f64 = 1.0;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    let lr: f64 = 0.15;
+
+    while cycle < 40 {
+        mg = mg_ensemble(wt, wn, ws, true_val, obs, 0);
+        wt = clamp(wt - lr * mg, 0.01, 5.0);
+        mg = mg_ensemble(wt, wn, ws, true_val, obs, 1);
+        wn = clamp(wn - lr * mg, 0.01, 5.0);
+        mg = mg_ensemble(wt, wn, ws, true_val, obs, 2);
+        ws = clamp(ws - lr * mg, 0.01, 5.0);
+        cycle = cycle + 1;
+    }
+
+    // Normalise for display
+    let w_sum: f64 = wt + wn + ws;
+    let norm_t: f64 = wt / w_sum;
+    let norm_n: f64 = wn / w_sum;
+    let norm_s: f64 = ws / w_sum;
+
+    print("    Trusting weight:  ");
+    print_f64(norm_t);
+    println("");
+    print("    Neutral weight:   ");
+    print_f64(norm_n);
+    println("");
+    print("    Skeptical weight: ");
+    print_f64(norm_s);
+    println("");
+
+    let loss: f64 = avg_ensemble(wt, wn, ws, true_val, obs);
+    print("    Ensemble loss:    ");
+    print_f64(loss);
+    println("");
+
+    if norm_s > norm_t + 0.05 {
+        println("    -> Meta-gradient FAVOURS skeptic");
+    } else {
+        if norm_t > norm_s + 0.05 {
+            println("    -> Meta-gradient FAVOURS truster");
+        } else {
+            println("    -> Weights roughly EQUAL");
+        }
+    }
+    0
+}
+
+fn test_ensemble() -> i64 {
+    println("--- Exp 4: Ensemble of Skepticisms ---");
+    println("  3 agents: trusting(0.65), neutral(0.5), skeptical(0.2)");
+    println("  Learn optimal ensemble weights at different horizons");
+    println("  True value=0.65, coupling=0.5");
+    println("");
+
+    let true_val: f64 = 0.65;
+
+    // Baseline: equal weights
+    let loss_equal_early: f64 = avg_ensemble(1.0, 1.0, 1.0, true_val, 20);
+    let loss_equal_late: f64 = avg_ensemble(1.0, 1.0, 1.0, true_val, 200);
+    print("  Equal-weight ensemble (20 obs):  loss=");
+    print_f64(loss_equal_early);
+    println("");
+    print("  Equal-weight ensemble (200 obs): loss=");
+    print_f64(loss_equal_late);
+    println("");
+    println("");
+
+    // Learn weights at different horizons
+    println("  Learning weights at 20 observations (early):");
+    learn_weights(true_val, 20);
+    println("");
+
+    println("  Learning weights at 80 observations (mid):");
+    learn_weights(true_val, 80);
+    println("");
+
+    println("  Learning weights at 200 observations (late):");
+    learn_weights(true_val, 200);
+    println("");
+
+    // Best single agent for comparison
+    let best_single_late: f64 = avg_ensemble(1.0, 0.01, 0.01, true_val, 200);
+    let best_skept_late: f64 = avg_ensemble(0.01, 0.01, 1.0, true_val, 200);
+    print("  Single trusting (200 obs):  loss=");
+    print_f64(best_single_late);
+    println("");
+    print("  Single skeptical (200 obs): loss=");
+    print_f64(best_skept_late);
+    println("");
+
+    println("");
+    println("  ANALYSIS: If early weights favour skeptic and late weights");
+    println("  favour truster, the ensemble has learned to ANNEAL");
+    println("  implicitly — the same principle as Exp 1, discovered");
+    println("  through weight optimisation rather than schedule design.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("============================================");
+    println("  SKEPTICAL DESIRE ANNEALING");
+    println("  From Misalignment to Alignment Over Time");
+    println("============================================");
+    println("");
+
+    test_annealing_schedule();
+    test_learnable_schedule();
+    test_adversarial_challenge();
+    test_ensemble();
+
+    println("============================================");
+    println("  SUMMARY");
+    println("============================================");
+    println("  1. Annealing: skeptical-start -> aligned-finish");
+    println("     may combine benefits of both strategies");
+    println("  2. Learnable schedule: meta-gradient discovers");
+    println("     the optimal desire trajectory over time");
+    println("  3. Adversarial: tests crossover hypothesis —");
+    println("     skepticism better early, trust better late?");
+    println("  4. Ensemble: diverse skepticism levels with");
+    println("     learnable weights achieve robust performance");
+    println("============================================");
+
+    0
+}

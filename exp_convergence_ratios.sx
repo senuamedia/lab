@@ -1,0 +1,928 @@
+// Experiment: Convergence Ratio Series
+//
+// From the interaction matrix experiments, the drift series D(t) converges.
+// Question: does the ratio R(t) = D(t+1)/D(t) converge to a constant?
+// If so, what constant? Does it relate to known constants (phi, e, pi)?
+//
+// Exp 1: Ratio analysis on the standard 3-loss, 4-param problem (100 cycles)
+// Exp 2: Universality — same analysis on 3 different problem scales
+// Exp 3: Entropy of interaction matrix as it converges
+// Exp 4: Eigenvalue analogy — track dominant pair over cycles
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn dot4(a0: f64, a1: f64, a2: f64, a3: f64,
+        b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
+}
+
+fn cosine4(a0: f64, a1: f64, a2: f64, a3: f64,
+           b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    let d: f64 = dot4(a0, a1, a2, a3, b0, b1, b2, b3);
+    let na: f64 = sqrt(dot4(a0, a1, a2, a3, a0, a1, a2, a3));
+    let nb: f64 = sqrt(dot4(b0, b1, b2, b3, b0, b1, b2, b3));
+    d / (na * nb + 0.000000000001)
+}
+
+fn project_dim(gi: f64, gj_0: f64, gj_1: f64, gj_2: f64, gj_3: f64,
+               gi_0: f64, gi_1: f64, gi_2: f64, gi_3: f64,
+               alpha: f64, dim: i64) -> f64 {
+    let cos_val: f64 = cosine4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3);
+    if cos_val >= 0.0 { return gi; }
+    let scale: f64 = alpha * (0.0 - cos_val);
+    let gj_sq: f64 = dot4(gj_0, gj_1, gj_2, gj_3, gj_0, gj_1, gj_2, gj_3) + 0.000000000001;
+    let proj: f64 = scale * dot4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3) / gj_sq;
+    if dim == 0 { gi - proj * gj_0 }
+    else { if dim == 1 { gi - proj * gj_1 }
+    else { if dim == 2 { gi - proj * gj_2 }
+    else { gi - proj * gj_3 } } }
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+// Parameterised run_cycle: targets passed as 12 f64s (3 losses x 4 params)
+fn run_cycle_p(alpha_ab: f64, alpha_ac: f64, alpha_ba: f64,
+               alpha_bc: f64, alpha_ca: f64, alpha_cb: f64,
+               ta0: f64, ta1: f64, ta2: f64, ta3: f64,
+               tb0: f64, tb1: f64, tb2: f64, tb3: f64,
+               tc0: f64, tc1: f64, tc2: f64, tc3: f64,
+               steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var ga_0: f64 = 0.0;
+    var ga_1: f64 = 0.0;
+    var ga_2: f64 = 0.0;
+    var ga_3: f64 = 0.0;
+    var gb_0: f64 = 0.0;
+    var gb_1: f64 = 0.0;
+    var gb_2: f64 = 0.0;
+    var gb_3: f64 = 0.0;
+    var gc_0: f64 = 0.0;
+    var gc_1: f64 = 0.0;
+    var gc_2: f64 = 0.0;
+    var gc_3: f64 = 0.0;
+    var ra_0: f64 = 0.0;
+    var ra_1: f64 = 0.0;
+    var ra_2: f64 = 0.0;
+    var ra_3: f64 = 0.0;
+    var rb_0: f64 = 0.0;
+    var rb_1: f64 = 0.0;
+    var rb_2: f64 = 0.0;
+    var rb_3: f64 = 0.0;
+    var rc_0: f64 = 0.0;
+    var rc_1: f64 = 0.0;
+    var rc_2: f64 = 0.0;
+    var rc_3: f64 = 0.0;
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        ga_0 = 2.0 * (w0 - ta0);
+        ga_1 = 2.0 * (w1 - ta1);
+        ga_2 = 2.0 * (w2 - ta2);
+        ga_3 = 2.0 * (w3 - ta3);
+        gb_0 = 2.0 * (w0 - tb0);
+        gb_1 = 2.0 * (w1 - tb1);
+        gb_2 = 2.0 * (w2 - tb2);
+        gb_3 = 2.0 * (w3 - tb3);
+        gc_0 = 2.0 * (w0 - tc0);
+        gc_1 = 2.0 * (w1 - tc1);
+        gc_2 = 2.0 * (w2 - tc2);
+        gc_3 = 2.0 * (w3 - tc3);
+
+        ra_0 = project_dim(ga_0, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 0);
+        ra_0 = project_dim(ra_0, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 0);
+        ra_1 = project_dim(ga_1, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 1);
+        ra_1 = project_dim(ra_1, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 1);
+        ra_2 = project_dim(ga_2, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 2);
+        ra_2 = project_dim(ra_2, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 2);
+        ra_3 = project_dim(ga_3, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 3);
+        ra_3 = project_dim(ra_3, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 3);
+
+        rb_0 = project_dim(gb_0, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 0);
+        rb_0 = project_dim(rb_0, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 0);
+        rb_1 = project_dim(gb_1, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 1);
+        rb_1 = project_dim(rb_1, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 1);
+        rb_2 = project_dim(gb_2, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 2);
+        rb_2 = project_dim(rb_2, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 2);
+        rb_3 = project_dim(gb_3, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 3);
+        rb_3 = project_dim(rb_3, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 3);
+
+        rc_0 = project_dim(gc_0, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 0);
+        rc_0 = project_dim(rc_0, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 0);
+        rc_1 = project_dim(gc_1, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 1);
+        rc_1 = project_dim(rc_1, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 1);
+        rc_2 = project_dim(gc_2, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 2);
+        rc_2 = project_dim(rc_2, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 2);
+        rc_3 = project_dim(gc_3, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 3);
+        rc_3 = project_dim(rc_3, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 3);
+
+        w0 = w0 - lr * (ra_0 + rb_0 + rc_0);
+        w1 = w1 - lr * (ra_1 + rb_1 + rc_1);
+        w2 = w2 - lr * (ra_2 + rb_2 + rc_2);
+        w3 = w3 - lr * (ra_3 + rb_3 + rc_3);
+        step = step + 1;
+    }
+
+    let da0: f64 = (w0 - ta0) * (w0 - ta0);
+    let da1: f64 = (w1 - ta1) * (w1 - ta1);
+    let da2: f64 = (w2 - ta2) * (w2 - ta2);
+    let da3: f64 = (w3 - ta3) * (w3 - ta3);
+    let db0: f64 = (w0 - tb0) * (w0 - tb0);
+    let db1: f64 = (w1 - tb1) * (w1 - tb1);
+    let db2: f64 = (w2 - tb2) * (w2 - tb2);
+    let db3: f64 = (w3 - tb3) * (w3 - tb3);
+    let dc0: f64 = (w0 - tc0) * (w0 - tc0);
+    let dc1: f64 = (w1 - tc1) * (w1 - tc1);
+    let dc2: f64 = (w2 - tc2) * (w2 - tc2);
+    let dc3: f64 = (w3 - tc3) * (w3 - tc3);
+    da0 + da1 + da2 + da3 + db0 + db1 + db2 + db3 + dc0 + dc1 + dc2 + dc3
+}
+
+// Meta-gradient for one alpha via finite difference
+fn meta_grad_p(base_ab: f64, base_ac: f64, base_ba: f64,
+               base_bc: f64, base_ca: f64, base_cb: f64,
+               which: i64, steps: i64,
+               ta0: f64, ta1: f64, ta2: f64, ta3: f64,
+               tb0: f64, tb1: f64, tb2: f64, tb3: f64,
+               tc0: f64, tc1: f64, tc2: f64, tc3: f64) -> f64 {
+    let h: f64 = 0.01;
+    var ab_p: f64 = base_ab;
+    var ac_p: f64 = base_ac;
+    var ba_p: f64 = base_ba;
+    var bc_p: f64 = base_bc;
+    var ca_p: f64 = base_ca;
+    var cb_p: f64 = base_cb;
+    var ab_m: f64 = base_ab;
+    var ac_m: f64 = base_ac;
+    var ba_m: f64 = base_ba;
+    var bc_m: f64 = base_bc;
+    var ca_m: f64 = base_ca;
+    var cb_m: f64 = base_cb;
+
+    if which == 0 { ab_p = base_ab + h; ab_m = base_ab - h; }
+    if which == 1 { ac_p = base_ac + h; ac_m = base_ac - h; }
+    if which == 2 { ba_p = base_ba + h; ba_m = base_ba - h; }
+    if which == 3 { bc_p = base_bc + h; bc_m = base_bc - h; }
+    if which == 4 { ca_p = base_ca + h; ca_m = base_ca - h; }
+    if which == 5 { cb_p = base_cb + h; cb_m = base_cb - h; }
+
+    let lp: f64 = run_cycle_p(ab_p, ac_p, ba_p, bc_p, ca_p, cb_p,
+                               ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3, steps);
+    let lm: f64 = run_cycle_p(ab_m, ac_m, ba_m, bc_m, ca_m, cb_m,
+                               ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+// Natural log approximation via series: ln(x) for x > 0
+// Uses ln(x) = 2 * atanh((x-1)/(x+1)) with series expansion
+fn ln_approx(x: f64) -> f64 {
+    if x <= 0.0 { return 0.0 - 99.0; }
+    // Reduce: x = m * 2^k, compute ln(m) + k*ln(2)
+    var val: f64 = x;
+    var k: i64 = 0;
+    while val > 2.0 {
+        val = val / 2.0;
+        k = k + 1;
+    }
+    while val < 0.5 {
+        val = val * 2.0;
+        k = k - 1;
+    }
+    // Now 0.5 <= val <= 2.0, use atanh series
+    let u: f64 = (val - 1.0) / (val + 1.0);
+    let u2: f64 = u * u;
+    // ln(val) = 2*(u + u^3/3 + u^5/5 + u^7/7 + u^9/9 + u^11/11)
+    let t1: f64 = u;
+    let t3: f64 = u * u2 / 3.0;
+    let t5: f64 = u * u2 * u2 / 5.0;
+    let t7: f64 = u * u2 * u2 * u2 / 7.0;
+    let t9: f64 = u * u2 * u2 * u2 * u2 / 9.0;
+    let t11: f64 = u * u2 * u2 * u2 * u2 * u2 / 11.0;
+    let ln_val: f64 = 2.0 * (t1 + t3 + t5 + t7 + t9 + t11);
+    let ln2: f64 = 0.693147180559945;
+    let kf: f64 = k;
+    ln_val + kf * ln2
+}
+
+// ============================================================
+// Exp 1: Convergence Ratio Analysis (100 meta-cycles)
+// ============================================================
+fn run_exp1() -> i64 {
+    println("============================================================");
+    println("  EXP 1: CONVERGENCE RATIO ANALYSIS");
+    println("  R(t) = D(t+1) / D(t) — does it converge?");
+    println("  Targets: A=[3,1,-2,4] B=[-1,3,2,-3] C=[0.5,-2,4,0]");
+    println("============================================================");
+    println("");
+
+    var alpha_ab: f64 = 0.5;
+    var alpha_ac: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var alpha_bc: f64 = 0.5;
+    var alpha_ca: f64 = 0.5;
+    var alpha_cb: f64 = 0.5;
+    var prev_ab: f64 = 0.5;
+    var prev_ac: f64 = 0.5;
+    var prev_ba: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var prev_cb: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var prev_drift: f64 = 0.0;
+    var ratio: f64 = 0.0;
+    var ratio_sum_last20: f64 = 0.0;
+    var ratio_count_last20: i64 = 0;
+
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 100;
+
+    // Targets: A=[3,1,-2,4] B=[-1,3,2,-3] C=[0.5,-2,4,0]
+    let ta0: f64 = 3.0;
+    let ta1: f64 = 1.0;
+    let ta2: f64 = 0.0 - 2.0;
+    let ta3: f64 = 4.0;
+    let tb0: f64 = 0.0 - 1.0;
+    let tb1: f64 = 3.0;
+    let tb2: f64 = 2.0;
+    let tb3: f64 = 0.0 - 3.0;
+    let tc0: f64 = 0.5;
+    let tc1: f64 = 0.0 - 2.0;
+    let tc2: f64 = 4.0;
+    let tc3: f64 = 0.0;
+
+    println("  Cycle   D(t)         R(t)=D(t)/D(t-1)");
+    println("  -----   ----------   -----------------");
+
+    var cycle: i64 = 0;
+    while cycle < meta_cycles {
+        prev_ab = alpha_ab;
+        prev_ac = alpha_ac;
+        prev_ba = alpha_ba;
+        prev_bc = alpha_bc;
+        prev_ca = alpha_ca;
+        prev_cb = alpha_cb;
+
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 2.0);
+
+        drift = abs_f64(alpha_ab - prev_ab) + abs_f64(alpha_ac - prev_ac)
+              + abs_f64(alpha_ba - prev_ba) + abs_f64(alpha_bc - prev_bc)
+              + abs_f64(alpha_ca - prev_ca) + abs_f64(alpha_cb - prev_cb);
+
+        if cycle > 0 {
+            if prev_drift > 0.0000001 {
+                ratio = drift / prev_drift;
+            } else {
+                ratio = 0.0;
+            }
+        } else {
+            ratio = 0.0;
+        }
+
+        // Accumulate ratio for last 20 cycles
+        if cycle >= 80 {
+            ratio_sum_last20 = ratio_sum_last20 + ratio;
+            ratio_count_last20 = ratio_count_last20 + 1;
+        }
+
+        // Print every 5th cycle
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("       ");
+            print_f64(drift);
+            print("   ");
+            print_f64(ratio);
+            println("");
+        }
+        if cycle >= 5 {
+            let rem: i64 = cycle - (cycle / 5) * 5;
+            if rem == 0 {
+                print("  ");
+                print_i64(cycle);
+                print("      ");
+                print_f64(drift);
+                print("   ");
+                print_f64(ratio);
+                println("");
+            }
+        }
+
+        prev_drift = drift;
+        cycle = cycle + 1;
+    }
+
+    println("");
+    print("  Average R over last 20 cycles: ");
+    if ratio_count_last20 > 0 {
+        let avg_r: f64 = ratio_sum_last20 / 20.0;
+        print_f64(avg_r);
+        println("");
+
+        // Compare to known constants
+        let phi: f64 = 1.6180339887;
+        let inv_phi: f64 = 0.6180339887;
+        let inv_e: f64 = 0.3678794412;
+        let one_over_pi: f64 = 0.3183098862;
+
+        println("");
+        println("  Comparison to known constants:");
+        print("    R_avg               = ");
+        print_f64(avg_r);
+        println("");
+        print("    1/phi (0.618...)    = ");
+        print_f64(inv_phi);
+        println("");
+        print("    1/e   (0.368...)    = ");
+        print_f64(inv_e);
+        println("");
+        print("    1/pi  (0.318...)    = ");
+        print_f64(one_over_pi);
+        println("");
+        print("    |R - 1/phi| = ");
+        print_f64(abs_f64(avg_r - inv_phi));
+        println("");
+        print("    |R - 1/e|   = ");
+        print_f64(abs_f64(avg_r - inv_e));
+        println("");
+        print("    |R - 1/pi|  = ");
+        print_f64(abs_f64(avg_r - one_over_pi));
+        println("");
+    } else {
+        println("(no data)");
+    }
+
+    println("");
+    println("  Final alphas:");
+    print("    A->B: ");
+    print_f64(alpha_ab);
+    print("  A->C: ");
+    print_f64(alpha_ac);
+    println("");
+    print("    B->A: ");
+    print_f64(alpha_ba);
+    print("  B->C: ");
+    print_f64(alpha_bc);
+    println("");
+    print("    C->A: ");
+    print_f64(alpha_ca);
+    print("  C->B: ");
+    print_f64(alpha_cb);
+    println("");
+
+    0
+}
+
+// ============================================================
+// Exp 2: Ratio Universality — 3 different problems
+// ============================================================
+
+// Run a full meta-optimisation and return average ratio over last 20 of N cycles
+fn compute_avg_ratio(ta0: f64, ta1: f64, ta2: f64, ta3: f64,
+                     tb0: f64, tb1: f64, tb2: f64, tb3: f64,
+                     tc0: f64, tc1: f64, tc2: f64, tc3: f64,
+                     num_cycles: i64) -> f64 {
+    var alpha_ab: f64 = 0.5;
+    var alpha_ac: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var alpha_bc: f64 = 0.5;
+    var alpha_ca: f64 = 0.5;
+    var alpha_cb: f64 = 0.5;
+    var prev_ab: f64 = 0.5;
+    var prev_ac: f64 = 0.5;
+    var prev_ba: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var prev_cb: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var prev_drift: f64 = 0.0;
+    var ratio: f64 = 0.0;
+    var ratio_sum: f64 = 0.0;
+    var ratio_count: i64 = 0;
+
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let tail: i64 = num_cycles - 20;
+
+    var cycle: i64 = 0;
+    while cycle < num_cycles {
+        prev_ab = alpha_ab;
+        prev_ac = alpha_ac;
+        prev_ba = alpha_ba;
+        prev_bc = alpha_bc;
+        prev_ca = alpha_ca;
+        prev_cb = alpha_cb;
+
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 2.0);
+
+        drift = abs_f64(alpha_ab - prev_ab) + abs_f64(alpha_ac - prev_ac)
+              + abs_f64(alpha_ba - prev_ba) + abs_f64(alpha_bc - prev_bc)
+              + abs_f64(alpha_ca - prev_ca) + abs_f64(alpha_cb - prev_cb);
+
+        if cycle > 0 {
+            if prev_drift > 0.0000001 {
+                ratio = drift / prev_drift;
+                if cycle >= tail {
+                    ratio_sum = ratio_sum + ratio;
+                    ratio_count = ratio_count + 1;
+                }
+            }
+        }
+
+        prev_drift = drift;
+        cycle = cycle + 1;
+    }
+
+    if ratio_count > 0 {
+        let rc_f: f64 = ratio_count;
+        ratio_sum / rc_f
+    } else {
+        0.0
+    }
+}
+
+fn run_exp2() -> i64 {
+    println("");
+    println("============================================================");
+    println("  EXP 2: RATIO UNIVERSALITY");
+    println("  Does R converge to the same constant across problems?");
+    println("============================================================");
+    println("");
+
+    let num_cycles: i64 = 60;
+
+    // Problem 1: mild conflict (targets spread ~3 apart)
+    // A=[2,0,-1,1] B=[-1,2,1,-2] C=[0.5,-1,2,0]
+    println("  Problem 1: Mild conflict (spread ~3)");
+    print("    A=[2,0,-1,1] B=[-1,2,1,-2] C=[0.5,-1,2,0]");
+    println("");
+    let r1: f64 = compute_avg_ratio(2.0, 0.0, 0.0 - 1.0, 1.0,
+                                     0.0 - 1.0, 2.0, 1.0, 0.0 - 2.0,
+                                     0.5, 0.0 - 1.0, 2.0, 0.0, num_cycles);
+    print("    Avg R (last 20): ");
+    print_f64(r1);
+    println("");
+    println("");
+
+    // Problem 2: strong conflict (targets spread ~6 apart)
+    // A=[5,1,-4,6] B=[-3,5,3,-5] C=[1,-4,7,0]
+    println("  Problem 2: Strong conflict (spread ~6)");
+    print("    A=[5,1,-4,6] B=[-3,5,3,-5] C=[1,-4,7,0]");
+    println("");
+    let r2: f64 = compute_avg_ratio(5.0, 1.0, 0.0 - 4.0, 6.0,
+                                     0.0 - 3.0, 5.0, 3.0, 0.0 - 5.0,
+                                     1.0, 0.0 - 4.0, 7.0, 0.0, num_cycles);
+    print("    Avg R (last 20): ");
+    print_f64(r2);
+    println("");
+    println("");
+
+    // Problem 3: original targets from exp1
+    // A=[3,1,-2,4] B=[-1,3,2,-3] C=[0.5,-2,4,0]
+    println("  Problem 3: Original targets (from Exp 1)");
+    print("    A=[3,1,-2,4] B=[-1,3,2,-3] C=[0.5,-2,4,0]");
+    println("");
+    let r3: f64 = compute_avg_ratio(3.0, 1.0, 0.0 - 2.0, 4.0,
+                                     0.0 - 1.0, 3.0, 2.0, 0.0 - 3.0,
+                                     0.5, 0.0 - 2.0, 4.0, 0.0, num_cycles);
+    print("    Avg R (last 20): ");
+    print_f64(r3);
+    println("");
+    println("");
+
+    println("  Universality check:");
+    print("    |R1 - R2| = ");
+    print_f64(abs_f64(r1 - r2));
+    println("");
+    print("    |R1 - R3| = ");
+    print_f64(abs_f64(r1 - r3));
+    println("");
+    print("    |R2 - R3| = ");
+    print_f64(abs_f64(r2 - r3));
+    println("");
+
+    let spread: f64 = abs_f64(r1 - r2) + abs_f64(r1 - r3) + abs_f64(r2 - r3);
+    if spread < 0.3 {
+        println("    RESULT: Ratios are CLOSE — possible universal constant");
+    } else {
+        println("    RESULT: Ratios DIFFER — R depends on problem geometry");
+    }
+
+    0
+}
+
+// ============================================================
+// Exp 3: Entropy of Interaction Matrix
+// ============================================================
+fn run_exp3() -> i64 {
+    println("");
+    println("============================================================");
+    println("  EXP 3: ENTROPY OF INTERACTION MATRIX");
+    println("  H(M) = -sum(p_ij * ln(p_ij))  as matrix converges");
+    println("============================================================");
+    println("");
+
+    var alpha_ab: f64 = 0.5;
+    var alpha_ac: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var alpha_bc: f64 = 0.5;
+    var alpha_ca: f64 = 0.5;
+    var alpha_cb: f64 = 0.5;
+    var prev_ab: f64 = 0.5;
+    var prev_ac: f64 = 0.5;
+    var prev_ba: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var prev_cb: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var entropy: f64 = 0.0;
+    var total_alpha: f64 = 0.0;
+    var p: f64 = 0.0;
+    var prev_entropy: f64 = 0.0;
+    var entropy_decreasing: i64 = 0;
+    var entropy_checks: i64 = 0;
+
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 60;
+
+    let ta0: f64 = 3.0;
+    let ta1: f64 = 1.0;
+    let ta2: f64 = 0.0 - 2.0;
+    let ta3: f64 = 4.0;
+    let tb0: f64 = 0.0 - 1.0;
+    let tb1: f64 = 3.0;
+    let tb2: f64 = 2.0;
+    let tb3: f64 = 0.0 - 3.0;
+    let tc0: f64 = 0.5;
+    let tc1: f64 = 0.0 - 2.0;
+    let tc2: f64 = 4.0;
+    let tc3: f64 = 0.0;
+
+    println("  Cycle   Drift        Entropy      dH (H_t - H_{t-1})");
+    println("  -----   ----------   ----------   -------------------");
+
+    var cycle: i64 = 0;
+    while cycle < meta_cycles {
+        prev_ab = alpha_ab;
+        prev_ac = alpha_ac;
+        prev_ba = alpha_ba;
+        prev_bc = alpha_bc;
+        prev_ca = alpha_ca;
+        prev_cb = alpha_cb;
+
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 2.0);
+
+        drift = abs_f64(alpha_ab - prev_ab) + abs_f64(alpha_ac - prev_ac)
+              + abs_f64(alpha_ba - prev_ba) + abs_f64(alpha_bc - prev_bc)
+              + abs_f64(alpha_ca - prev_ca) + abs_f64(alpha_cb - prev_cb);
+
+        // Compute entropy: H = -sum(p_ij * ln(p_ij))
+        // Use abs of alphas to ensure positivity for probability
+        total_alpha = abs_f64(alpha_ab) + abs_f64(alpha_ac) + abs_f64(alpha_ba)
+                    + abs_f64(alpha_bc) + abs_f64(alpha_ca) + abs_f64(alpha_cb) + 0.000001;
+
+        entropy = 0.0;
+
+        p = abs_f64(alpha_ab) / total_alpha;
+        if p > 0.000001 { entropy = entropy - p * ln_approx(p); }
+
+        p = abs_f64(alpha_ac) / total_alpha;
+        if p > 0.000001 { entropy = entropy - p * ln_approx(p); }
+
+        p = abs_f64(alpha_ba) / total_alpha;
+        if p > 0.000001 { entropy = entropy - p * ln_approx(p); }
+
+        p = abs_f64(alpha_bc) / total_alpha;
+        if p > 0.000001 { entropy = entropy - p * ln_approx(p); }
+
+        p = abs_f64(alpha_ca) / total_alpha;
+        if p > 0.000001 { entropy = entropy - p * ln_approx(p); }
+
+        p = abs_f64(alpha_cb) / total_alpha;
+        if p > 0.000001 { entropy = entropy - p * ln_approx(p); }
+
+        // Track monotonicity
+        if cycle > 0 {
+            entropy_checks = entropy_checks + 1;
+            if entropy <= prev_entropy + 0.001 {
+                entropy_decreasing = entropy_decreasing + 1;
+            }
+        }
+
+        // Print every 5th cycle
+        let rem: i64 = cycle - (cycle / 5) * 5;
+        if rem == 0 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(drift);
+            print("   ");
+            print_f64(entropy);
+            print("   ");
+            if cycle > 0 {
+                print_f64(entropy - prev_entropy);
+            } else {
+                print("--");
+            }
+            println("");
+        }
+
+        prev_entropy = entropy;
+        cycle = cycle + 1;
+    }
+
+    println("");
+    print("  Entropy monotonically decreasing? ");
+    print_i64(entropy_decreasing);
+    print("/");
+    print_i64(entropy_checks);
+    print(" cycles had H_t <= H_{t-1}");
+    println("");
+
+    let max_entropy: f64 = ln_approx(6.0);
+    print("  Max possible entropy (uniform, 6 entries): ");
+    print_f64(max_entropy);
+    println("");
+    print("  Final entropy: ");
+    print_f64(entropy);
+    println("");
+    print("  Final drift:   ");
+    print_f64(drift);
+    println("");
+
+    if drift < 0.01 {
+        if entropy < max_entropy * 0.5 {
+            println("  RESULT: Low drift + low entropy => matrix specialised");
+        } else {
+            println("  RESULT: Low drift + high entropy => matrix stayed uniform");
+        }
+    } else {
+        println("  RESULT: Matrix still drifting at 60 cycles");
+    }
+
+    0
+}
+
+// ============================================================
+// Exp 4: Eigenvalue Analogy — Dominant Pair Tracking
+// ============================================================
+fn run_exp4() -> i64 {
+    println("");
+    println("============================================================");
+    println("  EXP 4: DOMINANT PAIR TRACKING (Eigenvalue Analogy)");
+    println("  Which alpha is largest at each cycle?");
+    println("  Pairs: 0=AB 1=AC 2=BA 3=BC 4=CA 5=CB");
+    println("============================================================");
+    println("");
+
+    var alpha_ab: f64 = 0.5;
+    var alpha_ac: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var alpha_bc: f64 = 0.5;
+    var alpha_ca: f64 = 0.5;
+    var alpha_cb: f64 = 0.5;
+    var prev_ab: f64 = 0.5;
+    var prev_ac: f64 = 0.5;
+    var prev_ba: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var prev_cb: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var max_alpha: f64 = 0.0;
+    var dominant: i64 = 0;
+    var prev_dominant: i64 = 0;
+    var changes: i64 = 0;
+    var stable_from: i64 = 0;
+    var found_stable: i64 = 0;
+
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 60;
+
+    let ta0: f64 = 3.0;
+    let ta1: f64 = 1.0;
+    let ta2: f64 = 0.0 - 2.0;
+    let ta3: f64 = 4.0;
+    let tb0: f64 = 0.0 - 1.0;
+    let tb1: f64 = 3.0;
+    let tb2: f64 = 2.0;
+    let tb3: f64 = 0.0 - 3.0;
+    let tc0: f64 = 0.5;
+    let tc1: f64 = 0.0 - 2.0;
+    let tc2: f64 = 4.0;
+    let tc3: f64 = 0.0;
+
+    println("  Cycle   max_alpha   dominant_pair   all_alphas");
+    println("  -----   ---------   -------------   ----------");
+
+    var cycle: i64 = 0;
+    while cycle < meta_cycles {
+        prev_ab = alpha_ab;
+        prev_ac = alpha_ac;
+        prev_ba = alpha_ba;
+        prev_bc = alpha_bc;
+        prev_ca = alpha_ca;
+        prev_cb = alpha_cb;
+
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_p(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps,
+                         ta0, ta1, ta2, ta3, tb0, tb1, tb2, tb3, tc0, tc1, tc2, tc3);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 2.0);
+
+        // Find dominant pair (max alpha)
+        max_alpha = alpha_ab;
+        dominant = 0;
+        if alpha_ac > max_alpha { max_alpha = alpha_ac; dominant = 1; }
+        if alpha_ba > max_alpha { max_alpha = alpha_ba; dominant = 2; }
+        if alpha_bc > max_alpha { max_alpha = alpha_bc; dominant = 3; }
+        if alpha_ca > max_alpha { max_alpha = alpha_ca; dominant = 4; }
+        if alpha_cb > max_alpha { max_alpha = alpha_cb; dominant = 5; }
+
+        // Track changes in dominant pair
+        if cycle > 0 {
+            if dominant != prev_dominant {
+                changes = changes + 1;
+                found_stable = 0;
+            } else {
+                if found_stable == 0 {
+                    stable_from = cycle;
+                    found_stable = 1;
+                }
+            }
+        }
+
+        // Print every 5th cycle
+        let rem: i64 = cycle - (cycle / 5) * 5;
+        if rem == 0 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(max_alpha);
+            print("   pair=");
+            print_i64(dominant);
+            print("          ");
+            print_f64(alpha_ab);
+            print(" ");
+            print_f64(alpha_ac);
+            print(" ");
+            print_f64(alpha_ba);
+            print(" ");
+            print_f64(alpha_bc);
+            print(" ");
+            print_f64(alpha_ca);
+            print(" ");
+            print_f64(alpha_cb);
+            println("");
+        }
+
+        prev_dominant = dominant;
+        cycle = cycle + 1;
+    }
+
+    println("");
+    print("  Total dominant-pair changes: ");
+    print_i64(changes);
+    println("");
+    if found_stable == 1 {
+        print("  Dominant pair stable from cycle: ");
+        print_i64(stable_from);
+        println("");
+    }
+
+    println("");
+    println("  Pair labels: 0=A->B, 1=A->C, 2=B->A, 3=B->C, 4=C->A, 5=C->B");
+    print("  Final dominant pair: ");
+    print_i64(dominant);
+    print(" with alpha=");
+    print_f64(max_alpha);
+    println("");
+
+    // Find min alpha
+    var min_alpha: f64 = alpha_ab;
+    var min_pair: i64 = 0;
+    if alpha_ac < min_alpha { min_alpha = alpha_ac; min_pair = 1; }
+    if alpha_ba < min_alpha { min_alpha = alpha_ba; min_pair = 2; }
+    if alpha_bc < min_alpha { min_alpha = alpha_bc; min_pair = 3; }
+    if alpha_ca < min_alpha { min_alpha = alpha_ca; min_pair = 4; }
+    if alpha_cb < min_alpha { min_alpha = alpha_cb; min_pair = 5; }
+
+    print("  Weakest pair:   ");
+    print_i64(min_pair);
+    print(" with alpha=");
+    print_f64(min_alpha);
+    println("");
+
+    let ratio_dom: f64 = max_alpha / (min_alpha + 0.000001);
+    print("  Dominance ratio (max/min): ");
+    print_f64(ratio_dom);
+    println("");
+
+    if changes < 5 {
+        println("  RESULT: Dominant pair is STABLE (few changes)");
+    } else {
+        println("  RESULT: Dominant pair FLUCTUATES (many changes)");
+    }
+
+    0
+}
+
+// ============================================================
+// Main — run all 4 experiments
+// ============================================================
+fn main() -> i64 {
+    println("################################################################");
+    println("#  CONVERGENCE RATIO SERIES EXPERIMENT                         #");
+    println("#  Does D(t+1)/D(t) converge to a universal constant?          #");
+    println("################################################################");
+    println("");
+
+    let r1: i64 = run_exp1();
+    let r2: i64 = run_exp2();
+    let r3: i64 = run_exp3();
+    let r4: i64 = run_exp4();
+
+    println("");
+    println("################################################################");
+    println("#  ALL EXPERIMENTS COMPLETE                                     #");
+    println("################################################################");
+
+    0
+}

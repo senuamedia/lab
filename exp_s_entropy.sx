@@ -1,0 +1,715 @@
+// S vs ENTROPY: Thermodynamic Interpretation
+//
+// Does S < 0 correlate with entropy increase? If so, S has a direct
+// thermodynamic interpretation as a negative entropy production rate.
+//
+// Exp 1: S vs Shannon entropy on the logistic map
+// Exp 2: S vs information production rate dH/dt
+// Exp 3: S vs Kolmogorov-Sinai entropy (= max(0, lambda))
+// Exp 4: Entropy of the interaction matrix during convergence
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// ============================================================================
+// Exp 1: S vs Shannon Entropy on Logistic Map
+//
+// Bin trajectory into 10 bins, compute H = -sum(p_i * ln(p_i)).
+// Sweep r from 2.5 to 4.0. Ordered systems: low H. Chaotic: high H.
+// S=1 should correlate with low H. S~0 with high H.
+// ============================================================================
+
+fn logistic_S(r: f64) -> f64 {
+    var x: f64 = 0.5;
+    var step: i64 = 0;
+    var early_d: f64 = 0.0;
+    var late_d: f64 = 0.0;
+    var prev_x: f64 = 0.5;
+    var count_e: i64 = 0;
+    var count_l: i64 = 0;
+
+    while step < 3000 {
+        x = r * x * (1.0 - x);
+        if step > 200 {
+            if step < 1200 {
+                early_d = early_d + abs_f64(x - prev_x);
+                count_e = count_e + 1;
+            }
+            if step > 2000 {
+                late_d = late_d + abs_f64(x - prev_x);
+                count_l = count_l + 1;
+            }
+        }
+        prev_x = x;
+        step = step + 1;
+    }
+
+    if count_e > 0 { early_d = early_d / (count_e as f64); }
+    if count_l > 0 { late_d = late_d / (count_l as f64); }
+    if early_d > 0.000000001 {
+        1.0 - late_d / early_d
+    } else {
+        if late_d < 0.000000001 { 1.0 } else { 0.0 - 1.0 }
+    }
+}
+
+fn shannon_entropy(r: f64) -> f64 {
+    var x: f64 = 0.5;
+    var step: i64 = 0;
+    // 10 bins for [0,0.1), [0.1,0.2), ... [0.9,1.0]
+    var b0: i64 = 0;
+    var b1: i64 = 0;
+    var b2: i64 = 0;
+    var b3: i64 = 0;
+    var b4: i64 = 0;
+    var b5: i64 = 0;
+    var b6: i64 = 0;
+    var b7: i64 = 0;
+    var b8: i64 = 0;
+    var b9: i64 = 0;
+
+    // Skip transient
+    while step < 500 {
+        x = r * x * (1.0 - x);
+        step = step + 1;
+    }
+
+    // Collect 500 samples into bins
+    var samples: i64 = 0;
+    while samples < 500 {
+        x = r * x * (1.0 - x);
+        let bin: i64 = (x * 10.0) as i64;
+        if bin == 0 { b0 = b0 + 1; }
+        if bin == 1 { b1 = b1 + 1; }
+        if bin == 2 { b2 = b2 + 1; }
+        if bin == 3 { b3 = b3 + 1; }
+        if bin == 4 { b4 = b4 + 1; }
+        if bin == 5 { b5 = b5 + 1; }
+        if bin == 6 { b6 = b6 + 1; }
+        if bin == 7 { b7 = b7 + 1; }
+        if bin == 8 { b8 = b8 + 1; }
+        if bin >= 9 { b9 = b9 + 1; }
+        samples = samples + 1;
+    }
+
+    // H = -sum(p_i * ln(p_i)) for non-zero bins
+    var h: f64 = 0.0;
+    var p: f64 = 0.0;
+    let total: f64 = 500.0;
+
+    if b0 > 0 { p = (b0 as f64) / total; h = h - p * ln(p); }
+    if b1 > 0 { p = (b1 as f64) / total; h = h - p * ln(p); }
+    if b2 > 0 { p = (b2 as f64) / total; h = h - p * ln(p); }
+    if b3 > 0 { p = (b3 as f64) / total; h = h - p * ln(p); }
+    if b4 > 0 { p = (b4 as f64) / total; h = h - p * ln(p); }
+    if b5 > 0 { p = (b5 as f64) / total; h = h - p * ln(p); }
+    if b6 > 0 { p = (b6 as f64) / total; h = h - p * ln(p); }
+    if b7 > 0 { p = (b7 as f64) / total; h = h - p * ln(p); }
+    if b8 > 0 { p = (b8 as f64) / total; h = h - p * ln(p); }
+    if b9 > 0 { p = (b9 as f64) / total; h = h - p * ln(p); }
+
+    h
+}
+
+fn test_s_vs_shannon() -> i64 {
+    println("--- Exp 1: S vs Shannon Entropy on Logistic Map ---");
+    println("  10-bin histogram of last 500 iterates");
+    println("  H = -sum(p_i * ln(p_i)), max H = ln(10) ~ 2.30");
+    println("");
+    println("  r       S         H(Shannon)  Prediction");
+
+    var r: f64 = 2.5;
+    var sum_sh: f64 = 0.0;
+    var sum_ss: f64 = 0.0;
+    var sum_sh2: f64 = 0.0;
+    var sum_ss2: f64 = 0.0;
+    var sum_shs: f64 = 0.0;
+    var n: i64 = 0;
+
+    while r < 4.01 {
+        let s: f64 = logistic_S(r);
+        let h: f64 = shannon_entropy(r);
+
+        // Accumulate for correlation
+        sum_sh = sum_sh + h;
+        sum_ss = sum_ss + s;
+        sum_sh2 = sum_sh2 + h * h;
+        sum_ss2 = sum_ss2 + s * s;
+        sum_shs = sum_shs + s * h;
+        n = n + 1;
+
+        print("  ");
+        print_f64(r);
+        print("  ");
+        print_f64(s);
+        print("  ");
+        print_f64(h);
+        if s > 0.5 {
+            if h < 0.5 {
+                println("  S>0 + low H (ORDERED)");
+            } else {
+                println("  S>0 + high H (mixed)");
+            }
+        } else {
+            if h > 1.0 {
+                println("  S~0 + high H (CHAOTIC)");
+            } else {
+                println("  S~0 + med H (transition)");
+            }
+        }
+        r = r + 0.1;
+    }
+
+    // Pearson correlation r = (n*sum_xy - sum_x*sum_y) /
+    //   sqrt((n*sum_x2 - sum_x^2)*(n*sum_y2 - sum_y^2))
+    let nf: f64 = n as f64;
+    let num: f64 = nf * sum_shs - sum_ss * sum_sh;
+    let den_a: f64 = nf * sum_ss2 - sum_ss * sum_ss;
+    let den_b: f64 = nf * sum_sh2 - sum_sh * sum_sh;
+    var corr: f64 = 0.0;
+    if den_a > 0.0 {
+        if den_b > 0.0 {
+            corr = num / sqrt(den_a * den_b);
+        }
+    }
+
+    println("");
+    print("  Pearson correlation(S, H): ");
+    print_f64(corr);
+    println("");
+    println("  Expected: strong NEGATIVE correlation (S up => H down)");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: S vs Information Production Rate
+//
+// Compute entropy in two successive windows. dH/dt = H(window2) - H(window1).
+// Does dH/dt > 0 correspond to S < 0?
+// Does dH/dt < 0 correspond to S > 0?
+// If S ~ -dH/dt, then S IS the negative entropy production rate.
+// ============================================================================
+
+fn window_entropy(r: f64, skip: i64, count: i64) -> f64 {
+    var x: f64 = 0.5;
+    var step: i64 = 0;
+    var b0: i64 = 0;
+    var b1: i64 = 0;
+    var b2: i64 = 0;
+    var b3: i64 = 0;
+    var b4: i64 = 0;
+    var b5: i64 = 0;
+    var b6: i64 = 0;
+    var b7: i64 = 0;
+    var b8: i64 = 0;
+    var b9: i64 = 0;
+
+    while step < skip {
+        x = r * x * (1.0 - x);
+        step = step + 1;
+    }
+
+    var s: i64 = 0;
+    while s < count {
+        x = r * x * (1.0 - x);
+        let bin: i64 = (x * 10.0) as i64;
+        if bin == 0 { b0 = b0 + 1; }
+        if bin == 1 { b1 = b1 + 1; }
+        if bin == 2 { b2 = b2 + 1; }
+        if bin == 3 { b3 = b3 + 1; }
+        if bin == 4 { b4 = b4 + 1; }
+        if bin == 5 { b5 = b5 + 1; }
+        if bin == 6 { b6 = b6 + 1; }
+        if bin == 7 { b7 = b7 + 1; }
+        if bin == 8 { b8 = b8 + 1; }
+        if bin >= 9 { b9 = b9 + 1; }
+        s = s + 1;
+    }
+
+    var h: f64 = 0.0;
+    var p: f64 = 0.0;
+    let total: f64 = count as f64;
+
+    if b0 > 0 { p = (b0 as f64) / total; h = h - p * ln(p); }
+    if b1 > 0 { p = (b1 as f64) / total; h = h - p * ln(p); }
+    if b2 > 0 { p = (b2 as f64) / total; h = h - p * ln(p); }
+    if b3 > 0 { p = (b3 as f64) / total; h = h - p * ln(p); }
+    if b4 > 0 { p = (b4 as f64) / total; h = h - p * ln(p); }
+    if b5 > 0 { p = (b5 as f64) / total; h = h - p * ln(p); }
+    if b6 > 0 { p = (b6 as f64) / total; h = h - p * ln(p); }
+    if b7 > 0 { p = (b7 as f64) / total; h = h - p * ln(p); }
+    if b8 > 0 { p = (b8 as f64) / total; h = h - p * ln(p); }
+    if b9 > 0 { p = (b9 as f64) / total; h = h - p * ln(p); }
+
+    h
+}
+
+fn test_entropy_rate() -> i64 {
+    println("--- Exp 2: S vs Information Production Rate ---");
+    println("  dH/dt = H(window2) - H(window1), window = 300 steps");
+    println("  If S ~ -dH/dt, then S is the negative entropy production rate");
+    println("");
+    println("  r       S         H1        H2        dH/dt     -dH/dt    match?");
+
+    var r: f64 = 2.5;
+    var agree: i64 = 0;
+    var total: i64 = 0;
+    var sum_s: f64 = 0.0;
+    var sum_neg_dh: f64 = 0.0;
+    var sum_s2: f64 = 0.0;
+    var sum_dh2: f64 = 0.0;
+    var sum_s_dh: f64 = 0.0;
+
+    while r < 4.01 {
+        let s: f64 = logistic_S(r);
+        let h1: f64 = window_entropy(r, 200, 300);
+        let h2: f64 = window_entropy(r, 800, 300);
+        let dh: f64 = h2 - h1;
+        let neg_dh: f64 = 0.0 - dh;
+
+        sum_s = sum_s + s;
+        sum_neg_dh = sum_neg_dh + neg_dh;
+        sum_s2 = sum_s2 + s * s;
+        sum_dh2 = sum_dh2 + neg_dh * neg_dh;
+        sum_s_dh = sum_s_dh + s * neg_dh;
+        total = total + 1;
+
+        // Sign agreement: S>0 and dH<0, or S<0 and dH>0
+        if s > 0.1 {
+            if dh < 0.0 - 0.001 {
+                agree = agree + 1;
+            }
+        }
+        if s < 0.0 - 0.1 {
+            if dh > 0.001 {
+                agree = agree + 1;
+            }
+        }
+
+        print("  ");
+        print_f64(r);
+        print("  ");
+        print_f64(s);
+        print("  ");
+        print_f64(h1);
+        print("  ");
+        print_f64(h2);
+        print("  ");
+        print_f64(dh);
+        print("  ");
+        print_f64(neg_dh);
+        if s > 0.1 {
+            if dh < 0.0 {
+                println("  YES");
+            } else {
+                println("  no");
+            }
+        } else {
+            if s < 0.0 - 0.1 {
+                if dh > 0.0 {
+                    println("  YES");
+                } else {
+                    println("  no");
+                }
+            } else {
+                println("  ~0");
+            }
+        }
+        r = r + 0.1;
+    }
+
+    let nf: f64 = total as f64;
+    let num: f64 = nf * sum_s_dh - sum_s * sum_neg_dh;
+    let da: f64 = nf * sum_s2 - sum_s * sum_s;
+    let db: f64 = nf * sum_dh2 - sum_neg_dh * sum_neg_dh;
+    var corr: f64 = 0.0;
+    if da > 0.0 {
+        if db > 0.0 {
+            corr = num / sqrt(da * db);
+        }
+    }
+
+    println("");
+    print("  Sign agreement: ");
+    print_i64(agree);
+    print("/");
+    print_i64(total);
+    println("");
+    print("  Pearson correlation(S, -dH/dt): ");
+    print_f64(corr);
+    println("");
+    println("  If corr ~ 1: S IS the negative entropy production rate");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: S vs Kolmogorov-Sinai Entropy
+//
+// KS entropy = max(0, lambda) for the logistic map.
+// Compare S and KS across r values. Is there a simple mapping?
+// ============================================================================
+
+fn logistic_lyapunov(r: f64) -> f64 {
+    var x: f64 = 0.5;
+    var sum: f64 = 0.0;
+    var step: i64 = 0;
+
+    while step < 500 {
+        x = r * x * (1.0 - x);
+        step = step + 1;
+    }
+    step = 0;
+    while step < 5000 {
+        x = r * x * (1.0 - x);
+        let deriv: f64 = abs_f64(r * (1.0 - 2.0 * x));
+        if deriv > 0.000000001 {
+            sum = sum + ln(deriv);
+        }
+        step = step + 1;
+    }
+    sum / 5000.0
+}
+
+fn test_s_vs_ks() -> i64 {
+    println("--- Exp 3: S vs Kolmogorov-Sinai Entropy ---");
+    println("  KS = max(0, lambda) for 1D maps");
+    println("  Searching for S = f(KS)");
+    println("");
+    println("  r       S         lambda    KS        1-KS/KS_max  S+KS");
+
+    // First pass: find KS_max
+    var r: f64 = 2.5;
+    var ks_max: f64 = 0.0;
+    while r < 4.01 {
+        let lam: f64 = logistic_lyapunov(r);
+        var ks: f64 = lam;
+        if ks < 0.0 { ks = 0.0; }
+        if ks > ks_max { ks_max = ks; }
+        r = r + 0.1;
+    }
+
+    // Second pass: print and correlate
+    r = 2.5;
+    var sum_s: f64 = 0.0;
+    var sum_ks: f64 = 0.0;
+    var sum_s2: f64 = 0.0;
+    var sum_ks2: f64 = 0.0;
+    var sum_sks: f64 = 0.0;
+    var n: i64 = 0;
+
+    while r < 4.01 {
+        let s: f64 = logistic_S(r);
+        let lam: f64 = logistic_lyapunov(r);
+        var ks: f64 = lam;
+        if ks < 0.0 { ks = 0.0; }
+        var norm_ks: f64 = 0.0;
+        if ks_max > 0.000001 {
+            norm_ks = 1.0 - ks / ks_max;
+        }
+
+        sum_s = sum_s + s;
+        sum_ks = sum_ks + ks;
+        sum_s2 = sum_s2 + s * s;
+        sum_ks2 = sum_ks2 + ks * ks;
+        sum_sks = sum_sks + s * ks;
+        n = n + 1;
+
+        print("  ");
+        print_f64(r);
+        print("  ");
+        print_f64(s);
+        print("  ");
+        print_f64(lam);
+        print("  ");
+        print_f64(ks);
+        print("  ");
+        print_f64(norm_ks);
+        print("  ");
+        print_f64(s + ks);
+        println("");
+        r = r + 0.1;
+    }
+
+    let nf: f64 = n as f64;
+    let num: f64 = nf * sum_sks - sum_s * sum_ks;
+    let da: f64 = nf * sum_s2 - sum_s * sum_s;
+    let db: f64 = nf * sum_ks2 - sum_ks * sum_ks;
+    var corr: f64 = 0.0;
+    if da > 0.0 {
+        if db > 0.0 {
+            corr = num / sqrt(da * db);
+        }
+    }
+
+    println("");
+    print("  KS_max: ");
+    print_f64(ks_max);
+    println("");
+    print("  Pearson correlation(S, KS): ");
+    print_f64(corr);
+    println("");
+    println("  Expected: strong NEGATIVE correlation");
+    println("  If S ~ 1 - KS/KS_max: S is a normalised KS estimate");
+    println("  If S + KS ~ const: S and KS are complementary measures");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Entropy of the Interaction Matrix
+//
+// Standard 3-loss, 4-param experiment. Track matrix entropy H(M) and S
+// over 60 meta-cycles. H(M) = -sum(p_ij * ln(p_ij)) where
+// p_ij = |alpha_ij| / sum|alpha_ij|.
+//
+// Does H(M) decrease as S -> 0? That means the matrix becomes structured.
+// ============================================================================
+
+fn matrix_entropy_3x4(a00: f64, a01: f64, a02: f64, a03: f64,
+                       a10: f64, a11: f64, a12: f64, a13: f64,
+                       a20: f64, a21: f64, a22: f64, a23: f64) -> f64 {
+    // H(M) = -sum(p_ij * ln(p_ij)), p_ij = |a_ij| / total
+    var total: f64 = 0.0;
+    total = total + abs_f64(a00) + abs_f64(a01) + abs_f64(a02) + abs_f64(a03);
+    total = total + abs_f64(a10) + abs_f64(a11) + abs_f64(a12) + abs_f64(a13);
+    total = total + abs_f64(a20) + abs_f64(a21) + abs_f64(a22) + abs_f64(a23);
+
+    if total < 0.000000001 { return 0.0; }
+
+    var h: f64 = 0.0;
+    var p: f64 = 0.0;
+
+    p = abs_f64(a00) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a01) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a02) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a03) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a10) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a11) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a12) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a13) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a20) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a21) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a22) / total; if p > 0.000000001 { h = h - p * ln(p); }
+    p = abs_f64(a23) / total; if p > 0.000000001 { h = h - p * ln(p); }
+
+    h
+}
+
+fn compute_loss(p0: f64, p1: f64, p2: f64, p3: f64,
+                t0: f64, t1: f64, t2: f64, t3: f64) -> f64 {
+    var d0: f64 = p0 - t0;
+    var d1: f64 = p1 - t1;
+    var d2: f64 = p2 - t2;
+    var d3: f64 = p3 - t3;
+    d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3
+}
+
+fn test_matrix_entropy() -> i64 {
+    println("--- Exp 4: Entropy of the Interaction Matrix ---");
+    println("  3-loss, 4-param system. Track H(M) and S over 60 cycles.");
+    println("  H(M) = -sum(p_ij * ln(p_ij)), max H = ln(12) ~ 2.485");
+    println("");
+
+    // 3x4 interaction matrix (alpha_ij)
+    // Initial: near-uniform
+    var a00: f64 = 0.25; var a01: f64 = 0.20; var a02: f64 = 0.30; var a03: f64 = 0.25;
+    var a10: f64 = 0.22; var a11: f64 = 0.28; var a12: f64 = 0.25; var a13: f64 = 0.25;
+    var a20: f64 = 0.27; var a21: f64 = 0.23; var a22: f64 = 0.26; var a23: f64 = 0.24;
+
+    // Parameters
+    var p0: f64 = 0.5;
+    var p1: f64 = 0.5;
+    var p2: f64 = 0.5;
+    var p3: f64 = 0.5;
+
+    // Targets for 3 losses
+    let t0_0: f64 = 1.0; let t0_1: f64 = 0.0; let t0_2: f64 = 0.5; let t0_3: f64 = 0.8;
+    let t1_0: f64 = 0.0; let t1_1: f64 = 1.0; let t1_2: f64 = 0.3; let t1_3: f64 = 0.7;
+    let t2_0: f64 = 0.5; let t2_1: f64 = 0.5; let t2_2: f64 = 1.0; let t2_3: f64 = 0.0;
+
+    let lr: f64 = 0.05;
+    var cycle: i64 = 0;
+
+    // Track S via early/late drift on total loss
+    var prev_total: f64 = 100.0;
+    var early_drift: f64 = 0.0;
+    var late_drift: f64 = 0.0;
+    var count_e: i64 = 0;
+    var count_l: i64 = 0;
+
+    // Track correlation between H(M) and S_local
+    var sum_h: f64 = 0.0;
+    var sum_sl: f64 = 0.0;
+    var sum_h2: f64 = 0.0;
+    var sum_sl2: f64 = 0.0;
+    var sum_hsl: f64 = 0.0;
+    var n_corr: i64 = 0;
+
+    println("  cycle  L_total    H(M)       S_local    interpretation");
+
+    while cycle < 60 {
+        // Compute 3 losses
+        let l0: f64 = compute_loss(p0, p1, p2, p3, t0_0, t0_1, t0_2, t0_3);
+        let l1: f64 = compute_loss(p0, p1, p2, p3, t1_0, t1_1, t1_2, t1_3);
+        let l2: f64 = compute_loss(p0, p1, p2, p3, t2_0, t2_1, t2_2, t2_3);
+        let total_loss: f64 = l0 + l1 + l2;
+
+        // Weighted gradient: g_j = sum_i(alpha_ij * dL_i/dp_j)
+        // dL_i/dp_j = 2*(p_j - t_ij)
+        var g0: f64 = a00 * 2.0 * (p0 - t0_0) + a10 * 2.0 * (p0 - t1_0) + a20 * 2.0 * (p0 - t2_0);
+        var g1: f64 = a01 * 2.0 * (p1 - t0_1) + a11 * 2.0 * (p1 - t1_1) + a21 * 2.0 * (p1 - t2_1);
+        var g2: f64 = a02 * 2.0 * (p2 - t0_2) + a12 * 2.0 * (p2 - t1_2) + a22 * 2.0 * (p2 - t2_2);
+        var g3: f64 = a03 * 2.0 * (p3 - t0_3) + a13 * 2.0 * (p3 - t1_3) + a23 * 2.0 * (p3 - t2_3);
+
+        // Update params
+        p0 = p0 - lr * g0;
+        p1 = p1 - lr * g1;
+        p2 = p2 - lr * g2;
+        p3 = p3 - lr * g3;
+
+        // Update alpha based on loss reduction
+        // alpha_ij += eta * (prev_loss - current_loss) * |dL_i/dp_j|
+        let eta: f64 = 0.01;
+        let loss_delta: f64 = prev_total - total_loss;
+
+        a00 = a00 + eta * loss_delta * abs_f64(p0 - t0_0);
+        a01 = a01 + eta * loss_delta * abs_f64(p1 - t0_1);
+        a02 = a02 + eta * loss_delta * abs_f64(p2 - t0_2);
+        a03 = a03 + eta * loss_delta * abs_f64(p3 - t0_3);
+        a10 = a10 + eta * loss_delta * abs_f64(p0 - t1_0);
+        a11 = a11 + eta * loss_delta * abs_f64(p1 - t1_1);
+        a12 = a12 + eta * loss_delta * abs_f64(p2 - t1_2);
+        a13 = a13 + eta * loss_delta * abs_f64(p3 - t1_3);
+        a20 = a20 + eta * loss_delta * abs_f64(p0 - t2_0);
+        a21 = a21 + eta * loss_delta * abs_f64(p1 - t2_1);
+        a22 = a22 + eta * loss_delta * abs_f64(p2 - t2_2);
+        a23 = a23 + eta * loss_delta * abs_f64(p3 - t2_3);
+
+        let hm: f64 = matrix_entropy_3x4(a00, a01, a02, a03,
+                                           a10, a11, a12, a13,
+                                           a20, a21, a22, a23);
+
+        // S_local from drift ratio
+        let drift: f64 = abs_f64(total_loss - prev_total);
+        var s_local: f64 = 0.0;
+        if cycle < 20 {
+            early_drift = early_drift + drift;
+            count_e = count_e + 1;
+        }
+        if cycle >= 40 {
+            late_drift = late_drift + drift;
+            count_l = count_l + 1;
+        }
+
+        // Running S estimate
+        if count_e > 0 {
+            let avg_e: f64 = early_drift / (count_e as f64);
+            if avg_e > 0.000000001 {
+                s_local = 1.0 - drift / avg_e;
+            }
+        }
+
+        // Accumulate for H(M) vs S correlation
+        if cycle >= 5 {
+            sum_h = sum_h + hm;
+            sum_sl = sum_sl + s_local;
+            sum_h2 = sum_h2 + hm * hm;
+            sum_sl2 = sum_sl2 + s_local * s_local;
+            sum_hsl = sum_hsl + hm * s_local;
+            n_corr = n_corr + 1;
+        }
+
+        // Print every 5 cycles
+        if cycle % 5 == 0 {
+            print("  ");
+            print_i64(cycle);
+            print("     ");
+            print_f64(total_loss);
+            print("  ");
+            print_f64(hm);
+            print("  ");
+            print_f64(s_local);
+            if hm > 2.4 {
+                println("  uniform M");
+            } else {
+                if hm > 2.0 {
+                    println("  structuring");
+                } else {
+                    println("  structured M");
+                }
+            }
+        }
+
+        prev_total = total_loss;
+        cycle = cycle + 1;
+    }
+
+    // Final S
+    var s_final: f64 = 0.0;
+    if count_e > 0 {
+        if count_l > 0 {
+            let avg_e: f64 = early_drift / (count_e as f64);
+            let avg_l: f64 = late_drift / (count_l as f64);
+            if avg_e > 0.000000001 {
+                s_final = 1.0 - avg_l / avg_e;
+            }
+        }
+    }
+
+    // Correlation
+    let nf: f64 = n_corr as f64;
+    let num: f64 = nf * sum_hsl - sum_h * sum_sl;
+    let da: f64 = nf * sum_h2 - sum_h * sum_h;
+    let db: f64 = nf * sum_sl2 - sum_sl * sum_sl;
+    var corr: f64 = 0.0;
+    if da > 0.0 {
+        if db > 0.0 {
+            corr = num / sqrt(da * db);
+        }
+    }
+
+    println("");
+    print("  Final S (early/late drift): ");
+    print_f64(s_final);
+    println("");
+    print("  Pearson correlation(H(M), S_local): ");
+    print_f64(corr);
+    println("");
+    println("  If corr < 0: as S increases, H(M) decreases (matrix structures)");
+    println("  If corr > 0: as S increases, H(M) increases (matrix diversifies)");
+    println("");
+    0
+}
+
+// ============================================================================
+// Main: run all experiments
+// ============================================================================
+
+fn main() -> i64 {
+    println("============================================");
+    println("  S vs ENTROPY: THERMODYNAMIC INTERPRETATION");
+    println("============================================");
+    println("");
+
+    test_s_vs_shannon();
+    test_entropy_rate();
+    test_s_vs_ks();
+    test_matrix_entropy();
+
+    println("============================================");
+    println("  SUMMARY:");
+    println("  1. S vs Shannon H: negative correlation means");
+    println("     S measures ORDER (low entropy)");
+    println("  2. S vs dH/dt: if S ~ -dH/dt, then S is the");
+    println("     negative entropy production rate");
+    println("  3. S vs KS entropy: if S ~ 1-KS/max, then S");
+    println("     is a model-free KS entropy estimator");
+    println("  4. Matrix entropy H(M): tracks how the");
+    println("     interaction structure crystallises");
+    println("============================================");
+
+    0
+}

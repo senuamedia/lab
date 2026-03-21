@@ -1,0 +1,828 @@
+// Experiment: Geometric Contraction Framework for Compiler Pass Optimisation
+//
+// Models 4 compiler passes as competing objectives on a shared 6D program
+// representation. Each dimension represents a compiled output property:
+//   d0: instruction count, d1: memory usage, d2: execution latency,
+//   d3: binary size, d4: register pressure, d5: cache efficiency (negated)
+//
+// Passes:
+//   0 - Inlining:          target [0, 0, -5, 3, 2, 0]
+//   1 - Loop unrolling:    target [3, 0, -5, 2, 0, -3]
+//   2 - Constant folding:  target [-3, 0, -3, 0, 0, -2]
+//   3 - SIMD vectorisation: target [0, 0, -8, 0, 4, -4]
+//
+// Experiment 1: Learn 4x4 interaction matrix, identify cooperating/conflicting passes
+// Experiment 2: Per-program adaptation for 3 program types
+// Experiment 3: Convergence-based stopping via Lyapunov score S(t)
+
+// ---- Utility functions ----
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+// 6D dot product
+fn dot6(a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64,
+        b0: f64, b1: f64, b2: f64, b3: f64, b4: f64, b5: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3 + a4 * b4 + a5 * b5
+}
+
+fn norm6(a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64) -> f64 {
+    sqrt(dot6(a0, a1, a2, a3, a4, a5, a0, a1, a2, a3, a4, a5) + 0.000000000001)
+}
+
+fn cosine6(a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64,
+           b0: f64, b1: f64, b2: f64, b3: f64, b4: f64, b5: f64) -> f64 {
+    let d: f64 = dot6(a0, a1, a2, a3, a4, a5, b0, b1, b2, b3, b4, b5);
+    let na: f64 = norm6(a0, a1, a2, a3, a4, a5);
+    let nb: f64 = norm6(b0, b1, b2, b3, b4, b5);
+    d / (na * nb + 0.000000000001)
+}
+
+// ---- Pass losses ----
+// Each pass loss = ||w - target||^2 where w is the 6D program representation
+
+// Pass 0: Inlining — target [0, 0, -5, 3, 2, 0]
+fn loss_inline(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    let d0: f64 = w0 * w0;
+    let d1: f64 = w1 * w1;
+    let d2: f64 = (w2 + 5.0) * (w2 + 5.0);
+    let d3: f64 = (w3 - 3.0) * (w3 - 3.0);
+    let d4: f64 = (w4 - 2.0) * (w4 - 2.0);
+    let d5: f64 = w5 * w5;
+    d0 + d1 + d2 + d3 + d4 + d5
+}
+
+// Pass 1: Loop unrolling — target [3, 0, -5, 2, 0, -3]
+fn loss_unroll(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    let d0: f64 = (w0 - 3.0) * (w0 - 3.0);
+    let d1: f64 = w1 * w1;
+    let d2: f64 = (w2 + 5.0) * (w2 + 5.0);
+    let d3: f64 = (w3 - 2.0) * (w3 - 2.0);
+    let d4: f64 = w4 * w4;
+    let d5: f64 = (w5 + 3.0) * (w5 + 3.0);
+    d0 + d1 + d2 + d3 + d4 + d5
+}
+
+// Pass 2: Constant folding — target [-3, 0, -3, 0, 0, -2]
+fn loss_constfold(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    let d0: f64 = (w0 + 3.0) * (w0 + 3.0);
+    let d1: f64 = w1 * w1;
+    let d2: f64 = (w2 + 3.0) * (w2 + 3.0);
+    let d3: f64 = w3 * w3;
+    let d4: f64 = w4 * w4;
+    let d5: f64 = (w5 + 2.0) * (w5 + 2.0);
+    d0 + d1 + d2 + d3 + d4 + d5
+}
+
+// Pass 3: SIMD vectorisation — target [0, 0, -8, 0, 4, -4]
+fn loss_simd(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    let d0: f64 = w0 * w0;
+    let d1: f64 = w1 * w1;
+    let d2: f64 = (w2 + 8.0) * (w2 + 8.0);
+    let d3: f64 = w3 * w3;
+    let d4: f64 = (w4 - 4.0) * (w4 - 4.0);
+    let d5: f64 = (w5 + 4.0) * (w5 + 4.0);
+    d0 + d1 + d2 + d3 + d4 + d5
+}
+
+fn combined_loss(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    loss_inline(w0, w1, w2, w3, w4, w5)
+    + loss_unroll(w0, w1, w2, w3, w4, w5)
+    + loss_constfold(w0, w1, w2, w3, w4, w5)
+    + loss_simd(w0, w1, w2, w3, w4, w5)
+}
+
+// ---- Gradient computation per pass per dimension ----
+// Returns gradient of loss_i w.r.t. w_dim
+
+fn grad_inline(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, dim: i64) -> f64 {
+    if dim == 0 { return 2.0 * w0; }
+    if dim == 1 { return 2.0 * w1; }
+    if dim == 2 { return 2.0 * (w2 + 5.0); }
+    if dim == 3 { return 2.0 * (w3 - 3.0); }
+    if dim == 4 { return 2.0 * (w4 - 2.0); }
+    2.0 * w5
+}
+
+fn grad_unroll(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, dim: i64) -> f64 {
+    if dim == 0 { return 2.0 * (w0 - 3.0); }
+    if dim == 1 { return 2.0 * w1; }
+    if dim == 2 { return 2.0 * (w2 + 5.0); }
+    if dim == 3 { return 2.0 * (w3 - 2.0); }
+    if dim == 4 { return 2.0 * w4; }
+    2.0 * (w5 + 3.0)
+}
+
+fn grad_constfold(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, dim: i64) -> f64 {
+    if dim == 0 { return 2.0 * (w0 + 3.0); }
+    if dim == 1 { return 2.0 * w1; }
+    if dim == 2 { return 2.0 * (w2 + 3.0); }
+    if dim == 3 { return 2.0 * w3; }
+    if dim == 4 { return 2.0 * w4; }
+    2.0 * (w5 + 2.0)
+}
+
+fn grad_simd(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, dim: i64) -> f64 {
+    if dim == 0 { return 2.0 * w0; }
+    if dim == 1 { return 2.0 * w1; }
+    if dim == 2 { return 2.0 * (w2 + 8.0); }
+    if dim == 3 { return 2.0 * w3; }
+    if dim == 4 { return 2.0 * (w4 - 4.0); }
+    2.0 * (w5 + 4.0)
+}
+
+// ---- Cosine-scaled projection for one dimension ----
+// Projects gradient gi off gj using cosine scaling with strength alpha
+// gi_full and gj_full are the full 6D gradient vectors for cosine computation
+
+fn project_1d(gi_d: f64,
+              gi0: f64, gi1: f64, gi2: f64, gi3: f64, gi4: f64, gi5: f64,
+              gj0: f64, gj1: f64, gj2: f64, gj3: f64, gj4: f64, gj5: f64,
+              gj_d: f64, alpha: f64) -> f64 {
+    let cos_val: f64 = cosine6(gi0, gi1, gi2, gi3, gi4, gi5, gj0, gj1, gj2, gj3, gj4, gj5);
+    if cos_val >= 0.0 { return gi_d; }
+    let scale: f64 = alpha * (0.0 - cos_val);
+    let gj_sq: f64 = dot6(gj0, gj1, gj2, gj3, gj4, gj5, gj0, gj1, gj2, gj3, gj4, gj5) + 0.000000000001;
+    let proj_coeff: f64 = scale * dot6(gi0, gi1, gi2, gi3, gi4, gi5, gj0, gj1, gj2, gj3, gj4, gj5) / gj_sq;
+    gi_d - proj_coeff * gj_d
+}
+
+// ---- Training core: runs inner loop with 12 alpha values ----
+// 4 passes => 4x3 = 12 directed alpha pairs
+// Encoding: alpha[i*3 + j_offset] where j_offset skips self
+// We flatten to 12 values: a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32
+
+// Helper: get pass gradient for dimension
+fn pass_grad(pass: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, dim: i64) -> f64 {
+    if pass == 0 { return grad_inline(w0, w1, w2, w3, w4, w5, dim); }
+    if pass == 1 { return grad_unroll(w0, w1, w2, w3, w4, w5, dim); }
+    if pass == 2 { return grad_constfold(w0, w1, w2, w3, w4, w5, dim); }
+    grad_simd(w0, w1, w2, w3, w4, w5, dim)
+}
+
+// Compute full 6D gradient for a pass
+fn pass_g0(p: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    pass_grad(p, w0, w1, w2, w3, w4, w5, 0)
+}
+fn pass_g1(p: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    pass_grad(p, w0, w1, w2, w3, w4, w5, 1)
+}
+fn pass_g2(p: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    pass_grad(p, w0, w1, w2, w3, w4, w5, 2)
+}
+fn pass_g3(p: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    pass_grad(p, w0, w1, w2, w3, w4, w5, 3)
+}
+fn pass_g4(p: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    pass_grad(p, w0, w1, w2, w3, w4, w5, 4)
+}
+fn pass_g5(p: i64, w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64) -> f64 {
+    pass_grad(p, w0, w1, w2, w3, w4, w5, 5)
+}
+
+// Project pass i gradient off pass j gradient for one dimension
+fn project_pass_dim(
+    w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64,
+    pi: i64, pj: i64, dim: i64, alpha: f64) -> f64 {
+    let gi_d: f64 = pass_grad(pi, w0, w1, w2, w3, w4, w5, dim);
+    let gi0: f64 = pass_g0(pi, w0, w1, w2, w3, w4, w5);
+    let gi1: f64 = pass_g1(pi, w0, w1, w2, w3, w4, w5);
+    let gi2: f64 = pass_g2(pi, w0, w1, w2, w3, w4, w5);
+    let gi3: f64 = pass_g3(pi, w0, w1, w2, w3, w4, w5);
+    let gi4: f64 = pass_g4(pi, w0, w1, w2, w3, w4, w5);
+    let gi5: f64 = pass_g5(pi, w0, w1, w2, w3, w4, w5);
+    let gj0: f64 = pass_g0(pj, w0, w1, w2, w3, w4, w5);
+    let gj1: f64 = pass_g1(pj, w0, w1, w2, w3, w4, w5);
+    let gj2: f64 = pass_g2(pj, w0, w1, w2, w3, w4, w5);
+    let gj3: f64 = pass_g3(pj, w0, w1, w2, w3, w4, w5);
+    let gj4: f64 = pass_g4(pj, w0, w1, w2, w3, w4, w5);
+    let gj5: f64 = pass_g5(pj, w0, w1, w2, w3, w4, w5);
+    let gj_d: f64 = pass_grad(pj, w0, w1, w2, w3, w4, w5, dim);
+    project_1d(gi_d, gi0, gi1, gi2, gi3, gi4, gi5, gj0, gj1, gj2, gj3, gj4, gj5, gj_d, alpha)
+}
+
+// ---- Run inner training loop ----
+// Returns combined loss. Uses program bias to weight pass losses differently.
+// bias0..bias3 scale each pass loss for per-program adaptation.
+fn run_inner(a01: f64, a02: f64, a03: f64,
+             a10: f64, a12: f64, a13: f64,
+             a20: f64, a21: f64, a23: f64,
+             a30: f64, a31: f64, a32: f64,
+             bias0: f64, bias1: f64, bias2: f64, bias3: f64,
+             steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var w4: f64 = 0.0;
+    var w5: f64 = 0.0;
+    var step: i64 = 0;
+    var p0d: f64 = 0.0;
+    var p1d: f64 = 0.0;
+    var p2d: f64 = 0.0;
+    var p3d: f64 = 0.0;
+    var dim: i64 = 0;
+    var upd: f64 = 0.0;
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        dim = 0;
+        while dim < 6 {
+            // Pass 0 resolved: project off passes 1, 2, 3
+            p0d = project_pass_dim(w0, w1, w2, w3, w4, w5, 0, 1, dim, a01);
+            p0d = project_pass_dim(w0, w1, w2, w3, w4, w5, 0, 2, dim, a02);
+            p0d = project_pass_dim(w0, w1, w2, w3, w4, w5, 0, 3, dim, a03);
+
+            // Pass 1 resolved
+            p1d = project_pass_dim(w0, w1, w2, w3, w4, w5, 1, 0, dim, a10);
+            p1d = project_pass_dim(w0, w1, w2, w3, w4, w5, 1, 2, dim, a12);
+            p1d = project_pass_dim(w0, w1, w2, w3, w4, w5, 1, 3, dim, a13);
+
+            // Pass 2 resolved
+            p2d = project_pass_dim(w0, w1, w2, w3, w4, w5, 2, 0, dim, a20);
+            p2d = project_pass_dim(w0, w1, w2, w3, w4, w5, 2, 1, dim, a21);
+            p2d = project_pass_dim(w0, w1, w2, w3, w4, w5, 2, 3, dim, a23);
+
+            // Pass 3 resolved
+            p3d = project_pass_dim(w0, w1, w2, w3, w4, w5, 3, 0, dim, a30);
+            p3d = project_pass_dim(w0, w1, w2, w3, w4, w5, 3, 1, dim, a31);
+            p3d = project_pass_dim(w0, w1, w2, w3, w4, w5, 3, 2, dim, a32);
+
+            // Combined update for this dimension
+            upd = bias0 * p0d + bias1 * p1d + bias2 * p2d + bias3 * p3d;
+
+            if dim == 0 { w0 = w0 - lr * upd; }
+            if dim == 1 { w1 = w1 - lr * upd; }
+            if dim == 2 { w2 = w2 - lr * upd; }
+            if dim == 3 { w3 = w3 - lr * upd; }
+            if dim == 4 { w4 = w4 - lr * upd; }
+            if dim == 5 { w5 = w5 - lr * upd; }
+
+            dim = dim + 1;
+        }
+        step = step + 1;
+    }
+
+    bias0 * loss_inline(w0, w1, w2, w3, w4, w5)
+    + bias1 * loss_unroll(w0, w1, w2, w3, w4, w5)
+    + bias2 * loss_constfold(w0, w1, w2, w3, w4, w5)
+    + bias3 * loss_simd(w0, w1, w2, w3, w4, w5)
+}
+
+// ---- Lyapunov per-pass loss tracking ----
+// Returns individual pass loss for convergence tracking
+fn run_inner_pass_loss(a01: f64, a02: f64, a03: f64,
+                       a10: f64, a12: f64, a13: f64,
+                       a20: f64, a21: f64, a23: f64,
+                       a30: f64, a31: f64, a32: f64,
+                       which_pass: i64, steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var w4: f64 = 0.0;
+    var w5: f64 = 0.0;
+    var step: i64 = 0;
+    var dim: i64 = 0;
+    var p0d: f64 = 0.0;
+    var p1d: f64 = 0.0;
+    var p2d: f64 = 0.0;
+    var p3d: f64 = 0.0;
+    var upd: f64 = 0.0;
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        dim = 0;
+        while dim < 6 {
+            p0d = project_pass_dim(w0, w1, w2, w3, w4, w5, 0, 1, dim, a01);
+            p0d = project_pass_dim(w0, w1, w2, w3, w4, w5, 0, 2, dim, a02);
+            p0d = project_pass_dim(w0, w1, w2, w3, w4, w5, 0, 3, dim, a03);
+            p1d = project_pass_dim(w0, w1, w2, w3, w4, w5, 1, 0, dim, a10);
+            p1d = project_pass_dim(w0, w1, w2, w3, w4, w5, 1, 2, dim, a12);
+            p1d = project_pass_dim(w0, w1, w2, w3, w4, w5, 1, 3, dim, a13);
+            p2d = project_pass_dim(w0, w1, w2, w3, w4, w5, 2, 0, dim, a20);
+            p2d = project_pass_dim(w0, w1, w2, w3, w4, w5, 2, 1, dim, a21);
+            p2d = project_pass_dim(w0, w1, w2, w3, w4, w5, 2, 3, dim, a23);
+            p3d = project_pass_dim(w0, w1, w2, w3, w4, w5, 3, 0, dim, a30);
+            p3d = project_pass_dim(w0, w1, w2, w3, w4, w5, 3, 1, dim, a31);
+            p3d = project_pass_dim(w0, w1, w2, w3, w4, w5, 3, 2, dim, a32);
+            upd = p0d + p1d + p2d + p3d;
+            if dim == 0 { w0 = w0 - lr * upd; }
+            if dim == 1 { w1 = w1 - lr * upd; }
+            if dim == 2 { w2 = w2 - lr * upd; }
+            if dim == 3 { w3 = w3 - lr * upd; }
+            if dim == 4 { w4 = w4 - lr * upd; }
+            if dim == 5 { w5 = w5 - lr * upd; }
+            dim = dim + 1;
+        }
+        step = step + 1;
+    }
+
+    if which_pass == 0 { return loss_inline(w0, w1, w2, w3, w4, w5); }
+    if which_pass == 1 { return loss_unroll(w0, w1, w2, w3, w4, w5); }
+    if which_pass == 2 { return loss_constfold(w0, w1, w2, w3, w4, w5); }
+    loss_simd(w0, w1, w2, w3, w4, w5)
+}
+
+// ---- Meta-gradient via finite difference ----
+// Evaluate loss with one alpha perturbed by delta
+fn perturbed_loss(a01: f64, a02: f64, a03: f64,
+                  a10: f64, a12: f64, a13: f64,
+                  a20: f64, a21: f64, a23: f64,
+                  a30: f64, a31: f64, a32: f64,
+                  b0: f64, b1: f64, b2: f64, b3: f64,
+                  which: i64, delta: f64, steps: i64) -> f64 {
+    var v01: f64 = a01; var v02: f64 = a02; var v03: f64 = a03;
+    var v10: f64 = a10; var v12: f64 = a12; var v13: f64 = a13;
+    var v20: f64 = a20; var v21: f64 = a21; var v23: f64 = a23;
+    var v30: f64 = a30; var v31: f64 = a31; var v32: f64 = a32;
+
+    if which == 0 { v01 = a01 + delta; }
+    if which == 1 { v02 = a02 + delta; }
+    if which == 2 { v03 = a03 + delta; }
+    if which == 3 { v10 = a10 + delta; }
+    if which == 4 { v12 = a12 + delta; }
+    if which == 5 { v13 = a13 + delta; }
+    if which == 6 { v20 = a20 + delta; }
+    if which == 7 { v21 = a21 + delta; }
+    if which == 8 { v23 = a23 + delta; }
+    if which == 9 { v30 = a30 + delta; }
+    if which == 10 { v31 = a31 + delta; }
+    if which == 11 { v32 = a32 + delta; }
+
+    run_inner(v01, v02, v03, v10, v12, v13, v20, v21, v23, v30, v31, v32, b0, b1, b2, b3, steps)
+}
+
+// Compute meta-gradient for alpha[which] via central finite difference
+fn meta_grad_one(a01: f64, a02: f64, a03: f64,
+                 a10: f64, a12: f64, a13: f64,
+                 a20: f64, a21: f64, a23: f64,
+                 a30: f64, a31: f64, a32: f64,
+                 b0: f64, b1: f64, b2: f64, b3: f64,
+                 which: i64, steps: i64) -> f64 {
+    let h: f64 = 0.005;
+    let lp: f64 = perturbed_loss(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, which, h, steps);
+    let lm: f64 = perturbed_loss(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, which, 0.0 - h, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+// ---- Print helpers ----
+fn print_alpha_label(i: i64, j: i64) -> i64 {
+    print("  a");
+    print_i64(i);
+    print_i64(j);
+    print("=");
+    0
+}
+
+fn print_matrix_4x4(a01: f64, a02: f64, a03: f64,
+                    a10: f64, a12: f64, a13: f64,
+                    a20: f64, a21: f64, a23: f64,
+                    a30: f64, a31: f64, a32: f64) -> i64 {
+    print("    Pass 0 (Inline):   [ --- ");
+    print_f64(a01); print(" "); print_f64(a02); print(" "); print_f64(a03);
+    println(" ]");
+    print("    Pass 1 (Unroll):   [ "); print_f64(a10);
+    print(" ---  "); print_f64(a12); print(" "); print_f64(a13);
+    println(" ]");
+    print("    Pass 2 (ConstFld): [ "); print_f64(a20);
+    print(" "); print_f64(a21); print(" ---  "); print_f64(a23);
+    println(" ]");
+    print("    Pass 3 (SIMD):     [ "); print_f64(a30);
+    print(" "); print_f64(a31); print(" "); print_f64(a32);
+    println(" ---  ]");
+    0
+}
+
+// ---- Experiment 1: Pass Interaction Matrix ----
+fn experiment_1() -> i64 {
+    var a01: f64 = 0.5; var a02: f64 = 0.5; var a03: f64 = 0.5;
+    var a10: f64 = 0.5; var a12: f64 = 0.5; var a13: f64 = 0.5;
+    var a20: f64 = 0.5; var a21: f64 = 0.5; var a23: f64 = 0.5;
+    var a30: f64 = 0.5; var a31: f64 = 0.5; var a32: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+    let meta_lr: f64 = 0.05;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 50;
+
+    println("================================================================");
+    println("  EXPERIMENT 1: Pass Interaction Matrix");
+    println("  4 compiler passes, 12 learnable alpha values");
+    println("================================================================");
+    println("");
+
+    // Baselines
+    let loss_none: f64 = run_inner(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, inner_steps);
+    let loss_uniform: f64 = run_inner(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, inner_steps);
+    print("  Baseline (no projection):  ");
+    print_f64(loss_none);
+    println("");
+    print("  Baseline (uniform alpha=1): ");
+    print_f64(loss_uniform);
+    println("");
+    println("");
+    println("  Training interaction matrix...");
+
+    while cycle < meta_cycles {
+        // Update each of 12 alphas via meta-gradient
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 0, inner_steps);
+        a01 = clamp(a01 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 1, inner_steps);
+        a02 = clamp(a02 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 2, inner_steps);
+        a03 = clamp(a03 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 3, inner_steps);
+        a10 = clamp(a10 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 4, inner_steps);
+        a12 = clamp(a12 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 5, inner_steps);
+        a13 = clamp(a13 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 6, inner_steps);
+        a20 = clamp(a20 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 7, inner_steps);
+        a21 = clamp(a21 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 8, inner_steps);
+        a23 = clamp(a23 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 9, inner_steps);
+        a30 = clamp(a30 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 10, inner_steps);
+        a31 = clamp(a31 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 11, inner_steps);
+        a32 = clamp(a32 - meta_lr * mg, 0.0, 2.0);
+
+        loss = run_inner(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, inner_steps);
+
+        if cycle == 0 {
+            print("    cycle  0  loss="); print_f64(loss); println("");
+        }
+        if cycle == 9 {
+            print("    cycle 10  loss="); print_f64(loss); println("");
+        }
+        if cycle == 24 {
+            print("    cycle 25  loss="); print_f64(loss); println("");
+        }
+        if cycle == 49 {
+            print("    cycle 50  loss="); print_f64(loss); println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let final_loss: f64 = run_inner(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, inner_steps);
+
+    println("");
+    println("  Learned Interaction Matrix (alpha_ij):");
+    println("  High alpha = high conflict, Low alpha = cooperative");
+    println("");
+    let dummy: i64 = print_matrix_4x4(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32);
+    println("");
+
+    // Analysis: cooperation vs conflict
+    println("  Analysis:");
+    let avg_cf_out: f64 = (a20 + a21 + a23) / 3.0;
+    let avg_cf_in: f64 = (a02 + a12 + a32) / 3.0;
+    print("    Constant folding avg alpha (outgoing): ");
+    print_f64(avg_cf_out);
+    println("");
+    print("    Constant folding avg alpha (incoming): ");
+    print_f64(avg_cf_in);
+    println("");
+
+    let inline_unroll: f64 = (a01 + a10) / 2.0;
+    print("    Inline<->Unroll avg alpha (conflict?): ");
+    print_f64(inline_unroll);
+    println("");
+
+    let inline_simd: f64 = (a03 + a30) / 2.0;
+    print("    Inline<->SIMD avg alpha:               ");
+    print_f64(inline_simd);
+    println("");
+
+    println("");
+    print("  Final loss (learned): ");
+    print_f64(final_loss);
+    println("");
+    print("  Baseline (none):      ");
+    print_f64(loss_none);
+    println("");
+    print("  Baseline (uniform):   ");
+    print_f64(loss_uniform);
+    println("");
+
+    if final_loss < loss_none {
+        println("  PASS: Learned matrix improves over no projection");
+    } else {
+        println("  NOTE: Losses similar (passes may be mostly cooperative)");
+    }
+    println("");
+    0
+}
+
+// ---- Experiment 2: Per-Program Adaptation ----
+fn run_program_training(b0: f64, b1: f64, b2: f64, b3: f64, label: i64) -> i64 {
+    var a01: f64 = 0.5; var a02: f64 = 0.5; var a03: f64 = 0.5;
+    var a10: f64 = 0.5; var a12: f64 = 0.5; var a13: f64 = 0.5;
+    var a20: f64 = 0.5; var a21: f64 = 0.5; var a23: f64 = 0.5;
+    var a30: f64 = 0.5; var a31: f64 = 0.5; var a32: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+    var max_val: f64 = 0.0;
+    var min_val: f64 = 0.0;
+    let meta_lr: f64 = 0.05;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 50;
+
+    if label == 0 { println("  --- Program A: Loop-heavy (bias unroll=3.0) ---"); }
+    if label == 1 { println("  --- Program B: Call-heavy (bias inline=3.0) ---"); }
+    if label == 2 { println("  --- Program C: Math-heavy (bias SIMD=3.0) ---"); }
+
+    while cycle < meta_cycles {
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 0, inner_steps);
+        a01 = clamp(a01 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 1, inner_steps);
+        a02 = clamp(a02 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 2, inner_steps);
+        a03 = clamp(a03 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 3, inner_steps);
+        a10 = clamp(a10 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 4, inner_steps);
+        a12 = clamp(a12 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 5, inner_steps);
+        a13 = clamp(a13 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 6, inner_steps);
+        a20 = clamp(a20 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 7, inner_steps);
+        a21 = clamp(a21 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 8, inner_steps);
+        a23 = clamp(a23 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 9, inner_steps);
+        a30 = clamp(a30 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 10, inner_steps);
+        a31 = clamp(a31 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, 11, inner_steps);
+        a32 = clamp(a32 - meta_lr * mg, 0.0, 2.0);
+
+        cycle = cycle + 1;
+    }
+
+    loss = run_inner(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, b0, b1, b2, b3, inner_steps);
+    print("    Final loss: "); print_f64(loss); println("");
+    println("    Learned matrix:");
+    let dummy: i64 = print_matrix_4x4(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32);
+
+    // Report key differences
+    max_val = a01;
+    if a02 > max_val { max_val = a02; }
+    if a03 > max_val { max_val = a03; }
+    if a10 > max_val { max_val = a10; }
+    if a12 > max_val { max_val = a12; }
+    if a13 > max_val { max_val = a13; }
+    if a20 > max_val { max_val = a20; }
+    if a21 > max_val { max_val = a21; }
+    if a23 > max_val { max_val = a23; }
+    if a30 > max_val { max_val = a30; }
+    if a31 > max_val { max_val = a31; }
+    if a32 > max_val { max_val = a32; }
+    print("    Max conflict alpha: ");
+    print_f64(max_val);
+    println("");
+
+    min_val = a01;
+    if a02 < min_val { min_val = a02; }
+    if a03 < min_val { min_val = a03; }
+    if a10 < min_val { min_val = a10; }
+    if a12 < min_val { min_val = a12; }
+    if a13 < min_val { min_val = a13; }
+    if a20 < min_val { min_val = a20; }
+    if a21 < min_val { min_val = a21; }
+    if a23 < min_val { min_val = a23; }
+    if a30 < min_val { min_val = a30; }
+    if a31 < min_val { min_val = a31; }
+    if a32 < min_val { min_val = a32; }
+    print("    Min conflict alpha: ");
+    print_f64(min_val);
+    println("");
+    println("");
+    0
+}
+
+fn experiment_2() -> i64 {
+    println("================================================================");
+    println("  EXPERIMENT 2: Per-Program Adaptation");
+    println("  Same framework, 3 different program profiles");
+    println("================================================================");
+    println("");
+
+    // Program A: loop-heavy => unrolling (pass 1) benefits most, weight=3.0
+    let da: i64 = run_program_training(1.0, 3.0, 1.0, 1.0, 0);
+
+    // Program B: call-heavy => inlining (pass 0) benefits most, weight=3.0
+    let db: i64 = run_program_training(3.0, 1.0, 1.0, 1.0, 1);
+
+    // Program C: math-heavy => SIMD (pass 3) benefits most, weight=3.0
+    let dc: i64 = run_program_training(1.0, 1.0, 1.0, 3.0, 2);
+
+    println("  If matrices differ, the framework adapts to program structure.");
+    println("");
+    0
+}
+
+// ---- Experiment 3: Convergence-Based Stopping ----
+// Compute normalised Lyapunov V for a given alpha set
+fn compute_lyapunov(a01: f64, a02: f64, a03: f64,
+                    a10: f64, a12: f64, a13: f64,
+                    a20: f64, a21: f64, a23: f64,
+                    a30: f64, a31: f64, a32: f64,
+                    l0_init: f64, l1_init: f64, l2_init: f64, l3_init: f64,
+                    steps: i64) -> f64 {
+    let l0: f64 = run_inner_pass_loss(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 0, steps);
+    let l1: f64 = run_inner_pass_loss(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1, steps);
+    let l2: f64 = run_inner_pass_loss(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 2, steps);
+    let l3: f64 = run_inner_pass_loss(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 3, steps);
+    l0 / (l0_init + 0.000000000001)
+    + l1 / (l1_init + 0.000000000001)
+    + l2 / (l2_init + 0.000000000001)
+    + l3 / (l3_init + 0.000000000001)
+}
+
+fn experiment_3() -> i64 {
+    var a01: f64 = 0.5; var a02: f64 = 0.5; var a03: f64 = 0.5;
+    var a10: f64 = 0.5; var a12: f64 = 0.5; var a13: f64 = 0.5;
+    var a20: f64 = 0.5; var a21: f64 = 0.5; var a23: f64 = 0.5;
+    var a30: f64 = 0.5; var a31: f64 = 0.5; var a32: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var prev_v: f64 = 0.0;
+    var score: f64 = 999.0;
+    var v_now: f64 = 0.0;
+    var crossed: i64 = 0;
+    let meta_lr: f64 = 0.05;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 50;
+
+    println("================================================================");
+    println("  EXPERIMENT 3: Convergence-Based Stopping");
+    println("  Track normalised Lyapunov V = sum(Li/Li0) across meta-cycles");
+    println("================================================================");
+    println("");
+
+    // Get initial per-pass losses for normalisation
+    let l0_init: f64 = run_inner_pass_loss(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0, inner_steps);
+    let l1_init: f64 = run_inner_pass_loss(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1, inner_steps);
+    let l2_init: f64 = run_inner_pass_loss(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 2, inner_steps);
+    let l3_init: f64 = run_inner_pass_loss(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 3, inner_steps);
+
+    print("  Initial per-pass losses: L0="); print_f64(l0_init);
+    print("  L1="); print_f64(l1_init);
+    print("  L2="); print_f64(l2_init);
+    print("  L3="); print_f64(l3_init);
+    println("");
+
+    prev_v = compute_lyapunov(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, l0_init, l1_init, l2_init, l3_init, inner_steps);
+    print("  V(0) = "); print_f64(prev_v); println("");
+    println("");
+
+    println("  Cycle   V(t)       S(t)=|dV/dt|   Thresholds");
+    println("  -----   ---------  ------------   ----------");
+
+    // crossed encodes threshold state: 0=none, 1=0.1 crossed, 2=0.01 crossed, 3=0.001 crossed
+
+    while cycle < meta_cycles {
+        // Meta-gradient update for all 12 alphas
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 0, inner_steps);
+        a01 = clamp(a01 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 1, inner_steps);
+        a02 = clamp(a02 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 2, inner_steps);
+        a03 = clamp(a03 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 3, inner_steps);
+        a10 = clamp(a10 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 4, inner_steps);
+        a12 = clamp(a12 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 5, inner_steps);
+        a13 = clamp(a13 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 6, inner_steps);
+        a20 = clamp(a20 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 7, inner_steps);
+        a21 = clamp(a21 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 8, inner_steps);
+        a23 = clamp(a23 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 9, inner_steps);
+        a30 = clamp(a30 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 10, inner_steps);
+        a31 = clamp(a31 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad_one(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, 1.0, 1.0, 1.0, 1.0, 11, inner_steps);
+        a32 = clamp(a32 - meta_lr * mg, 0.0, 2.0);
+
+        // Compute normalised Lyapunov V(t)
+        v_now = compute_lyapunov(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, l0_init, l1_init, l2_init, l3_init, inner_steps);
+
+        score = abs_f64(v_now - prev_v);
+
+        // Check threshold crossings
+        if score < 0.1 {
+            if crossed < 1 {
+                print("  "); print_i64(cycle);
+                print("      "); print_f64(v_now);
+                print("  "); print_f64(score);
+                println("   ** S < 0.1 **");
+                crossed = 1;
+            }
+        }
+        if score < 0.01 {
+            if crossed < 2 {
+                print("  "); print_i64(cycle);
+                print("      "); print_f64(v_now);
+                print("  "); print_f64(score);
+                println("   ** S < 0.01 **");
+                crossed = 2;
+            }
+        }
+        if score < 0.001 {
+            if crossed < 3 {
+                print("  "); print_i64(cycle);
+                print("      "); print_f64(v_now);
+                print("  "); print_f64(score);
+                println("   ** S < 0.001 **");
+                crossed = 3;
+            }
+        }
+
+        // Print every 10 cycles
+        if cycle == 0 {
+            print("  0      "); print_f64(v_now);
+            print("  "); print_f64(score); println("");
+        }
+        if cycle == 9 {
+            print("  10     "); print_f64(v_now);
+            print("  "); print_f64(score); println("");
+        }
+        if cycle == 19 {
+            print("  20     "); print_f64(v_now);
+            print("  "); print_f64(score); println("");
+        }
+        if cycle == 29 {
+            print("  30     "); print_f64(v_now);
+            print("  "); print_f64(score); println("");
+        }
+        if cycle == 39 {
+            print("  40     "); print_f64(v_now);
+            print("  "); print_f64(score); println("");
+        }
+        if cycle == 49 {
+            print("  50     "); print_f64(v_now);
+            print("  "); print_f64(score); println("");
+        }
+
+        prev_v = v_now;
+        cycle = cycle + 1;
+    }
+
+    println("");
+    if crossed == 3 {
+        println("  PASS: S(t) dropped below 0.001 -- system converged");
+        println("  Optimal pass iteration count identified.");
+    } else {
+        if crossed == 2 {
+            println("  PARTIAL: S(t) dropped below 0.01 but not 0.001");
+            println("  More meta-cycles may reach full convergence.");
+        } else {
+            if crossed >= 1 {
+                println("  PARTIAL: S(t) dropped below 0.1 only");
+            } else {
+                println("  NOTE: S(t) did not converge below 0.1 in 50 cycles");
+            }
+        }
+    }
+    println("");
+    0
+}
+
+// ---- Main entry point ----
+fn main() -> i64 {
+    println("================================================================");
+    println("  GEOMETRIC CONTRACTION FRAMEWORK");
+    println("  Applied to Compiler Pass Optimisation");
+    println("  4 passes x 6D program representation");
+    println("================================================================");
+    println("");
+
+    let r1: i64 = experiment_1();
+    let r2: i64 = experiment_2();
+    let r3: i64 = experiment_3();
+
+    println("================================================================");
+    println("  ALL EXPERIMENTS COMPLETE");
+    println("================================================================");
+    0
+}

@@ -1,0 +1,807 @@
+// Experiment: Memory Dynamics — Forgetting, Transfer, and Self-Referential Beliefs
+//
+// Exp 1: Optimal Forgetting Rate
+//   Beta(alpha, beta) with exponential decay lambda per step.
+//   Stationary environment (true=0.7) vs changing (0.7 -> 0.3 at obs 100).
+//   Sweep lambda 0.9..1.0. Does optimal lambda differ? Can meta-gradient learn it?
+//
+// Exp 2: Transfer Learning Between Beliefs
+//   Learn domain A (true=0.7) for 100 obs. Switch to B (related).
+//   Compare fresh start vs transfer (init B's prior from A's posterior).
+//   Similarity levels: B=0.65, 0.5, 0.2.
+//
+// Exp 3: Self-Referential Belief
+//   Primary belief tracks true_val=0.7. Meta-belief tracks "am I converging?"
+//   Meta-belief confidence modulates primary evidence rate.
+//   Does this self-referential structure improve convergence?
+//
+// Exp 4: Phase Transition in Belief Count
+//   K interacting beliefs with KxK interaction matrix.
+//   Track average error. Is there a critical K?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn lcg_next(state: i64) -> i64 { state * 1664525 + 1013904223 }
+
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    (s % 10000) as f64 / 10000.0
+}
+
+fn beta_mean(a: f64, b: f64) -> f64 { a / (a + b) }
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+// ============================================================================
+// Exp 1: Optimal Forgetting Rate
+// ============================================================================
+
+// Stationary environment: true_val constant
+fn train_stationary(lambda: f64, true_val: f64, obs: i64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var total_err: f64 = 0.0;
+
+    while step < obs {
+        // Decay: alpha = 1 + (alpha - 1) * lambda
+        al = 1.0 + (al - 1.0) * lambda;
+        be = 1.0 + (be - 1.0) * lambda;
+
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + 1.0;
+        } else {
+            be = be + 1.0;
+        }
+
+        let err: f64 = beta_mean(al, be) - true_val;
+        total_err = total_err + err * err;
+        step = step + 1;
+    }
+
+    total_err / (obs as f64)
+}
+
+// Changing environment: true_val switches at switch_point
+fn train_changing(lambda: f64, val1: f64, val2: f64,
+                  switch_at: i64, obs: i64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var total_err: f64 = 0.0;
+    var true_val: f64 = val1;
+
+    while step < obs {
+        if step == switch_at {
+            true_val = val2;
+        }
+
+        al = 1.0 + (al - 1.0) * lambda;
+        be = 1.0 + (be - 1.0) * lambda;
+
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + 1.0;
+        } else {
+            be = be + 1.0;
+        }
+
+        let err: f64 = beta_mean(al, be) - true_val;
+        total_err = total_err + err * err;
+        step = step + 1;
+    }
+
+    total_err / (obs as f64)
+}
+
+// Average over multiple seeds for stability
+fn avg_stationary(lambda: f64, true_val: f64, obs: i64) -> f64 {
+    let l1: f64 = train_stationary(lambda, true_val, obs, 42);
+    let l2: f64 = train_stationary(lambda, true_val, obs, 137);
+    let l3: f64 = train_stationary(lambda, true_val, obs, 999);
+    let l4: f64 = train_stationary(lambda, true_val, obs, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+fn avg_changing(lambda: f64, v1: f64, v2: f64, sw: i64, obs: i64) -> f64 {
+    let l1: f64 = train_changing(lambda, v1, v2, sw, obs, 42);
+    let l2: f64 = train_changing(lambda, v1, v2, sw, obs, 137);
+    let l3: f64 = train_changing(lambda, v1, v2, sw, obs, 999);
+    let l4: f64 = train_changing(lambda, v1, v2, sw, obs, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+// Meta-gradient for lambda
+fn mg_lambda_stat(lambda: f64, true_val: f64, obs: i64) -> f64 {
+    let h: f64 = 0.002;
+    let lp: f64 = avg_stationary(lambda + h, true_val, obs);
+    let lm: f64 = avg_stationary(lambda - h, true_val, obs);
+    (lp - lm) / (2.0 * h)
+}
+
+fn mg_lambda_chg(lambda: f64, v1: f64, v2: f64, sw: i64, obs: i64) -> f64 {
+    let h: f64 = 0.002;
+    let lp: f64 = avg_changing(lambda + h, v1, v2, sw, obs);
+    let lm: f64 = avg_changing(lambda - h, v1, v2, sw, obs);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp1() -> i64 {
+    println("============================================");
+    println("  EXP 1: OPTIMAL FORGETTING RATE");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 200;
+
+    // --- Sweep lambda for STATIONARY environment ---
+    println("--- Stationary Environment (true=0.7) ---");
+    println("  Lambda    MSE");
+    var best_stat_lam: f64 = 0.9;
+    var best_stat_err: f64 = 100.0;
+    var li: i64 = 0;
+    while li <= 10 {
+        let lambda: f64 = 0.9 + (li as f64) * 0.01;
+        let mse: f64 = avg_stationary(lambda, 0.7, obs);
+        print("  ");
+        print_f64(lambda);
+        print("     ");
+        print_f64(mse);
+        println("");
+        if mse < best_stat_err {
+            best_stat_err = mse;
+            best_stat_lam = lambda;
+        }
+        li = li + 1;
+    }
+    print("  Best lambda (stationary): ");
+    print_f64(best_stat_lam);
+    print("  MSE=");
+    print_f64(best_stat_err);
+    println("");
+    println("");
+
+    // --- Sweep lambda for CHANGING environment ---
+    println("--- Changing Environment (0.7 -> 0.3 at obs 100) ---");
+    println("  Lambda    MSE");
+    var best_chg_lam: f64 = 0.9;
+    var best_chg_err: f64 = 100.0;
+    li = 0;
+    while li <= 10 {
+        let lambda: f64 = 0.9 + (li as f64) * 0.01;
+        let mse: f64 = avg_changing(lambda, 0.7, 0.3, 100, obs);
+        print("  ");
+        print_f64(lambda);
+        print("     ");
+        print_f64(mse);
+        println("");
+        if mse < best_chg_err {
+            best_chg_err = mse;
+            best_chg_lam = lambda;
+        }
+        li = li + 1;
+    }
+    print("  Best lambda (changing): ");
+    print_f64(best_chg_lam);
+    print("  MSE=");
+    print_f64(best_chg_err);
+    println("");
+    println("");
+
+    // --- Meta-gradient learns lambda ---
+    println("--- Meta-Gradient Learning Lambda ---");
+    var lam_stat: f64 = 0.95;
+    var lam_chg: f64 = 0.95;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    while cycle < 30 {
+        mg = mg_lambda_stat(lam_stat, 0.7, obs);
+        lam_stat = clamp(lam_stat - 0.02 * mg, 0.9, 1.0);
+        mg = mg_lambda_chg(lam_chg, 0.7, 0.3, 100, obs);
+        lam_chg = clamp(lam_chg - 0.02 * mg, 0.9, 1.0);
+        cycle = cycle + 1;
+    }
+    print("  Meta-learned lambda (stationary): ");
+    print_f64(lam_stat);
+    println("");
+    print("  Meta-learned lambda (changing):   ");
+    print_f64(lam_chg);
+    println("");
+
+    if lam_stat > lam_chg {
+        println("  FINDING: Stationary prefers higher lambda (less forgetting)");
+    }
+    if lam_chg < 0.97 {
+        println("  FINDING: Changing environment needs faster forgetting (lambda < 0.97)");
+    }
+    if abs_f64(lam_stat - best_stat_lam) < 0.02 {
+        println("  FINDING: Meta-gradient recovered near-optimal lambda for stationary");
+    }
+    if abs_f64(lam_chg - best_chg_lam) < 0.02 {
+        println("  FINDING: Meta-gradient recovered near-optimal lambda for changing");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Transfer Learning Between Beliefs
+// ============================================================================
+
+// Learn domain A, return posterior (alpha, beta) as packed value
+// Returns final alpha (caller infers beta from obs count)
+fn learn_domain(true_val: f64, obs: i64, init_al: f64, init_be: f64, seed: i64) -> f64 {
+    var al: f64 = init_al;
+    var be: f64 = init_be;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+
+    while step < obs {
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + 1.0;
+        } else {
+            be = be + 1.0;
+        }
+        step = step + 1;
+    }
+
+    beta_mean(al, be)
+}
+
+// Track MSE over learning trajectory
+fn learn_domain_mse(true_val: f64, obs: i64, init_al: f64, init_be: f64, seed: i64) -> f64 {
+    var al: f64 = init_al;
+    var be: f64 = init_be;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var total_err: f64 = 0.0;
+
+    while step < obs {
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + 1.0;
+        } else {
+            be = be + 1.0;
+        }
+        let err: f64 = beta_mean(al, be) - true_val;
+        total_err = total_err + err * err;
+        step = step + 1;
+    }
+
+    total_err / (obs as f64)
+}
+
+// Learn domain A then transfer to domain B
+fn transfer_mse(true_a: f64, true_b: f64, obs_a: i64, obs_b: i64, seed: i64) -> f64 {
+    // Phase 1: learn A
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+
+    while step < obs_a {
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_a {
+            al = al + 1.0;
+        } else {
+            be = be + 1.0;
+        }
+        step = step + 1;
+    }
+
+    // Transfer: use A's posterior as B's prior (scaled down to moderate confidence)
+    let transfer_al: f64 = 1.0 + (al - 1.0) * 0.3;
+    let transfer_be: f64 = 1.0 + (be - 1.0) * 0.3;
+
+    // Phase 2: learn B from transferred prior
+    learn_domain_mse(true_b, obs_b, transfer_al, transfer_be, rng)
+}
+
+fn avg_fresh_mse(true_b: f64, obs_b: i64) -> f64 {
+    let l1: f64 = learn_domain_mse(true_b, obs_b, 2.0, 2.0, 42);
+    let l2: f64 = learn_domain_mse(true_b, obs_b, 2.0, 2.0, 137);
+    let l3: f64 = learn_domain_mse(true_b, obs_b, 2.0, 2.0, 999);
+    let l4: f64 = learn_domain_mse(true_b, obs_b, 2.0, 2.0, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+fn avg_transfer_mse(true_a: f64, true_b: f64, obs_a: i64, obs_b: i64) -> f64 {
+    let l1: f64 = transfer_mse(true_a, true_b, obs_a, obs_b, 42);
+    let l2: f64 = transfer_mse(true_a, true_b, obs_a, obs_b, 137);
+    let l3: f64 = transfer_mse(true_a, true_b, obs_a, obs_b, 999);
+    let l4: f64 = transfer_mse(true_a, true_b, obs_a, obs_b, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+fn run_exp2() -> i64 {
+    println("============================================");
+    println("  EXP 2: TRANSFER LEARNING BETWEEN BELIEFS");
+    println("============================================");
+    println("");
+
+    let true_a: f64 = 0.7;
+    let obs_a: i64 = 100;
+    let obs_b: i64 = 60;
+
+    println("  Source: A (true=0.7, 100 obs)");
+    println("  Target: B (variable, 60 obs)");
+    println("");
+    println("  B_true    Fresh_MSE    Transfer_MSE   Improvement");
+
+    // B = 0.65 (very similar)
+    var fresh: f64 = avg_fresh_mse(0.65, obs_b);
+    var trans: f64 = avg_transfer_mse(true_a, 0.65, obs_a, obs_b);
+    print("  0.65      ");
+    print_f64(fresh);
+    print("    ");
+    print_f64(trans);
+    print("    ");
+    if trans < fresh { print("BETTER"); } else { print("WORSE"); }
+    println("");
+
+    // B = 0.5 (somewhat similar)
+    fresh = avg_fresh_mse(0.5, obs_b);
+    trans = avg_transfer_mse(true_a, 0.5, obs_a, obs_b);
+    print("  0.50      ");
+    print_f64(fresh);
+    print("    ");
+    print_f64(trans);
+    print("    ");
+    if trans < fresh { print("BETTER"); } else { print("WORSE"); }
+    println("");
+
+    // B = 0.2 (very different)
+    fresh = avg_fresh_mse(0.2, obs_b);
+    trans = avg_transfer_mse(true_a, 0.2, obs_a, obs_b);
+    print("  0.20      ");
+    print_f64(fresh);
+    print("    ");
+    print_f64(trans);
+    print("    ");
+    if trans < fresh { print("BETTER"); } else { print("WORSE"); }
+    println("");
+
+    // B = 0.7 (identical)
+    fresh = avg_fresh_mse(0.7, obs_b);
+    trans = avg_transfer_mse(true_a, 0.7, obs_a, obs_b);
+    print("  0.70      ");
+    print_f64(fresh);
+    print("    ");
+    print_f64(trans);
+    print("    ");
+    if trans < fresh { print("BETTER"); } else { print("WORSE"); }
+    println("");
+
+    println("");
+    println("  ANALYSIS:");
+    println("  - Transfer helps when domains are similar (positive transfer)");
+    println("  - Transfer hurts when domains are very different (negative transfer)");
+    println("  - The crossover point reveals the similarity threshold");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Self-Referential Belief
+// ============================================================================
+
+// Primary belief + meta-belief that modulates evidence rate
+fn train_self_referential(true_val: f64, coupling: f64, obs: i64, seed: i64) -> f64 {
+    var al: f64 = 2.0;
+    var be: f64 = 2.0;
+    // Meta-belief: tracks "am I converging?" as Beta
+    var m_al: f64 = 2.0;
+    var m_be: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var total_err: f64 = 0.0;
+    var prev_err: f64 = 0.5;
+    var curr_err: f64 = 0.0;
+    var meta_conf: f64 = 0.0;
+    var rate: f64 = 0.0;
+
+    while step < obs {
+        // Current error of primary belief
+        curr_err = abs_f64(beta_mean(al, be) - true_val);
+
+        // Update meta-belief: did error decrease?
+        if step > 0 {
+            if curr_err < prev_err {
+                // Converging: evidence for meta-belief
+                m_al = m_al + 1.0;
+            } else {
+                // Not converging: evidence against
+                m_be = m_be + 1.0;
+            }
+        }
+
+        // Meta-belief confidence modulates evidence rate
+        meta_conf = beta_mean(m_al, m_be);
+        // High meta-conf ("I'm converging") -> process faster
+        // Low meta-conf ("I'm struggling") -> be more cautious
+        rate = 0.5 + coupling * (meta_conf - 0.5);
+        if rate < 0.2 { rate = 0.2; }
+        if rate > 2.0 { rate = 2.0; }
+
+        // Observe and update primary belief
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < true_val {
+            al = al + rate;
+        } else {
+            be = be + rate;
+        }
+
+        prev_err = curr_err;
+        let err: f64 = beta_mean(al, be) - true_val;
+        total_err = total_err + err * err;
+        step = step + 1;
+    }
+
+    total_err / (obs as f64)
+}
+
+fn avg_self_ref(true_val: f64, coupling: f64, obs: i64) -> f64 {
+    let l1: f64 = train_self_referential(true_val, coupling, obs, 42);
+    let l2: f64 = train_self_referential(true_val, coupling, obs, 137);
+    let l3: f64 = train_self_referential(true_val, coupling, obs, 999);
+    let l4: f64 = train_self_referential(true_val, coupling, obs, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+// Meta-gradient for coupling
+fn mg_coupling(true_val: f64, coupling: f64, obs: i64) -> f64 {
+    let h: f64 = 0.005;
+    let lp: f64 = avg_self_ref(true_val, coupling + h, obs);
+    let lm: f64 = avg_self_ref(true_val, coupling - h, obs);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp3() -> i64 {
+    println("============================================");
+    println("  EXP 3: SELF-REFERENTIAL BELIEF");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 150;
+    let true_val: f64 = 0.7;
+
+    // Baseline: no self-reference (coupling = 0)
+    let baseline: f64 = avg_self_ref(true_val, 0.0, obs);
+    print("  Baseline (no self-reference): MSE=");
+    print_f64(baseline);
+    println("");
+    println("");
+
+    // Sweep coupling
+    println("  Coupling   MSE          vs_Baseline");
+    var ci: i64 = 0;
+    var best_coupling: f64 = 0.0;
+    var best_mse: f64 = 100.0;
+    while ci <= 8 {
+        let c: f64 = (ci as f64) * 0.25;
+        let mse: f64 = avg_self_ref(true_val, c, obs);
+        print("  ");
+        print_f64(c);
+        print("      ");
+        print_f64(mse);
+        print("    ");
+        if mse < baseline { print("BETTER"); } else { print("WORSE"); }
+        println("");
+        if mse < best_mse {
+            best_mse = mse;
+            best_coupling = c;
+        }
+        ci = ci + 1;
+    }
+    println("");
+    print("  Best coupling from sweep: ");
+    print_f64(best_coupling);
+    print("  MSE=");
+    print_f64(best_mse);
+    println("");
+
+    // Meta-gradient learns coupling
+    var learned_c: f64 = 1.0;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    while cycle < 25 {
+        mg = mg_coupling(true_val, learned_c, obs);
+        learned_c = clamp(learned_c - 0.05 * mg, 0.0, 3.0);
+        cycle = cycle + 1;
+    }
+    let learned_mse: f64 = avg_self_ref(true_val, learned_c, obs);
+    print("  Meta-learned coupling: ");
+    print_f64(learned_c);
+    print("  MSE=");
+    print_f64(learned_mse);
+    println("");
+    println("");
+
+    if best_mse < baseline {
+        println("  FINDING: Self-referential structure CAN improve convergence");
+    }
+    if best_coupling > 0.3 {
+        println("  FINDING: Non-trivial coupling is optimal (not just ignoring meta-belief)");
+    }
+    if abs_f64(learned_c - best_coupling) < 0.5 {
+        println("  FINDING: Meta-gradient approximates optimal coupling");
+    }
+    if best_coupling > 1.5 {
+        println("  FINDING: Strong self-amplification helps — confident agent learns faster");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Phase Transition in Belief Count
+// ============================================================================
+
+// K beliefs interact via pairwise coupling.
+// For simplicity, all beliefs target different true values and have uniform coupling.
+// We simulate by stacking beliefs manually up to K=10.
+
+fn get_true_val(k: i64) -> f64 {
+    // Spread true values across [0.2, 0.8]
+    if k == 0 { return 0.3; }
+    if k == 1 { return 0.7; }
+    if k == 2 { return 0.5; }
+    if k == 3 { return 0.4; }
+    if k == 4 { return 0.8; }
+    if k == 5 { return 0.6; }
+    if k == 6 { return 0.35; }
+    if k == 7 { return 0.65; }
+    if k == 8 { return 0.45; }
+    if k == 9 { return 0.75; }
+    0.5
+}
+
+// Train K beliefs with interaction strength alpha
+// Each belief gets a cross-belief boost from all others
+fn train_k_beliefs(num_k: i64, alpha: f64, obs: i64, seed: i64) -> f64 {
+    // Store beliefs as arrays (up to 10)
+    var a0: f64 = 2.0; var b0: f64 = 2.0;
+    var a1: f64 = 2.0; var b1: f64 = 2.0;
+    var a2: f64 = 2.0; var b2: f64 = 2.0;
+    var a3: f64 = 2.0; var b3: f64 = 2.0;
+    var a4: f64 = 2.0; var b4: f64 = 2.0;
+    var a5: f64 = 2.0; var b5: f64 = 2.0;
+    var a6: f64 = 2.0; var b6: f64 = 2.0;
+    var a7: f64 = 2.0; var b7: f64 = 2.0;
+    var a8: f64 = 2.0; var b8: f64 = 2.0;
+    var a9: f64 = 2.0; var b9: f64 = 2.0;
+
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var avg_mean: f64 = 0.0;
+    var boost: f64 = 0.0;
+
+    while step < obs {
+        // Compute average belief mean for cross-talk
+        avg_mean = 0.0;
+        if num_k > 0 { avg_mean = avg_mean + beta_mean(a0, b0); }
+        if num_k > 1 { avg_mean = avg_mean + beta_mean(a1, b1); }
+        if num_k > 2 { avg_mean = avg_mean + beta_mean(a2, b2); }
+        if num_k > 3 { avg_mean = avg_mean + beta_mean(a3, b3); }
+        if num_k > 4 { avg_mean = avg_mean + beta_mean(a4, b4); }
+        if num_k > 5 { avg_mean = avg_mean + beta_mean(a5, b5); }
+        if num_k > 6 { avg_mean = avg_mean + beta_mean(a6, b6); }
+        if num_k > 7 { avg_mean = avg_mean + beta_mean(a7, b7); }
+        if num_k > 8 { avg_mean = avg_mean + beta_mean(a8, b8); }
+        if num_k > 9 { avg_mean = avg_mean + beta_mean(a9, b9); }
+        avg_mean = avg_mean / (num_k as f64);
+
+        // Update each belief: observe + cross-talk from ensemble mean
+        if num_k > 0 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a0, b0)) * 0.3;
+            if lcg_f64(rng) < get_true_val(0) { a0 = a0 + 1.0 + boost; }
+            else { b0 = b0 + 1.0 - boost; }
+        }
+        if num_k > 1 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a1, b1)) * 0.3;
+            if lcg_f64(rng) < get_true_val(1) { a1 = a1 + 1.0 + boost; }
+            else { b1 = b1 + 1.0 - boost; }
+        }
+        if num_k > 2 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a2, b2)) * 0.3;
+            if lcg_f64(rng) < get_true_val(2) { a2 = a2 + 1.0 + boost; }
+            else { b2 = b2 + 1.0 - boost; }
+        }
+        if num_k > 3 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a3, b3)) * 0.3;
+            if lcg_f64(rng) < get_true_val(3) { a3 = a3 + 1.0 + boost; }
+            else { b3 = b3 + 1.0 - boost; }
+        }
+        if num_k > 4 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a4, b4)) * 0.3;
+            if lcg_f64(rng) < get_true_val(4) { a4 = a4 + 1.0 + boost; }
+            else { b4 = b4 + 1.0 - boost; }
+        }
+        if num_k > 5 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a5, b5)) * 0.3;
+            if lcg_f64(rng) < get_true_val(5) { a5 = a5 + 1.0 + boost; }
+            else { b5 = b5 + 1.0 - boost; }
+        }
+        if num_k > 6 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a6, b6)) * 0.3;
+            if lcg_f64(rng) < get_true_val(6) { a6 = a6 + 1.0 + boost; }
+            else { b6 = b6 + 1.0 - boost; }
+        }
+        if num_k > 7 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a7, b7)) * 0.3;
+            if lcg_f64(rng) < get_true_val(7) { a7 = a7 + 1.0 + boost; }
+            else { b7 = b7 + 1.0 - boost; }
+        }
+        if num_k > 8 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a8, b8)) * 0.3;
+            if lcg_f64(rng) < get_true_val(8) { a8 = a8 + 1.0 + boost; }
+            else { b8 = b8 + 1.0 - boost; }
+        }
+        if num_k > 9 {
+            rng = lcg_next(rng);
+            boost = alpha * (avg_mean - beta_mean(a9, b9)) * 0.3;
+            if lcg_f64(rng) < get_true_val(9) { a9 = a9 + 1.0 + boost; }
+            else { b9 = b9 + 1.0 - boost; }
+        }
+
+        step = step + 1;
+    }
+
+    // Compute average squared error across all K beliefs
+    var total_err: f64 = 0.0;
+    var err: f64 = 0.0;
+    if num_k > 0 { err = beta_mean(a0, b0) - get_true_val(0); total_err = total_err + err * err; }
+    if num_k > 1 { err = beta_mean(a1, b1) - get_true_val(1); total_err = total_err + err * err; }
+    if num_k > 2 { err = beta_mean(a2, b2) - get_true_val(2); total_err = total_err + err * err; }
+    if num_k > 3 { err = beta_mean(a3, b3) - get_true_val(3); total_err = total_err + err * err; }
+    if num_k > 4 { err = beta_mean(a4, b4) - get_true_val(4); total_err = total_err + err * err; }
+    if num_k > 5 { err = beta_mean(a5, b5) - get_true_val(5); total_err = total_err + err * err; }
+    if num_k > 6 { err = beta_mean(a6, b6) - get_true_val(6); total_err = total_err + err * err; }
+    if num_k > 7 { err = beta_mean(a7, b7) - get_true_val(7); total_err = total_err + err * err; }
+    if num_k > 8 { err = beta_mean(a8, b8) - get_true_val(8); total_err = total_err + err * err; }
+    if num_k > 9 { err = beta_mean(a9, b9) - get_true_val(9); total_err = total_err + err * err; }
+
+    total_err / (num_k as f64)
+}
+
+fn avg_k_beliefs(num_k: i64, alpha: f64, obs: i64) -> f64 {
+    let l1: f64 = train_k_beliefs(num_k, alpha, obs, 42);
+    let l2: f64 = train_k_beliefs(num_k, alpha, obs, 137);
+    let l3: f64 = train_k_beliefs(num_k, alpha, obs, 999);
+    let l4: f64 = train_k_beliefs(num_k, alpha, obs, 2023);
+    (l1 + l2 + l3 + l4) / 4.0
+}
+
+fn run_exp4() -> i64 {
+    println("============================================");
+    println("  EXP 4: PHASE TRANSITION IN BELIEF COUNT");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 150;
+    let alpha: f64 = 0.5;
+
+    println("--- Independent beliefs (alpha=0) as baseline ---");
+    println("  K    Indep_MSE    Coupled_MSE   Ratio");
+
+    var prev_coupled: f64 = 0.0;
+    var max_jump: f64 = 0.0;
+    var jump_k: i64 = 0;
+
+    // Test K = 2, 3, 4, 5, 6, 8, 10
+    var ki: i64 = 0;
+    while ki < 7 {
+        var k: i64 = 0;
+        if ki == 0 { k = 2; }
+        if ki == 1 { k = 3; }
+        if ki == 2 { k = 4; }
+        if ki == 3 { k = 5; }
+        if ki == 4 { k = 6; }
+        if ki == 5 { k = 8; }
+        if ki == 6 { k = 10; }
+
+        let indep: f64 = avg_k_beliefs(k, 0.0, obs);
+        let coupled: f64 = avg_k_beliefs(k, alpha, obs);
+        var ratio: f64 = coupled / (indep + 0.0000001);
+
+        print("  ");
+        if k < 10 { print(" "); }
+        print_f64(k as f64);
+        print("   ");
+        print_f64(indep);
+        print("    ");
+        print_f64(coupled);
+        print("    ");
+        print_f64(ratio);
+        println("");
+
+        // Track biggest jump in coupled error
+        if ki > 0 {
+            let jump: f64 = coupled - prev_coupled;
+            if jump > max_jump {
+                max_jump = jump;
+                jump_k = k;
+            }
+        }
+        prev_coupled = coupled;
+        ki = ki + 1;
+    }
+
+    println("");
+    print("  Largest error jump between consecutive K at K=");
+    print_f64(jump_k as f64);
+    print("  (delta=");
+    print_f64(max_jump);
+    println(")");
+
+    if max_jump > 0.001 {
+        println("  FINDING: Phase transition detected — error jumps sharply");
+    }
+    println("");
+
+    // Sweep coupling strength at K=6
+    println("--- Coupling strength sweep at K=6 ---");
+    println("  Alpha    MSE");
+    var ai: i64 = 0;
+    while ai <= 8 {
+        let a: f64 = (ai as f64) * 0.25;
+        let mse: f64 = avg_k_beliefs(6, a, obs);
+        print("  ");
+        print_f64(a);
+        print("      ");
+        print_f64(mse);
+        println("");
+        ai = ai + 1;
+    }
+
+    println("");
+    println("  ANALYSIS:");
+    println("  - Low K: interaction has mild effect");
+    println("  - High K: mean-field coupling pulls beliefs toward consensus");
+    println("  - If true values are spread out, consensus = inaccuracy");
+    println("  - Phase transition: the K where coupling overwhelms evidence");
+    println("");
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("############################################");
+    println("#  MEMORY DYNAMICS: FORGETTING, TRANSFER,  #");
+    println("#  SELF-REFERENCE, AND PHASE TRANSITIONS   #");
+    println("############################################");
+    println("");
+
+    run_exp1();
+    run_exp2();
+    run_exp3();
+    run_exp4();
+
+    println("############################################");
+    println("#  ALL EXPERIMENTS COMPLETE                 #");
+    println("############################################");
+    0
+}

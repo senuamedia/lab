@@ -1,0 +1,480 @@
+// Balance Residual: A Smooth Formulation for Equilibrium Location
+//
+// B(θ) = ||Σ gᵢ(θ)||² / Σ ||gᵢ(θ)||²
+//
+// B = 0 at equilibrium (forces cancel perfectly)
+// B = 1 when all forces align (no cancellation)
+// B is smooth, bounded [0,1], and ∇B points toward equilibrium
+//
+// Equivalently: I_ratio = Σᵢ<ⱼ gᵢ·gⱼ / Σ ||gᵢ||²
+// At equilibrium: I_ratio = -0.5 exactly (for any K)
+//
+// This experiment tests whether following ∇B finds the equilibrium
+// faster than, as fast as, or differently from standard loss optimization.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// ============================================================================
+// 1D Test: L1 = (θ-3)², L2 = (θ+2)²
+// Equilibrium: θ* = 0.5
+// ============================================================================
+
+fn balance_1d(theta: f64) -> f64 {
+    let g1: f64 = 2.0 * (theta - 3.0);
+    let g2: f64 = 2.0 * (theta + 2.0);
+    let sum_g: f64 = g1 + g2;
+    let sum_sq: f64 = g1 * g1 + g2 * g2;
+    if sum_sq < 0.000000001 { return 0.0; }
+    (sum_g * sum_g) / sum_sq
+}
+
+fn iratio_1d(theta: f64) -> f64 {
+    let g1: f64 = 2.0 * (theta - 3.0);
+    let g2: f64 = 2.0 * (theta + 2.0);
+    let dot12: f64 = g1 * g2;
+    let sum_sq: f64 = g1 * g1 + g2 * g2;
+    if sum_sq < 0.000000001 { return 0.0; }
+    dot12 / sum_sq
+}
+
+fn dB_dtheta_1d(theta: f64) -> f64 {
+    let h: f64 = 0.0001;
+    (balance_1d(theta + h) - balance_1d(theta - h)) / (2.0 * h)
+}
+
+fn test_1d() -> i64 {
+    println("--- 1D: B(θ) and I_ratio(θ) ---");
+    println("  L1=(θ-3)², L2=(θ+2)², eq at θ*=0.5");
+    println("");
+    println("  θ       B(θ)       I_ratio    dB/dθ");
+
+    var theta: f64 = -4.0;
+    while theta <= 6.01 {
+        let b: f64 = balance_1d(theta);
+        let ir: f64 = iratio_1d(theta);
+        let db: f64 = dB_dtheta_1d(theta);
+        print("  ");
+        print_f64(theta);
+        print("  ");
+        print_f64(b);
+        print("  ");
+        print_f64(ir);
+        print("  ");
+        print_f64(db);
+        if abs_f64(theta - 0.5) < 0.01 {
+            println("  <-- EQUILIBRIUM");
+        } else {
+            println("");
+        }
+        theta = theta + 1.0;
+    }
+
+    // Follow ∇B downhill from θ=-3
+    println("");
+    println("  B-flow from θ=-3:");
+    var bx: f64 = -3.0;
+    var step: i64 = 0;
+    while step < 200 {
+        let db: f64 = dB_dtheta_1d(bx);
+        bx = bx - 0.5 * db;
+        if step < 5 {
+            print("    step ");
+            print_i64(step);
+            print(": θ=");
+            print_f64(bx);
+            print(" B=");
+            print_f64(balance_1d(bx));
+            println("");
+        }
+        step = step + 1;
+    }
+    print("    final: θ=");
+    print_f64(bx);
+    print(" B=");
+    print_f64(balance_1d(bx));
+    println("");
+
+    // Standard loss flow from θ=-3
+    var lx: f64 = -3.0;
+    step = 0;
+    while step < 200 {
+        let g: f64 = 2.0 * (lx - 3.0) + 2.0 * (lx + 2.0);
+        lx = lx - 0.01 * g;
+        step = step + 1;
+    }
+    print("    loss-flow final: θ=");
+    print_f64(lx);
+    println("");
+
+    let d_b: f64 = abs_f64(bx - 0.5);
+    let d_l: f64 = abs_f64(lx - 0.5);
+    print("    B-flow distance to eq: ");
+    print_f64(d_b);
+    println("");
+    print("    Loss-flow distance:    ");
+    print_f64(d_l);
+    println("");
+
+    if d_b < 0.1 {
+        println("    PASS: B-flow finds equilibrium");
+    } else {
+        println("    B-flow did not converge to equilibrium");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// 2D Test: Three objectives
+// L1=(x-3)²+(y-1)², L2=(x+1)²+(y-4)², L3=(x-1)²+(y+2)²
+// Equilibrium: (1, 1)
+// ============================================================================
+
+fn balance_2d(x: f64, y: f64) -> f64 {
+    let g1x: f64 = 2.0 * (x - 3.0);
+    let g1y: f64 = 2.0 * (y - 1.0);
+    let g2x: f64 = 2.0 * (x + 1.0);
+    let g2y: f64 = 2.0 * (y - 4.0);
+    let g3x: f64 = 2.0 * (x - 1.0);
+    let g3y: f64 = 2.0 * (y + 2.0);
+
+    let sx: f64 = g1x + g2x + g3x;
+    let sy: f64 = g1y + g2y + g3y;
+    let sum_g_sq: f64 = sx * sx + sy * sy;
+
+    let ind_sq: f64 = g1x * g1x + g1y * g1y + g2x * g2x + g2y * g2y + g3x * g3x + g3y * g3y;
+    if ind_sq < 0.000000001 { return 0.0; }
+    sum_g_sq / ind_sq
+}
+
+fn iratio_2d(x: f64, y: f64) -> f64 {
+    let g1x: f64 = 2.0 * (x - 3.0);
+    let g1y: f64 = 2.0 * (y - 1.0);
+    let g2x: f64 = 2.0 * (x + 1.0);
+    let g2y: f64 = 2.0 * (y - 4.0);
+    let g3x: f64 = 2.0 * (x - 1.0);
+    let g3y: f64 = 2.0 * (y + 2.0);
+
+    let d12: f64 = g1x * g2x + g1y * g2y;
+    let d13: f64 = g1x * g3x + g1y * g3y;
+    let d23: f64 = g2x * g3x + g2y * g3y;
+    let cross_sum: f64 = d12 + d13 + d23;
+
+    let ind_sq: f64 = g1x * g1x + g1y * g1y + g2x * g2x + g2y * g2y + g3x * g3x + g3y * g3y;
+    if ind_sq < 0.000000001 { return 0.0; }
+    cross_sum / ind_sq
+}
+
+fn dB_dx(x: f64, y: f64) -> f64 {
+    let h: f64 = 0.0001;
+    (balance_2d(x + h, y) - balance_2d(x - h, y)) / (2.0 * h)
+}
+
+fn dB_dy(x: f64, y: f64) -> f64 {
+    let h: f64 = 0.0001;
+    (balance_2d(x, y + h) - balance_2d(x, y - h)) / (2.0 * h)
+}
+
+fn test_2d() -> i64 {
+    println("--- 2D: Three Objectives ---");
+    println("  L1=(x-3)²+(y-1)², L2=(x+1)²+(y-4)², L3=(x-1)²+(y+2)²");
+    println("  True equilibrium: (1.0, 1.0)");
+    println("");
+
+    // Check B and I_ratio at key points
+    println("  Point         B          I_ratio    Expected");
+    print("  (1,1) eq:     ");
+    print_f64(balance_2d(1.0, 1.0));
+    print("  ");
+    print_f64(iratio_2d(1.0, 1.0));
+    println("  B=0, I=-0.5");
+
+    print("  (3,1) L1:     ");
+    print_f64(balance_2d(3.0, 1.0));
+    print("  ");
+    print_f64(iratio_2d(3.0, 1.0));
+    println("");
+
+    print("  (-1,4) L2:    ");
+    print_f64(balance_2d(-1.0, 4.0));
+    print("  ");
+    print_f64(iratio_2d(-1.0, 4.0));
+    println("");
+
+    print("  (0,0) origin: ");
+    print_f64(balance_2d(0.0, 0.0));
+    print("  ");
+    print_f64(iratio_2d(0.0, 0.0));
+    println("");
+
+    print("  (-3,-3) far:  ");
+    print_f64(balance_2d(-3.0, -3.0));
+    print("  ");
+    print_f64(iratio_2d(-3.0, -3.0));
+    println("");
+
+    // B-flow from (-3, -3)
+    println("");
+    println("  B-flow from (-3, -3):");
+    var bx: f64 = -3.0;
+    var by: f64 = -3.0;
+    var step: i64 = 0;
+    while step < 500 {
+        let dx: f64 = dB_dx(bx, by);
+        let dy: f64 = dB_dy(bx, by);
+        bx = bx - 0.5 * dx;
+        by = by - 0.5 * dy;
+        if step < 5 {
+            print("    step ");
+            print_i64(step);
+            print(": (");
+            print_f64(bx);
+            print(",");
+            print_f64(by);
+            print(") B=");
+            print_f64(balance_2d(bx, by));
+            println("");
+        }
+        if step == 50 {
+            print("    step 50: (");
+            print_f64(bx);
+            print(",");
+            print_f64(by);
+            print(") B=");
+            print_f64(balance_2d(bx, by));
+            println("");
+        }
+        if step == 499 {
+            print("    step 499: (");
+            print_f64(bx);
+            print(",");
+            print_f64(by);
+            print(") B=");
+            print_f64(balance_2d(bx, by));
+            println("");
+        }
+        step = step + 1;
+    }
+
+    // Loss-flow from (-3, -3)
+    println("");
+    println("  Loss-flow from (-3, -3):");
+    var lx: f64 = -3.0;
+    var ly: f64 = -3.0;
+    step = 0;
+    while step < 500 {
+        let gx: f64 = 2.0 * (lx - 3.0) + 2.0 * (lx + 1.0) + 2.0 * (lx - 1.0);
+        let gy: f64 = 2.0 * (ly - 1.0) + 2.0 * (ly - 4.0) + 2.0 * (ly + 2.0);
+        lx = lx - 0.01 * gx / 3.0;
+        ly = ly - 0.01 * gy / 3.0;
+        step = step + 1;
+    }
+    print("    final: (");
+    print_f64(lx);
+    print(",");
+    print_f64(ly);
+    println(")");
+
+    println("");
+    let d_b: f64 = sqrt((bx - 1.0) * (bx - 1.0) + (by - 1.0) * (by - 1.0));
+    let d_l: f64 = sqrt((lx - 1.0) * (lx - 1.0) + (ly - 1.0) * (ly - 1.0));
+    print("  B-flow distance to eq:    ");
+    print_f64(d_b);
+    println("");
+    print("  Loss-flow distance to eq: ");
+    print_f64(d_l);
+    println("");
+
+    if d_b < 0.5 {
+        println("  PASS: B-flow finds equilibrium!");
+    }
+    if d_b < d_l {
+        println("  B-FLOW IS CLOSER than loss-flow!");
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// 2D Non-Convex: Rastrigin-like competing objectives
+// Does B-flow escape local minima better than loss-flow?
+// ============================================================================
+
+fn rast_grad(x: f64, target: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    2.0 * (x - target) + 10.0 * pi * sin(2.0 * pi * (x - target))
+}
+
+fn balance_rast(x: f64, y: f64) -> f64 {
+    // 3 Rastrigin objectives with targets at (2,1), (-1,3), (0,-2)
+    let g1x: f64 = rast_grad(x, 2.0);
+    let g1y: f64 = rast_grad(y, 1.0);
+    let g2x: f64 = rast_grad(x, -1.0);
+    let g2y: f64 = rast_grad(y, 3.0);
+    let g3x: f64 = rast_grad(x, 0.0);
+    let g3y: f64 = rast_grad(y, -2.0);
+
+    let sx: f64 = g1x + g2x + g3x;
+    let sy: f64 = g1y + g2y + g3y;
+    let sum_g_sq: f64 = sx * sx + sy * sy;
+
+    let ind_sq: f64 = g1x * g1x + g1y * g1y + g2x * g2x + g2y * g2y + g3x * g3x + g3y * g3y;
+    if ind_sq < 0.000000001 { return 0.0; }
+    sum_g_sq / ind_sq
+}
+
+fn dBr_dx(x: f64, y: f64) -> f64 {
+    let h: f64 = 0.0001;
+    (balance_rast(x + h, y) - balance_rast(x - h, y)) / (2.0 * h)
+}
+
+fn dBr_dy(x: f64, y: f64) -> f64 {
+    let h: f64 = 0.0001;
+    (balance_rast(x, y + h) - balance_rast(x, y - h)) / (2.0 * h)
+}
+
+fn rast_loss(x: f64, y: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    let l1: f64 = (x - 2.0) * (x - 2.0) + (y - 1.0) * (y - 1.0)
+               + 5.0 * (1.0 - cos(2.0 * pi * (x - 2.0))) + 5.0 * (1.0 - cos(2.0 * pi * (y - 1.0)));
+    let l2: f64 = (x + 1.0) * (x + 1.0) + (y - 3.0) * (y - 3.0)
+               + 5.0 * (1.0 - cos(2.0 * pi * (x + 1.0))) + 5.0 * (1.0 - cos(2.0 * pi * (y - 3.0)));
+    let l3: f64 = x * x + (y + 2.0) * (y + 2.0)
+               + 5.0 * (1.0 - cos(2.0 * pi * x)) + 5.0 * (1.0 - cos(2.0 * pi * (y + 2.0)));
+    l1 + l2 + l3
+}
+
+fn test_nonconvex() -> i64 {
+    println("--- Non-Convex: Rastrigin Competing Objectives ---");
+    println("  Targets: (2,1), (-1,3), (0,-2)");
+    println("  Does B-flow escape local minima?");
+    println("");
+
+    // B-flow from (3, 3)
+    var bx: f64 = 3.0;
+    var by: f64 = 3.0;
+    var step: i64 = 0;
+    while step < 1000 {
+        let dx: f64 = dBr_dx(bx, by);
+        let dy: f64 = dBr_dy(bx, by);
+        bx = bx - 0.01 * dx;
+        by = by - 0.01 * dy;
+        step = step + 1;
+    }
+    let b_loss: f64 = rast_loss(bx, by);
+
+    // Loss-flow from (3, 3)
+    var lx: f64 = 3.0;
+    var ly: f64 = 3.0;
+    step = 0;
+    while step < 1000 {
+        let gx: f64 = rast_grad(lx, 2.0) + rast_grad(lx, -1.0) + rast_grad(lx, 0.0);
+        let gy: f64 = rast_grad(ly, 1.0) + rast_grad(ly, 3.0) + rast_grad(ly, -2.0);
+        lx = lx - 0.001 * gx / 3.0;
+        ly = ly - 0.001 * gy / 3.0;
+        step = step + 1;
+    }
+    let l_loss: f64 = rast_loss(lx, ly);
+
+    print("  B-flow final: (");
+    print_f64(bx);
+    print(",");
+    print_f64(by);
+    print(") loss=");
+    print_f64(b_loss);
+    print(" B=");
+    print_f64(balance_rast(bx, by));
+    println("");
+
+    print("  L-flow final: (");
+    print_f64(lx);
+    print(",");
+    print_f64(ly);
+    print(") loss=");
+    print_f64(l_loss);
+    print(" B=");
+    print_f64(balance_rast(lx, ly));
+    println("");
+
+    if b_loss < l_loss {
+        println("  FINDING: B-flow finds LOWER loss than loss-flow!");
+        println("  On non-convex landscapes, optimizing BALANCE");
+        println("  escapes local minima better than optimizing LOSS.");
+    } else {
+        if abs_f64(b_loss - l_loss) < 1.0 {
+            println("  FINDING: B-flow and loss-flow find similar solutions");
+        } else {
+            println("  Loss-flow finds lower loss");
+        }
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// I_ratio = -0.5 Theorem Verification
+// ============================================================================
+
+fn test_iratio_theorem() -> i64 {
+    println("--- I_ratio = -0.5 at Equilibrium (Theorem) ---");
+    println("  For K objectives with Σgᵢ=0: I_ratio = -0.5 exactly");
+    println("");
+
+    // K=2: eq at θ=0.5
+    let ir2: f64 = iratio_1d(0.5);
+    print("  K=2, θ*=0.5:  I_ratio = ");
+    print_f64(ir2);
+    println(" (expect -0.5)");
+
+    // K=3: eq at (1,1)
+    let ir3: f64 = iratio_2d(1.0, 1.0);
+    print("  K=3, (1,1):    I_ratio = ");
+    print_f64(ir3);
+    println(" (expect -0.5)");
+
+    // Check slightly off-equilibrium
+    let ir_off: f64 = iratio_2d(1.5, 0.5);
+    print("  K=3, (1.5,0.5): I_ratio = ");
+    print_f64(ir_off);
+    println(" (expect ≠ -0.5)");
+
+    println("");
+    if abs_f64(ir2 + 0.5) < 0.001 {
+        if abs_f64(ir3 + 0.5) < 0.001 {
+            if abs_f64(ir_off + 0.5) > 0.01 {
+                println("  THEOREM CONFIRMED: I_ratio = -0.5 iff at equilibrium");
+                println("  This provides a NECESSARY AND SUFFICIENT condition:");
+                println("  search for where I_ratio = -0.5 to find equilibria.");
+            }
+        }
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("============================================");
+    println("  BALANCE RESIDUAL: EQUILIBRIUM LOCATION");
+    println("  B(θ) = ||Σgᵢ||² / Σ||gᵢ||²");
+    println("  I_ratio = Σgᵢ·gⱼ / Σ||gᵢ||²");
+    println("  Equilibrium: B=0, I_ratio=-0.5");
+    println("============================================");
+    println("");
+
+    test_iratio_theorem();
+    test_1d();
+    test_2d();
+    test_nonconvex();
+
+    println("============================================");
+    println("  THESIS: The equilibrium of a multi-objective");
+    println("  system is where the BALANCE RESIDUAL B=0,");
+    println("  equivalently where I_ratio = -0.5.");
+    println("  Following ∇B locates equilibria from");
+    println("  gradient evaluations alone.");
+    println("============================================");
+
+    0
+}

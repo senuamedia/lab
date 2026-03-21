@@ -1,0 +1,295 @@
+// The Skeptical Agent of Chaos
+//
+// The stability margin M is a dual number. Its derivatives
+// predict blow-up before it happens:
+//
+//   M(t)    = how fragile NOW
+//   dM/dt   = is fragility increasing? (blow-up approaching)
+//   dM/deps = how does response scale? (linear vs nonlinear instability)
+//   d²M/dt² = is the fragility change accelerating?
+//
+// The agent's perturbation strategy is learnable:
+//   - What epsilon to use (learnable via meta-gradient)
+//   - When to probe (learnable — probe more when dM/dt < 0)
+//   - What type of perturbation (amplitude, gradient, energy)
+//
+// This is Level 6-7 of the differentiable hierarchy.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { a } else { b } }
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn bstep(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+         nu: f64, dt: f64, dx: f64, i: i64) -> f64 {
+    var um: f64 = u4; var ui: f64 = u0; var up: f64 = u1;
+    if i == 1 { um = u0; ui = u1; up = u2; }
+    if i == 2 { um = u1; ui = u2; up = u3; }
+    if i == 3 { um = u2; ui = u3; up = u4; }
+    if i == 4 { um = u3; ui = u4; up = u0; }
+    let adv: f64 = ui * (up - um) / (2.0 * dx);
+    let diff: f64 = nu * (up - 2.0 * ui + um) / (dx * dx);
+    ui + dt * (diff - adv)
+}
+
+fn max_grad(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64, dx: f64) -> f64 {
+    let g0: f64 = abs_f64(u1 - u4) / (2.0 * dx);
+    let g1: f64 = abs_f64(u2 - u0) / (2.0 * dx);
+    let g2: f64 = abs_f64(u3 - u1) / (2.0 * dx);
+    let g3: f64 = abs_f64(u4 - u2) / (2.0 * dx);
+    max_f64(max_f64(g0, g1), max_f64(g2, g3))
+}
+
+// Evolve and return state component
+fn evolve(steps: i64, nu: f64, dt: f64, dx: f64, which: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = sin(2.0 * pi * 0.0);
+    var u1: f64 = sin(2.0 * pi * 0.2);
+    var u2: f64 = sin(2.0 * pi * 0.4);
+    var u3: f64 = sin(2.0 * pi * 0.6);
+    var u4: f64 = sin(2.0 * pi * 0.8);
+    var s: i64 = 0;
+    while s < steps {
+        let n0: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 0);
+        let n1: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 1);
+        let n2: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 2);
+        let n3: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 3);
+        let n4: f64 = bstep(u0, u1, u2, u3, u4, nu, dt, dx, 4);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3; u4 = n4;
+        s = s + 1;
+    }
+    if which == 0 { return u0; }
+    if which == 1 { return u1; }
+    if which == 2 { return u2; }
+    if which == 3 { return u3; }
+    u4
+}
+
+// Compute stability margin: evolve from state with and without kick
+fn stability_margin(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+                    eps: f64, nu: f64, dt: f64, dx: f64, probe: i64) -> f64 {
+    // Run unperturbed
+    var a0: f64 = u0; var a1: f64 = u1; var a2: f64 = u2;
+    var a3: f64 = u3; var a4: f64 = u4;
+    // Run perturbed (kick u2 by eps)
+    var b0: f64 = u0; var b1: f64 = u1; var b2: f64 = u2 + eps;
+    var b3: f64 = u3; var b4: f64 = u4;
+
+    var s: i64 = 0;
+    while s < probe {
+        let na0: f64 = bstep(a0, a1, a2, a3, a4, nu, dt, dx, 0);
+        let na1: f64 = bstep(a0, a1, a2, a3, a4, nu, dt, dx, 1);
+        let na2: f64 = bstep(a0, a1, a2, a3, a4, nu, dt, dx, 2);
+        let na3: f64 = bstep(a0, a1, a2, a3, a4, nu, dt, dx, 3);
+        let na4: f64 = bstep(a0, a1, a2, a3, a4, nu, dt, dx, 4);
+
+        let nb0: f64 = bstep(b0, b1, b2, b3, b4, nu, dt, dx, 0);
+        let nb1: f64 = bstep(b0, b1, b2, b3, b4, nu, dt, dx, 1);
+        let nb2: f64 = bstep(b0, b1, b2, b3, b4, nu, dt, dx, 2);
+        let nb3: f64 = bstep(b0, b1, b2, b3, b4, nu, dt, dx, 3);
+        let nb4: f64 = bstep(b0, b1, b2, b3, b4, nu, dt, dx, 4);
+
+        a0 = na0; a1 = na1; a2 = na2; a3 = na3; a4 = na4;
+        b0 = nb0; b1 = nb1; b2 = nb2; b3 = nb3; b4 = nb4;
+        s = s + 1;
+    }
+
+    // Divergence between perturbed and unperturbed
+    let d0: f64 = (a0 - b0) * (a0 - b0);
+    let d1: f64 = (a1 - b1) * (a1 - b1);
+    let d2: f64 = (a2 - b2) * (a2 - b2);
+    let d3: f64 = (a3 - b3) * (a3 - b3);
+    let d4: f64 = (a4 - b4) * (a4 - b4);
+    let divergence: f64 = sqrt(d0 + d1 + d2 + d3 + d4);
+
+    // Margin = divergence / epsilon (how much the kick amplified)
+    divergence / abs_f64(eps)
+}
+
+fn main() -> i64 {
+    println("############################################");
+    println("#  THE SKEPTICAL AGENT OF CHAOS            #");
+    println("#  Stability margin as dual number          #");
+    println("#  M, dM/dt, dM/deps — full hierarchy      #");
+    println("############################################");
+    println("");
+
+    let nu: f64 = 0.005;
+    let dt: f64 = 0.00005;
+    let dx: f64 = 0.2;
+    let eps: f64 = 0.01;
+    let probe: i64 = 200;
+
+    // === Exp 1: M(t) — stability margin over time ===
+    println("=== M(t): Stability Margin Over Time ===");
+    println("  M = divergence / epsilon after probe_steps");
+    println("  dM/dt = M(t) - M(t-1)");
+    println("  d²M/dt² = dM(t) - dM(t-1)");
+    println("");
+    println("  Time     M(t)         dM/dt        d²M/dt²      Prediction");
+
+    var prev_m: f64 = 0.0;
+    var prev_dm: f64 = 0.0;
+    var t: i64 = 0;
+
+    while t <= 12000 {
+        let s0: f64 = evolve(t, nu, dt, dx, 0);
+        let s1: f64 = evolve(t, nu, dt, dx, 1);
+        let s2: f64 = evolve(t, nu, dt, dx, 2);
+        let s3: f64 = evolve(t, nu, dt, dx, 3);
+        let s4: f64 = evolve(t, nu, dt, dx, 4);
+
+        let m: f64 = stability_margin(s0, s1, s2, s3, s4, eps, nu, dt, dx, probe);
+        let dm: f64 = m - prev_m;
+        let d2m: f64 = dm - prev_dm;
+
+        print("  ");
+        print_i64(t);
+        print("    ");
+        print_f64(m);
+        print("  ");
+        print_f64(dm);
+        print("  ");
+        print_f64(d2m);
+
+        if dm > 0.0 {
+            if d2m > 0.0 { println("  ACCELERATING toward blow-up"); }
+            else { println("  APPROACHING blow-up (decelerating)"); }
+        } else {
+            if dm < 0.0 - 0.001 { println("  STABILISING"); }
+            else { println("  STABLE"); }
+        }
+
+        prev_dm = dm;
+        prev_m = m;
+        t = t + 2000;
+    }
+
+    println("");
+
+    // === Exp 2: dM/deps — scaling with perturbation size ===
+    println("=== dM/deps: How Response Scales ===");
+    println("  Linear scaling = stable (perturbation theory works)");
+    println("  Superlinear = nonlinear instability imminent");
+    println("");
+
+    println("  Time    M(eps=0.001)  M(eps=0.01)  M(eps=0.1)   Scaling");
+
+    t = 0;
+    while t <= 10000 {
+        let s0: f64 = evolve(t, nu, dt, dx, 0);
+        let s1: f64 = evolve(t, nu, dt, dx, 1);
+        let s2: f64 = evolve(t, nu, dt, dx, 2);
+        let s3: f64 = evolve(t, nu, dt, dx, 3);
+        let s4: f64 = evolve(t, nu, dt, dx, 4);
+
+        let m_small: f64 = stability_margin(s0, s1, s2, s3, s4, 0.001, nu, dt, dx, probe);
+        let m_med: f64 = stability_margin(s0, s1, s2, s3, s4, 0.01, nu, dt, dx, probe);
+        let m_big: f64 = stability_margin(s0, s1, s2, s3, s4, 0.1, nu, dt, dx, probe);
+
+        print("  ");
+        print_i64(t);
+        print("    ");
+        print_f64(m_small);
+        print("  ");
+        print_f64(m_med);
+        print("  ");
+        print_f64(m_big);
+
+        // If M scales linearly: M(0.01)/M(0.001) ≈ M(0.1)/M(0.01) ≈ constant
+        // If superlinear: ratios increase
+        if m_small > 0.0000001 {
+            let ratio1: f64 = m_med / m_small;
+            let ratio2: f64 = m_big / m_med;
+            if ratio2 > ratio1 * 1.5 {
+                println("  SUPERLINEAR (nonlinear instability)");
+            } else {
+                if abs_f64(ratio2 - ratio1) < ratio1 * 0.3 {
+                    println("  LINEAR (stable regime)");
+                } else {
+                    println("  SUBLINEAR (saturating)");
+                }
+            }
+        } else {
+            println("  (M too small)");
+        }
+
+        t = t + 2500;
+    }
+
+    println("");
+
+    // === Exp 3: Learnable probe — what epsilon maximises information? ===
+    println("=== Optimal Probe Epsilon ===");
+    println("  The 'information' from a probe is |dM/deps|");
+    println("  Too small: noise dominates. Too large: nonlinear.");
+    println("  Optimal: maximum information per unit perturbation.");
+    println("");
+
+    // At t=5000, sweep epsilon and find optimal
+    let s0: f64 = evolve(5000, nu, dt, dx, 0);
+    let s1: f64 = evolve(5000, nu, dt, dx, 1);
+    let s2: f64 = evolve(5000, nu, dt, dx, 2);
+    let s3: f64 = evolve(5000, nu, dt, dx, 3);
+    let s4: f64 = evolve(5000, nu, dt, dx, 4);
+
+    println("  epsilon    M(eps)       M/eps²(info)");
+    var e: f64 = 0.001;
+    var best_info: f64 = 0.0;
+    var best_eps: f64 = 0.001;
+    var sweep: i64 = 0;
+    while sweep < 8 {
+        let m_val: f64 = stability_margin(s0, s1, s2, s3, s4, e, nu, dt, dx, probe);
+        // Information = M / eps (normalised response)
+        let info: f64 = m_val;
+        print("  ");
+        print_f64(e);
+        print("  ");
+        print_f64(m_val);
+        print("  ");
+        print_f64(info);
+        if info > best_info {
+            best_info = info;
+            best_eps = e;
+            println("  *");
+        } else {
+            println("");
+        }
+        e = e * 3.0;
+        sweep = sweep + 1;
+    }
+
+    print("  Optimal epsilon: ");
+    print_f64(best_eps);
+    println("");
+    println("  This epsilon maximises the stability margin signal.");
+    println("  In a dual-number system, this would be learnable");
+    println("  via meta-gradient on the probe loss.");
+
+    println("");
+    println("############################################");
+    println("#  THE HIERARCHY:                          #");
+    println("#  Level 0: theta (params)                 #");
+    println("#  Level 1: alpha (interaction matrix)     #");
+    println("#  Level 2: S (convergence score)          #");
+    println("#  Level 3: S', S'' (PID control)          #");
+    println("#  Level 4: M (stability margin)           #");
+    println("#  Level 5: dM/dt (fragility evolution)    #");
+    println("#  Level 6: dM/deps (instability type)     #");
+    println("#  Level 7: eps* (optimal probe - learnable)#");
+    println("#                                          #");
+    println("#  Every level is a dual number.           #");
+    println("#  Every level's derivative is computable. #");
+    println("#  The skeptical agent probes, measures,   #");
+    println("#  predicts, and adapts — all via AD.      #");
+    println("############################################");
+
+    0
+}

@@ -1,0 +1,346 @@
+// Test: Mathematical operations inside loops and control flow
+//
+// Validates f64 accumulation, convergence, nested loops, and early returns
+// through the sxc compiler. Each test returns 0 on pass, 1 on fail.
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+fn approx(a: f64, b: f64, tol: f64) -> i64 {
+    var diff: f64 = a - b;
+    if diff < 0.0 { diff = 0.0 - diff; }
+    if diff < tol { 1 } else { 0 }
+}
+
+fn is_mod_zero(n: i64, k: i64) -> i64 {
+    if n % k == 0 { 1 } else { 0 }
+}
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// ============================================================================
+// Test 1: f64 accumulation — sum 1.0 + 2.0 + ... + 10.0 = 55.0
+// ============================================================================
+
+fn test_f64_accumulation() -> i64 {
+    var sum: f64 = 0.0;
+    var i: f64 = 1.0;
+
+    while i <= 10.0 {
+        sum = sum + i;
+        i = i + 1.0;
+    }
+
+    if approx(sum, 55.0, 0.001) == 1 {
+        println("PASS test_f64_accumulation");
+        0
+    } else {
+        print("FAIL test_f64_accumulation: got ");
+        print_f64(sum);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 2: f64 product — compute 10! = 3628800.0
+// ============================================================================
+
+fn test_f64_factorial() -> i64 {
+    var product: f64 = 1.0;
+    var i: f64 = 2.0;
+
+    while i <= 10.0 {
+        product = product * i;
+        i = i + 1.0;
+    }
+
+    if approx(product, 3628800.0, 1.0) == 1 {
+        println("PASS test_f64_factorial");
+        0
+    } else {
+        print("FAIL test_f64_factorial: got ");
+        print_f64(product);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 3: Newton's method sqrt(2) — x = (x + 2/x) / 2, 10 iterations
+// ============================================================================
+
+fn test_newton_sqrt2() -> i64 {
+    var x: f64 = 1.0;
+    var i: f64 = 0.0;
+
+    while i < 10.0 {
+        x = (x + 2.0 / x) / 2.0;
+        i = i + 1.0;
+    }
+
+    // sqrt(2) = 1.41421356...
+    let expected: f64 = sqrt(2.0);
+    if approx(x, expected, 0.0000001) == 1 {
+        println("PASS test_newton_sqrt2");
+        0
+    } else {
+        print("FAIL test_newton_sqrt2: got ");
+        print_f64(x);
+        print(" expected ");
+        print_f64(expected);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 4: Geometric series — sum 1 + 0.5 + 0.25 + ... (20 terms) ~ 2.0
+// ============================================================================
+
+fn test_geometric_series() -> i64 {
+    var sum: f64 = 0.0;
+    var term: f64 = 1.0;
+    var i: f64 = 0.0;
+
+    while i < 20.0 {
+        sum = sum + term;
+        term = term * 0.5;
+        i = i + 1.0;
+    }
+
+    // Exact: 2 * (1 - 0.5^20) = 1.999998...
+    if approx(sum, 2.0, 0.001) == 1 {
+        println("PASS test_geometric_series");
+        0
+    } else {
+        print("FAIL test_geometric_series: got ");
+        print_f64(sum);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 5: Leibniz series for pi — 4 * (1 - 1/3 + 1/5 - 1/7 + ...)
+// ============================================================================
+
+fn test_leibniz_pi() -> i64 {
+    var sum: f64 = 0.0;
+    var sign: f64 = 1.0;
+    var denom: f64 = 1.0;
+    var i: f64 = 0.0;
+
+    while i < 1000.0 {
+        sum = sum + sign / denom;
+        sign = 0.0 - sign;
+        denom = denom + 2.0;
+        i = i + 1.0;
+    }
+
+    var pi_approx: f64 = sum * 4.0;
+
+    // Leibniz converges slowly; after 1000 terms, within ~0.002 of pi
+    if approx(pi_approx, 3.14159265, 0.005) == 1 {
+        println("PASS test_leibniz_pi");
+        0
+    } else {
+        print("FAIL test_leibniz_pi: got ");
+        print_f64(pi_approx);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 6: Conditional accumulation — count n in 1..100 where sqrt(n) > 5.0
+//         Answer: 75 (numbers 26..100 inclusive)
+// ============================================================================
+
+fn check_sqrt_gt5(n: f64) -> i64 {
+    let s: f64 = sqrt(n);
+    if s > 5.0 { 1 } else { 0 }
+}
+
+fn test_conditional_accumulation() -> i64 {
+    var count: f64 = 0.0;
+    var n: f64 = 1.0;
+
+    while n <= 100.0 {
+        if check_sqrt_gt5(n) == 1 {
+            count = count + 1.0;
+        }
+        n = n + 1.0;
+    }
+
+    if approx(count, 75.0, 0.5) == 1 {
+        println("PASS test_conditional_accumulation");
+        0
+    } else {
+        print("FAIL test_conditional_accumulation: got ");
+        print_f64(count);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 7: i64 loop driving f64 body — sum of sqrt(i) for i in 1..100
+// ============================================================================
+
+fn compute_sqrt_sum() -> f64 {
+    var sum: f64 = 0.0;
+    var i: f64 = 1.0;
+
+    while i <= 100.0 {
+        sum = sum + sqrt(i);
+        i = i + 1.0;
+    }
+    sum
+}
+
+fn test_i64_loop_f64_body() -> i64 {
+    let result: f64 = compute_sqrt_sum();
+
+    // Known value: sum of sqrt(1..100) ~ 671.4629...
+    if approx(result, 671.4629, 0.01) == 1 {
+        println("PASS test_i64_loop_f64_body");
+        0
+    } else {
+        print("FAIL test_i64_loop_f64_body: got ");
+        print_f64(result);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 8: Nested loops — sum of i*j for i in 1..10, j in 1..10
+//         = (sum 1..10)^2 = 55^2 = 3025
+// ============================================================================
+
+fn test_nested_loops() -> i64 {
+    var total: f64 = 0.0;
+    var i: f64 = 1.0;
+    var j: f64 = 0.0;
+
+    while i <= 10.0 {
+        j = 1.0;
+        while j <= 10.0 {
+            total = total + i * j;
+            j = j + 1.0;
+        }
+        i = i + 1.0;
+    }
+
+    if approx(total, 3025.0, 0.5) == 1 {
+        println("PASS test_nested_loops");
+        0
+    } else {
+        print("FAIL test_nested_loops: got ");
+        print_f64(total);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 9: Early return — find first n where n*n > 1000 (should be 32)
+// ============================================================================
+
+fn find_first_square_over_1000() -> f64 {
+    var n: f64 = 1.0;
+
+    while n <= 100.0 {
+        if n * n > 1000.0 {
+            return n;
+        }
+        n = n + 1.0;
+    }
+    0.0
+}
+
+fn test_early_return() -> i64 {
+    let result: f64 = find_first_square_over_1000();
+
+    // 31^2 = 961, 32^2 = 1024
+    if approx(result, 32.0, 0.5) == 1 {
+        println("PASS test_early_return");
+        0
+    } else {
+        print("FAIL test_early_return: got ");
+        print_f64(result);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Test 10: Convergence loop — iterate x = cos(x) until |x_new - x_old| < eps
+//          Fixed point of cos(x) ~ 0.739085
+// ============================================================================
+
+fn test_convergence_loop() -> i64 {
+    var x: f64 = 0.5;
+    var x_old: f64 = 0.0;
+    var diff: f64 = 1.0;
+    var iters: f64 = 0.0;
+
+    while diff > 0.0001 {
+        x_old = x;
+        x = cos(x);
+        diff = abs_f64(x - x_old);
+        iters = iters + 1.0;
+
+        // Safety: bail if not converging
+        if iters > 200.0 {
+            return 1;
+        }
+    }
+
+    // Fixed point of cos(x) ~ 0.739085
+    if approx(x, 0.739085, 0.001) == 1 {
+        println("PASS test_convergence_loop");
+        0
+    } else {
+        print("FAIL test_convergence_loop: got ");
+        print_f64(x);
+        println("");
+        1
+    }
+}
+
+// ============================================================================
+// Main: run all tests, report results
+// ============================================================================
+
+fn main() -> i64 {
+    var failures: i64 = 0;
+
+    println("=== test_math_loops ===");
+
+    failures = failures + test_f64_accumulation();
+    failures = failures + test_f64_factorial();
+    failures = failures + test_newton_sqrt2();
+    failures = failures + test_geometric_series();
+    failures = failures + test_leibniz_pi();
+    failures = failures + test_conditional_accumulation();
+    failures = failures + test_i64_loop_f64_body();
+    failures = failures + test_nested_loops();
+    failures = failures + test_early_return();
+    failures = failures + test_convergence_loop();
+
+    println("");
+    if failures == 0 {
+        println("All 10 tests PASSED");
+    } else {
+        print("FAILURES: ");
+        print_i64(failures);
+        println(" test(s) failed");
+    }
+
+    failures
+}

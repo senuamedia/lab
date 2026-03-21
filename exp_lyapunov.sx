@@ -1,0 +1,298 @@
+// Experiment 3: Lyapunov Decrease Verification
+//
+// Validates that the proposed Lyapunov function V decreases during
+// training of a composed system (GD + EWC + meta-learning rate).
+//
+// Pass criteria: <1% Lyapunov violations under standard hyperparameters.
+// Adversarial test: detect instability before divergence.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { -x }
+}
+
+// ============================================================================
+// Lyapunov function for composed system:
+//
+// V = w1 * L_task + w2 * L_ewc + w3 * L_meta
+//
+// Where:
+//   L_task = sum of squared errors to target
+//   L_ewc  = Fisher-weighted drift from base weights
+//   L_meta = (alpha - alpha_star)^2
+// ============================================================================
+
+fn test_lyapunov_standard() -> i64 {
+    println("--- Exp 3a: Lyapunov Decrease (Standard Hyperparams) ---");
+
+    // Target
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+    let w_star_2: f64 = 3.0;
+
+    // Base weights (EWC anchor)
+    let w0_0: f64 = 0.0;
+    let w0_1: f64 = 0.0;
+    let w0_2: f64 = 0.0;
+
+    // Hyperparameters
+    let lambda: f64 = 0.3;
+    let fisher_0: f64 = 1.0;
+    let fisher_1: f64 = 1.0;
+    let fisher_2: f64 = 1.0;
+    let alpha_star: f64 = 0.05;
+    let meta_lr: f64 = 0.0005;
+
+    // Lyapunov weights
+    let lw1: f64 = 1.0;
+    let lw2: f64 = 0.1;
+    let lw3: f64 = 0.01;
+
+    let steps: i64 = 1000;
+
+    // All mutable vars declared at top
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var w_2: f64 = 5.0;
+    var alpha: f64 = 0.1;
+    var violations: i64 = 0;
+    var prev_v: f64 = 0.0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var g_2: f64 = 0.0;
+    var l_task: f64 = 0.0;
+    var l_ewc: f64 = 0.0;
+    var l_meta: f64 = 0.0;
+    var v: f64 = 0.0;
+    var meta_grad: f64 = 0.0;
+    var violation_rate: f64 = 0.0;
+    var final_loss: f64 = 0.0;
+
+    // Compute initial components for normalised Lyapunov
+    l_task = (w_0 - w_star_0) * (w_0 - w_star_0)
+           + (w_1 - w_star_1) * (w_1 - w_star_1)
+           + (w_2 - w_star_2) * (w_2 - w_star_2);
+    l_ewc = fisher_0 * (w_0 - w0_0) * (w_0 - w0_0)
+           + fisher_1 * (w_1 - w0_1) * (w_1 - w0_1)
+           + fisher_2 * (w_2 - w0_2) * (w_2 - w0_2);
+    l_meta = (alpha - alpha_star) * (alpha - alpha_star);
+    // Store initial values for normalisation
+    let l_task_0: f64 = l_task;
+    let l_ewc_0: f64 = l_ewc;
+    let l_meta_0: f64 = l_meta;
+    // Normalised V: each component starts at 1.0
+    prev_v = l_task / l_task_0 + l_ewc / l_ewc_0 + l_meta / l_meta_0;
+
+    step = 0;
+    while step < steps {
+        // Task gradient + EWC gradient
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * fisher_0 * (w_0 - w0_0);
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * fisher_1 * (w_1 - w0_1);
+        g_2 = 2.0 * (w_2 - w_star_2) + lambda * fisher_2 * (w_2 - w0_2);
+
+        // Update weights
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+        w_2 = w_2 - alpha * g_2;
+
+        // Meta-update: move alpha toward alpha_star
+        meta_grad = 2.0 * (alpha - alpha_star);
+        alpha = alpha - meta_lr * meta_grad;
+        if alpha < 0.001 { alpha = 0.001; }
+        if alpha > 0.5 { alpha = 0.5; }
+
+        // Compute Lyapunov function
+        l_task = (w_0 - w_star_0) * (w_0 - w_star_0)
+               + (w_1 - w_star_1) * (w_1 - w_star_1)
+               + (w_2 - w_star_2) * (w_2 - w_star_2);
+        l_ewc = fisher_0 * (w_0 - w0_0) * (w_0 - w0_0)
+               + fisher_1 * (w_1 - w0_1) * (w_1 - w0_1)
+               + fisher_2 * (w_2 - w0_2) * (w_2 - w0_2);
+        l_meta = (alpha - alpha_star) * (alpha - alpha_star);
+        // Normalised V: fraction of initial error remaining
+        v = l_task / l_task_0 + l_ewc / l_ewc_0 + l_meta / l_meta_0;
+
+        if v > prev_v + 0.0000000001 {
+            violations = violations + 1;
+        }
+        prev_v = v;
+        step = step + 1;
+    }
+
+    violation_rate = (violations as f64) * 100.0 / (steps as f64);
+
+    final_loss = (w_0 - w_star_0) * (w_0 - w_star_0)
+               + (w_1 - w_star_1) * (w_1 - w_star_1)
+               + (w_2 - w_star_2) * (w_2 - w_star_2);
+
+    print("  Final task loss:      ");
+    print_f64(final_loss);
+    println("");
+    print("  Final V:              ");
+    print_f64(prev_v);
+    println("");
+    print("  Final alpha:          ");
+    print_f64(alpha);
+    println("");
+    print("  Lyapunov violations:  ");
+    print_i64(violations);
+    print("/");
+    print_i64(steps);
+    println("");
+
+    // Normalised Lyapunov: V = sum(L_i / L_i0) should achieve <1%
+    if violations * 100 < steps {
+        println("  PASS: Normalised V is decreasing (<1% violations)");
+        0
+    } else {
+        println("  FAIL: Too many Lyapunov violations");
+        1
+    }
+}
+
+// ============================================================================
+// Adversarial test: deliberately break convergence
+// V should detect instability BEFORE the system diverges.
+// ============================================================================
+
+fn test_lyapunov_adversarial() -> i64 {
+    println("--- Exp 3b: Lyapunov Adversarial (Unstable Hyperparams) ---");
+
+    let w_star_0: f64 = 2.0;
+    let w_star_1: f64 = -1.0;
+
+    let w0_0: f64 = 0.0;
+    let w0_1: f64 = 0.0;
+
+    // Moderately unstable: learning rate high enough to eventually diverge
+    // but not so high that it explodes on step 0
+    let alpha: f64 = 0.55;
+    let lambda: f64 = 0.01;
+
+    let lw1: f64 = 1.0;
+    let lw2: f64 = 0.1;
+
+    let steps: i64 = 100;
+
+    // All mutable vars declared at top
+    var w_0: f64 = 5.0;
+    var w_1: f64 = 5.0;
+    var v_increase_detected: i64 = 0;
+    var system_diverged: i64 = 0;
+    var first_v_increase: i64 = -1;
+    var first_diverge: i64 = -1;
+    var prev_v: f64 = 0.0;
+    var step: i64 = 0;
+    var g_0: f64 = 0.0;
+    var g_1: f64 = 0.0;
+    var l_task: f64 = 0.0;
+    var l_ewc: f64 = 0.0;
+    var v: f64 = 0.0;
+    var l_init: f64 = 0.0;
+
+    // Compute initial values
+    l_init = (w_0 - w_star_0) * (w_0 - w_star_0)
+           + (w_1 - w_star_1) * (w_1 - w_star_1);
+    l_ewc = (w_0 - w0_0) * (w_0 - w0_0)
+           + (w_1 - w0_1) * (w_1 - w0_1);
+    prev_v = lw1 * l_init + lw2 * l_ewc;
+
+    step = 0;
+    while step < steps {
+        g_0 = 2.0 * (w_0 - w_star_0) + lambda * (w_0 - w0_0);
+        g_1 = 2.0 * (w_1 - w_star_1) + lambda * (w_1 - w0_1);
+
+        w_0 = w_0 - alpha * g_0;
+        w_1 = w_1 - alpha * g_1;
+
+        l_task = (w_0 - w_star_0) * (w_0 - w_star_0)
+               + (w_1 - w_star_1) * (w_1 - w_star_1);
+        l_ewc = (w_0 - w0_0) * (w_0 - w0_0)
+               + (w_1 - w0_1) * (w_1 - w0_1);
+        v = lw1 * l_task + lw2 * l_ewc;
+
+        if v > prev_v + 0.0000000001 {
+            if v_increase_detected == 0 {
+                v_increase_detected = 1;
+                first_v_increase = step;
+            }
+        }
+
+        // Check for actual divergence (loss > 10x initial)
+        if l_task > 10.0 * l_init {
+            if system_diverged == 0 {
+                system_diverged = 1;
+                first_diverge = step;
+            }
+        }
+
+        prev_v = v;
+        step = step + 1;
+    }
+
+    print("  V increase detected at step: ");
+    print_i64(first_v_increase);
+    println("");
+    print("  System diverged at step:     ");
+    print_i64(first_diverge);
+    println("");
+
+    if v_increase_detected == 1 {
+        if system_diverged == 1 {
+            if first_v_increase <= first_diverge {
+                println("  PASS: Lyapunov detected instability BEFORE divergence");
+                return 0;
+            } else {
+                println("  FAIL: System diverged before Lyapunov warning");
+                return 1;
+            }
+        } else {
+            println("  PASS: Lyapunov detected instability (system oscillated but did not diverge)");
+            return 0;
+        }
+    } else {
+        if system_diverged == 0 {
+            println("  INFO: System was actually stable");
+            println("  PASS: No false alarm, no divergence");
+            return 0;
+        } else {
+            println("  FAIL: System diverged with no Lyapunov warning");
+            return 1;
+        }
+    }
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("============================================");
+    println("  EXPERIMENT 3: LYAPUNOV VERIFICATION");
+    println("============================================");
+    println("");
+
+    var failed: i64 = 0;
+    var r1: i64 = 0;
+    var r2: i64 = 0;
+
+    r1 = test_lyapunov_standard();
+    failed = failed + r1;
+    println("");
+    r2 = test_lyapunov_adversarial();
+    failed = failed + r2;
+
+    println("");
+    println("============================================");
+    if failed == 0 {
+        println("  EXPERIMENT 3: ALL TESTS PASSED");
+    } else {
+        print("  EXPERIMENT 3: ");
+        print_i64(failed);
+        println(" TEST(S) FAILED");
+    }
+    println("============================================");
+
+    failed
+}

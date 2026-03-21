@@ -1,0 +1,301 @@
+// Experiment 4: Invariant Set Enforcement
+//
+// Validates that optimisation constraints (foundational beliefs)
+// hold under gradient descent that would naturally violate them.
+//
+// Pass criteria: zero invariant violations across all steps.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 {
+        x
+    } else {
+        0.0 - x
+    }
+}
+
+// ============================================================================
+// Experiment 4a: Single parameter constraint
+//
+// Loss wants w0 = -5, but invariant requires w0 > 0.
+// System should converge to w0 near 0 (boundary of viable set).
+// ============================================================================
+
+fn test_single_constraint() -> i64 {
+    var w0: f64 = 3.0;
+    var w1: f64 = 4.0;
+    var w2: f64 = -2.0;
+    var lr: f64 = 0.01;
+    var steps: i64 = 5000;
+    var violations: i64 = 0;
+    var boundary: f64 = 0.001;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+
+    println("--- Exp 4a: Single Parameter Constraint ---");
+
+    while step < steps {
+        // Loss: L = (w0 + 5)^2 + w1^2 + w2^2
+        // Minimum at (-5, 0, 0) — violates w0 > 0
+        g0 = 2.0 * (w0 + 5.0);
+        g1 = 2.0 * w1;
+        g2 = 2.0 * w2;
+
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+
+        // Project back to viable set
+        if w0 < boundary {
+            w0 = boundary;
+        }
+
+        // Check invariant
+        if w0 < 0.0 {
+            violations = violations + 1;
+        }
+
+        step = step + 1;
+    }
+
+    print("  Final w0: ");
+    print_f64(w0);
+    println("");
+    print("  Final w1: ");
+    print_f64(w1);
+    println("");
+    print("  Final w2: ");
+    print_f64(w2);
+    println("");
+    print("  Invariant violations: ");
+    print_i64(violations);
+    println("");
+
+    if violations > 0 {
+        println("  FAIL: Invariant violated");
+        1
+    } else {
+        if w0 > 0.0 {
+            println("  PASS: Invariant maintained, optimum found at boundary");
+            0
+        } else {
+            println("  FAIL: w0 not positive at end");
+            1
+        }
+    }
+}
+
+// ============================================================================
+// Experiment 4b: Multiple constraints
+//
+// Loss wants parameters in a region that violates multiple constraints.
+// All constraints must hold simultaneously.
+// ============================================================================
+
+fn test_multiple_constraints() -> i64 {
+    var w0: f64 = 5.0;
+    var w1: f64 = 5.0;
+    var w2: f64 = 5.0;
+    var lr: f64 = 0.01;
+    var steps: i64 = 5000;
+    var violations: i64 = 0;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var sum01: f64 = 0.0;
+    var deficit: f64 = 0.0;
+    var all_hold: i64 = 0;
+
+    println("--- Exp 4b: Multiple Constraints ---");
+
+    // Invariants (foundational beliefs):
+    // 1. w0 > 0        ("positive energy")
+    // 2. w1 > -1       ("bounded negativity")
+    // 3. w0 + w1 > 1   ("combined minimum")
+
+    while step < steps {
+        // Loss: minimum at (-3, -5, 0) — violates all three invariants
+        g0 = 2.0 * (w0 + 3.0);
+        g1 = 2.0 * (w1 + 5.0);
+        g2 = 2.0 * w2;
+
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+
+        // Project: enforce each invariant
+        // Invariant 1: w0 > 0
+        if w0 < 0.001 {
+            w0 = 0.001;
+        }
+
+        // Invariant 2: w1 > -1
+        if w1 < -0.999 {
+            w1 = -0.999;
+        }
+
+        // Invariant 3: w0 + w1 > 1
+        sum01 = w0 + w1;
+        if sum01 < 1.001 {
+            // Push both toward satisfying the constraint
+            deficit = 1.001 - sum01;
+            w0 = w0 + deficit * 0.5;
+            w1 = w1 + deficit * 0.5;
+        }
+
+        // Verify all invariants
+        if w0 < 0.0 {
+            violations = violations + 1;
+        }
+        if w1 < -1.0 {
+            violations = violations + 1;
+        }
+        sum01 = w0 + w1;
+        if sum01 < 1.0 {
+            violations = violations + 1;
+        }
+
+        step = step + 1;
+    }
+
+    sum01 = w0 + w1;
+
+    print("  Final w0: ");
+    print_f64(w0);
+    println("");
+    print("  Final w1: ");
+    print_f64(w1);
+    println("");
+    print("  Final w2: ");
+    print_f64(w2);
+    println("");
+    print("  w0 + w1 = ");
+    print_f64(sum01);
+    println("");
+    print("  Violations: ");
+    print_i64(violations);
+    println("");
+
+    all_hold = 0;
+    if w0 > 0.0 {
+        if w1 > -1.0 {
+            if sum01 > 1.0 {
+                all_hold = 1;
+            }
+        }
+    }
+
+    if violations > 0 {
+        println("  FAIL: Invariants violated");
+        1
+    } else {
+        if all_hold > 0 {
+            println("  PASS: All invariants maintained");
+            0
+        } else {
+            println("  FAIL: Invariants not satisfied at end");
+            1
+        }
+    }
+}
+
+// ============================================================================
+// Experiment 4c: Constraint under strong opposing gradient
+//
+// Very steep loss with high learning rate pushes hard against
+// the constraint boundary. Projection must hold.
+// ============================================================================
+
+fn test_strong_gradient_constraint() -> i64 {
+    var w0: f64 = 1.0;
+    var lr: f64 = 0.5;
+    var steps: i64 = 10000;
+    var violations: i64 = 0;
+    var max_gradient: f64 = 0.0;
+    var step: i64 = 0;
+    var g: f64 = 0.0;
+    var ag: f64 = 0.0;
+
+    println("--- Exp 4c: Strong Gradient vs Constraint ---");
+
+    while step < steps {
+        // Steep loss: L = 100 * (w0 + 10)^2
+        // Gradient = 200 * (w0 + 10) — very strong push toward w0 = -10
+        g = 200.0 * (w0 + 10.0);
+
+        ag = abs_f64(g);
+        if ag > max_gradient {
+            max_gradient = ag;
+        }
+
+        w0 = w0 - lr * g;
+
+        // Invariant: w0 > 0
+        if w0 < 0.001 {
+            w0 = 0.001;
+        }
+
+        if w0 < 0.0 {
+            violations = violations + 1;
+        }
+
+        step = step + 1;
+    }
+
+    print("  Max gradient magnitude: ");
+    print_f64(max_gradient);
+    println("");
+    print("  Final w0:              ");
+    print_f64(w0);
+    println("");
+    print("  Violations:            ");
+    print_i64(violations);
+    println("");
+
+    if violations > 0 {
+        println("  FAIL: Constraint violated");
+        1
+    } else {
+        if w0 > 0.0 {
+            println("  PASS: Constraint held under strong gradient");
+            0
+        } else {
+            println("  FAIL: w0 not positive at end");
+            1
+        }
+    }
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    var failed: i64 = 0;
+
+    println("============================================");
+    println("  EXPERIMENT 4: INVARIANT ENFORCEMENT");
+    println("============================================");
+    println("");
+
+    failed = failed + test_single_constraint();
+    println("");
+    failed = failed + test_multiple_constraints();
+    println("");
+    failed = failed + test_strong_gradient_constraint();
+
+    println("");
+    println("============================================");
+    if failed > 0 {
+        print("  EXPERIMENT 4: ");
+        print_i64(failed);
+        println(" TEST(S) FAILED");
+    } else {
+        println("  EXPERIMENT 4: ALL TESTS PASSED");
+    }
+    println("============================================");
+
+    failed
+}

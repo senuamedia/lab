@@ -1,0 +1,820 @@
+// VISCOSITY SPECTRUM: SOLID → FLUID → GAS
+//
+// Matter has three states. Viscosity is the parameter that moves between them:
+//   ν → ∞: solid (no flow, infinite damping, everything frozen)
+//   ν finite: fluid (the NS regime — where the millennium problem lives)
+//   ν → 0: gas/inviscid (Euler equations — blow-up known for some cases)
+//
+// Instead of treating ν as a weak lever, we MAP THE FULL SPECTRUM:
+//   1. Run the 9-level hierarchy at both endpoints
+//   2. Establish guardrails: what does each diagnostic look like at solid/gas limits?
+//   3. Oscillate the dual agents between the limits
+//   4. The oscillation pattern reveals how each diagnostic transitions
+//   5. Track the WAVE: as ν oscillates, each level responds with a phase and amplitude
+//      that characterises the viscosity sensitivity at that level
+//
+// The oscillation is a PROBE — like sending a wave through a medium.
+// The medium's response to the wave IS its material properties.
+// We are measuring the "material properties" of the NS blow-up surface.
+//
+// Key insight: the dual agent's chaos/order balance maps directly to
+// the viscosity spectrum. Chaos = low viscosity (gas-like probing).
+// Order = high viscosity (solid-like damping). The oscillation between
+// them is LITERALLY moving along the viscosity spectrum.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { a } else { b } }
+
+fn enstrophy(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn blowup(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+          dt: f64, max_steps: i64, thresh: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy(ox, oy, oz);
+        if e > thresh { return s as f64; }
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    max_steps as f64
+}
+
+fn margin_at(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+             dt: f64, t_start: i64, eps: f64, probe: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < t_start {
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    var au: f64 = u; var av: f64 = v; var aw: f64 = w;
+    var aox: f64 = ox; var aoy: f64 = oy; var aoz: f64 = oz;
+    var bu: f64 = u; var bv: f64 = v; var bw: f64 = w;
+    var bx: f64 = ox; var by: f64 = oy; var bz: f64 = oz + eps;
+    var p: i64 = 0;
+    while p < probe {
+        let na0: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 0);
+        let na1: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 1);
+        let na2: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 2);
+        let na3: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 3);
+        let na4: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 4);
+        let na5: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 5);
+        let nb0: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 0);
+        let nb1: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 1);
+        let nb2: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 2);
+        let nb3: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 3);
+        let nb4: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 4);
+        let nb5: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 5);
+        au = na0; av = na1; aw = na2; aox = na3; aoy = na4; aoz = na5;
+        bu = nb0; bv = nb1; bw = nb2; bx = nb3; by = nb4; bz = nb5;
+        p = p + 1;
+    }
+    let d0: f64 = (au - bu) * (au - bu);
+    let d1: f64 = (av - bv) * (av - bv);
+    let d2: f64 = (aw - bw) * (aw - bw);
+    let d3: f64 = (aox - bx) * (aox - bx);
+    let d4: f64 = (aoy - by) * (aoy - by);
+    let d5: f64 = (aoz - bz) * (aoz - bz);
+    sqrt(d0 + d1 + d2 + d3 + d4 + d5) / abs_f64(eps)
+}
+
+fn s_score(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+           dt: f64, t_start: i64, probe: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < t_start {
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    var prev_enst: f64 = enstrophy(ox, oy, oz);
+    var early_d: f64 = 0.0;
+    var late_d: f64 = 0.0;
+    var ce: i64 = 0;
+    var cl: i64 = 0;
+    let half: i64 = probe / 2;
+    var step: i64 = 0;
+    while step < probe {
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        let enst: f64 = enstrophy(ox, oy, oz);
+        let d: f64 = abs_f64(enst - prev_enst);
+        if step < half { early_d = early_d + d; ce = ce + 1; }
+        else { late_d = late_d + d; cl = cl + 1; }
+        prev_enst = enst;
+        step = step + 1;
+    }
+    if ce > 0 { early_d = early_d / (ce as f64); }
+    if cl > 0 { late_d = late_d / (cl as f64); }
+    if early_d > 0.0000000001 { 1.0 - late_d / early_d }
+    else { if late_d < 0.0000000001 { 1.0 } else { 0.0 - 1.0 } }
+}
+
+// ============================================================================
+// Exp 1: The Viscosity Spectrum — Full 9-Level Profile
+//
+// Sweep ν from solid-like (10.0) through fluid (0.005) to gas-like (0.00001)
+// At each ν, compute:
+//   T_blowup, S-score, M (stability margin), |∂T/∂A|, |∂T/∂ν|
+// This maps the ENTIRE spectrum and establishes the guardrails.
+// ============================================================================
+
+fn test_spectrum() -> i64 {
+    println("=== Exp 1: The Viscosity Spectrum ===");
+    println("  Solid (nu→large) → Fluid → Gas (nu→0)");
+    println("  Full diagnostic profile at each viscosity");
+    println("");
+
+    let amp: f64 = 3.0;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 2.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 60000;
+    let thresh: f64 = 100.0;
+    let da: f64 = 0.1;
+    let dnu: f64 = 0.0001;
+
+    println("  nu         State    T_blow   S@t=3k   M@t=3k     |dT/dA|   |dT/dnu|");
+
+    var ni: i64 = 0;
+    while ni < 12 {
+        var nu: f64 = 10.0;
+        if ni == 1 { nu = 1.0; }
+        if ni == 2 { nu = 0.5; }
+        if ni == 3 { nu = 0.1; }
+        if ni == 4 { nu = 0.05; }
+        if ni == 5 { nu = 0.01; }
+        if ni == 6 { nu = 0.005; }
+        if ni == 7 { nu = 0.002; }
+        if ni == 8 { nu = 0.001; }
+        if ni == 9 { nu = 0.0005; }
+        if ni == 10 { nu = 0.0001; }
+        if ni == 11 { nu = 0.00001; }
+
+        let tb: f64 = blowup(amp, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+
+        // S-score at t=3000
+        let sc: f64 = s_score(amp, nu, sigma, lambda, lambda2, dt, 3000, 1000);
+
+        // Stability margin at t=3000
+        let m: f64 = margin_at(amp, nu, sigma, lambda, lambda2, dt, 3000, 0.01, 300);
+
+        // |∂T/∂A|
+        let tap: f64 = blowup(amp + da, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        let tam: f64 = blowup(amp - da, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        let dtda: f64 = abs_f64((tap - tam) / (2.0 * da));
+
+        // |∂T/∂ν|
+        var dtdnu: f64 = 0.0;
+        if nu > dnu * 2.0 {
+            let tnp: f64 = blowup(amp, nu + dnu, sigma, lambda, lambda2, dt, max_s, thresh);
+            let tnm: f64 = blowup(amp, nu - dnu, sigma, lambda, lambda2, dt, max_s, thresh);
+            dtdnu = abs_f64((tnp - tnm) / (2.0 * dnu));
+        }
+
+        print("  ");
+        print_f64(nu);
+
+        if nu > 0.5 { print("  SOLID  "); }
+        else {
+            if nu > 0.002 { print("  FLUID  "); }
+            else { print("  GAS    "); }
+        }
+
+        print_f64(tb);
+        print("  ");
+        print_f64(sc);
+        print("  ");
+        print_f64(m);
+        print("  ");
+        print_f64(dtda);
+        print("  ");
+        print_f64(dtdnu);
+        println("");
+
+        ni = ni + 1;
+    }
+
+    println("");
+    println("  GUARDRAILS:");
+    println("  Solid limit: T→max, S→1, M→1, |dT/dA|→0, |dT/dnu|→0");
+    println("  Gas limit:   T→min, S→neg, M→large, |dT/dA|→large, |dT/dnu|→large");
+    println("  The FLUID regime is where all diagnostics are most informative.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Oscillating Viscosity — The Dual Agent as Wave
+//
+// Oscillate ν between solid-like and gas-like:
+//   ν(t) = ν_base + ν_amplitude * sin(2π * t / period)
+//
+// The system's RESPONSE to this oscillation reveals:
+//   - Phase lag: does enstrophy lag behind viscosity? → inertia
+//   - Amplitude response: how much does enstrophy vary? → sensitivity
+//   - Asymmetry: is the gas-phase response bigger than solid-phase? → nonlinearity
+//
+// This is literally sending a wave through the blow-up surface and
+// measuring the transfer function.
+// ============================================================================
+
+fn test_oscillation() -> i64 {
+    println("=== Exp 2: Oscillating Viscosity ===");
+    println("  nu(t) = nu_base + amplitude * sin(2*pi*t/period)");
+    println("  Measuring enstrophy response to viscosity wave");
+    println("");
+
+    let amp: f64 = 2.0;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 2.0;
+    let dt: f64 = 0.0001;
+    let pi: f64 = 3.14159265358979;
+
+    // Oscillation parameters
+    let nu_base: f64 = 0.01;
+    let nu_amp: f64 = 0.008;
+    let period: f64 = 10000.0;
+
+    println("  period=10000 steps, nu_base=0.01, nu_amplitude=0.008");
+    println("  nu oscillates between 0.002 (gas-like) and 0.018 (fluid)");
+    println("");
+    println("  Step    nu(t)      Enstrophy  dEnst/dt   Phase      Response");
+
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+
+    var s: i64 = 0;
+    var prev_enst: f64 = enstrophy(ox, oy, oz);
+    var max_enst: f64 = 0.0;
+    var min_enst: f64 = 1000.0;
+    var max_enst_step: i64 = 0;
+    var min_enst_step: i64 = 0;
+
+    while s < 40000 {
+        let phase: f64 = 2.0 * pi * (s as f64) / period;
+        let nu_t: f64 = nu_base + nu_amp * sin(phase);
+
+        let e: f64 = enstrophy(ox, oy, oz);
+        if e > 1000.0 {
+            print("  ");
+            print_i64(s);
+            println("  BLOW-UP");
+            s = 40000;
+        } else {
+            // Report every 2000 steps
+            let check: i64 = s - (s / 2000) * 2000;
+            if check == 0 {
+                let de: f64 = e - prev_enst;
+
+                print("  ");
+                print_i64(s);
+                print("    ");
+                print_f64(nu_t);
+                print("  ");
+                print_f64(e);
+                print("  ");
+                print_f64(de);
+
+                // Phase relative to viscosity wave
+                let nu_phase: f64 = sin(phase);
+                if nu_phase > 0.3 { print("  HIGH-nu"); }
+                else {
+                    if nu_phase < 0.0 - 0.3 { print("  LOW-nu "); }
+                    else { print("  CROSS  "); }
+                }
+
+                // Enstrophy response
+                if de > 0.0001 { println("  GROWING"); }
+                else {
+                    if de < 0.0 - 0.0001 { println("  SHRINKING"); }
+                    else { println("  STEADY"); }
+                }
+
+                if e > max_enst { max_enst = e; max_enst_step = s; }
+                if e < min_enst { min_enst = e; min_enst_step = s; }
+
+                prev_enst = e;
+            }
+
+            let nu2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 0);
+            let nv2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 1);
+            let nw2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 2);
+            let nox: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 3);
+            let noy: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 4);
+            let noz: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 5);
+            u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+            s = s + 1;
+        }
+    }
+
+    println("");
+    print("  Max enstrophy: ");
+    print_f64(max_enst);
+    print(" at step ");
+    print_i64(max_enst_step);
+    println("");
+    print("  Min enstrophy: ");
+    print_f64(min_enst);
+    print(" at step ");
+    print_i64(min_enst_step);
+    println("");
+
+    // Phase lag: viscosity minimum is at step period/4 (=2500).
+    // If enstrophy maximum is at step > 2500, there is a phase lag.
+    let nu_min_step: i64 = 7500;
+    let lag: i64 = max_enst_step - nu_min_step;
+    print("  Phase lag: ");
+    print_i64(lag);
+    print(" steps (nu minimum at 7500, enstrophy max at ");
+    print_i64(max_enst_step);
+    println(")");
+
+    let enst_range: f64 = max_enst - min_enst;
+    print("  Enstrophy amplitude: ");
+    print_f64(enst_range);
+    println("");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Transfer Function — Sweep Oscillation Frequency
+//
+// Like measuring the frequency response of a circuit:
+// Oscillate ν at different frequencies.
+// At each frequency, measure the enstrophy amplitude response.
+//
+// Low frequency: system follows viscosity (quasi-static)
+// High frequency: system can't follow (averaged/filtered)
+// Resonance: if there's a peak, it reveals a natural timescale
+//
+// The transfer function H(f) = enstrophy_amplitude / nu_amplitude
+// maps the blow-up surface's frequency response.
+// ============================================================================
+
+fn enstrophy_response(amp: f64, nu_base: f64, nu_amp: f64, sigma: f64,
+                      lambda: f64, lambda2: f64, dt: f64, period: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+
+    // Run for 3 full periods (skip first for transient)
+    let total: i64 = (period * 3.0) as i64;
+    let skip: i64 = (period * 1.0) as i64;
+    var s: i64 = 0;
+    var max_e: f64 = 0.0;
+    var min_e: f64 = 1000.0;
+
+    while s < total {
+        let phase: f64 = 2.0 * pi * (s as f64) / period;
+        let nu_t: f64 = nu_base + nu_amp * sin(phase);
+
+        let e: f64 = enstrophy(ox, oy, oz);
+        if e > 1000.0 { return 999.0; }
+
+        if s > skip {
+            if e > max_e { max_e = e; }
+            if e < min_e { min_e = e; }
+        }
+
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    max_e - min_e
+}
+
+fn test_transfer_function() -> i64 {
+    println("=== Exp 3: Transfer Function — Frequency Response ===");
+    println("  Oscillate nu at different frequencies");
+    println("  H(f) = enstrophy_amplitude / nu_amplitude");
+    println("  Look for resonance (peak = natural timescale)");
+    println("");
+
+    let amp: f64 = 2.0;
+    let nu_base: f64 = 0.01;
+    let nu_amp: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 2.0;
+    let dt: f64 = 0.0001;
+
+    println("  Period(steps)  Freq       Enst_Amp     H(f)=Enst/nu   Type");
+
+    var pi: i64 = 0;
+    while pi < 8 {
+        var period: f64 = 500.0;
+        if pi == 1 { period = 1000.0; }
+        if pi == 2 { period = 2000.0; }
+        if pi == 3 { period = 5000.0; }
+        if pi == 4 { period = 10000.0; }
+        if pi == 5 { period = 20000.0; }
+        if pi == 6 { period = 40000.0; }
+        if pi == 7 { period = 80000.0; }
+
+        let freq: f64 = 1.0 / period;
+        let resp: f64 = enstrophy_response(amp, nu_base, nu_amp, sigma, lambda, lambda2, dt, period);
+        let h: f64 = resp / nu_amp;
+
+        print("  ");
+        print_f64(period);
+        print("    ");
+        print_f64(freq);
+        print("  ");
+        print_f64(resp);
+        print("  ");
+        print_f64(h);
+
+        if resp > 900.0 { println("  BLOW-UP"); }
+        else {
+            if h > 10.0 { println("  HIGH RESPONSE"); }
+            else {
+                if h > 1.0 { println("  MODERATE"); }
+                else { println("  LOW (filtered)"); }
+            }
+        }
+
+        pi = pi + 1;
+    }
+
+    println("");
+    println("  INTERPRETATION:");
+    println("  Peak in H(f) = resonance = natural instability timescale");
+    println("  H(f) decreasing at high freq = system filters fast oscillations");
+    println("  H(f) flat at low freq = quasi-static regime");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Dual Agent Oscillation — Chaos/Order as Viscosity Wave
+//
+// Map the dual agent directly to the viscosity spectrum:
+//   Chaos phase: ν decreases (toward gas)
+//   Order phase: ν increases (toward solid)
+//   The oscillation sweeps the full spectrum
+//
+// Track all 9 levels during the oscillation.
+// The DIFFERENTIAL between gas-phase and solid-phase diagnostics
+// at each level characterises the viscosity sensitivity.
+// ============================================================================
+
+fn test_dual_oscillation() -> i64 {
+    println("=== Exp 4: Dual Agent as Viscosity Wave ===");
+    println("  Chaos phase: nu drops (gas-like, probing)");
+    println("  Order phase: nu rises (solid-like, stabilising)");
+    println("  Track 9-level diagnostics in each phase");
+    println("");
+
+    let amp: f64 = 2.0;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 2.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 60000;
+    let thresh: f64 = 100.0;
+
+    // Solid-like endpoint
+    let nu_solid: f64 = 0.05;
+    // Gas-like endpoint
+    let nu_gas: f64 = 0.001;
+    // Midpoint
+    let nu_mid: f64 = 0.01;
+
+    println("  Endpoint   T_blow   S@3k     M@3k       |dT/dA|   |dT/dnu|  ∂²T/∂nu²");
+    println("  --------   ------   ----     ----       -------   -------  --------");
+
+    // Compute at each endpoint
+    var ei: i64 = 0;
+    while ei < 5 {
+        var nu: f64 = nu_solid;
+        var label_idx: i64 = 0;
+        if ei == 1 { nu = 0.02; label_idx = 1; }
+        if ei == 2 { nu = nu_mid; label_idx = 2; }
+        if ei == 3 { nu = 0.005; label_idx = 3; }
+        if ei == 4 { nu = nu_gas; label_idx = 4; }
+
+        let tb: f64 = blowup(amp, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        let sc: f64 = s_score(amp, nu, sigma, lambda, lambda2, dt, 3000, 1000);
+        let m: f64 = margin_at(amp, nu, sigma, lambda, lambda2, dt, 3000, 0.01, 300);
+
+        // |∂T/∂A|
+        let da: f64 = 0.1;
+        let tap: f64 = blowup(amp + da, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        let tam: f64 = blowup(amp - da, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        let dtda: f64 = abs_f64((tap - tam) / (2.0 * da));
+
+        // |∂T/∂ν| and ∂²T/∂ν²
+        let dnu: f64 = 0.0005;
+        var dtdnu: f64 = 0.0;
+        var d2tdnu2: f64 = 0.0;
+        if nu > dnu * 3.0 {
+            let tnp: f64 = blowup(amp, nu + dnu, sigma, lambda, lambda2, dt, max_s, thresh);
+            let tnm: f64 = blowup(amp, nu - dnu, sigma, lambda, lambda2, dt, max_s, thresh);
+            dtdnu = (tnp - tnm) / (2.0 * dnu);
+            d2tdnu2 = (tnp - 2.0 * tb + tnm) / (dnu * dnu);
+        }
+
+        if label_idx == 0 { print("  SOLID    "); }
+        if label_idx == 1 { print("  solid-   "); }
+        if label_idx == 2 { print("  FLUID    "); }
+        if label_idx == 3 { print("  gas+     "); }
+        if label_idx == 4 { print("  GAS      "); }
+
+        print_f64(tb);
+        print("  ");
+        print_f64(sc);
+        print("  ");
+        print_f64(m);
+        print("  ");
+        print_f64(dtda);
+        print("  ");
+        print_f64(dtdnu);
+        print("  ");
+        print_f64(d2tdnu2);
+        println("");
+
+        ei = ei + 1;
+    }
+
+    println("");
+
+    // Compute the differentials between endpoints
+    println("  DIFFERENTIALS (Gas - Solid):");
+
+    let tb_s: f64 = blowup(amp, nu_solid, sigma, lambda, lambda2, dt, max_s, thresh);
+    let tb_g: f64 = blowup(amp, nu_gas, sigma, lambda, lambda2, dt, max_s, thresh);
+    let sc_s: f64 = s_score(amp, nu_solid, sigma, lambda, lambda2, dt, 3000, 1000);
+    let sc_g: f64 = s_score(amp, nu_gas, sigma, lambda, lambda2, dt, 3000, 1000);
+    let m_s: f64 = margin_at(amp, nu_solid, sigma, lambda, lambda2, dt, 3000, 0.01, 300);
+    let m_g: f64 = margin_at(amp, nu_gas, sigma, lambda, lambda2, dt, 3000, 0.01, 300);
+
+    print("  T_blowup:  solid=");
+    print_f64(tb_s);
+    print("  gas=");
+    print_f64(tb_g);
+    print("  delta=");
+    print_f64(tb_g - tb_s);
+    println("");
+
+    print("  S-score:   solid=");
+    print_f64(sc_s);
+    print("  gas=");
+    print_f64(sc_g);
+    print("  delta=");
+    print_f64(sc_g - sc_s);
+    println("");
+
+    print("  Margin:    solid=");
+    print_f64(m_s);
+    print("  gas=");
+    print_f64(m_g);
+    print("  delta=");
+    print_f64(m_g - m_s);
+    println("");
+
+    println("");
+    println("  The DIFFERENTIAL is the 'weak lever' made visible.");
+    println("  It quantifies exactly how much each diagnostic changes");
+    println("  across the full viscosity spectrum — the guardrails.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 5: The Viscosity Wave — Track Impact as ν Approaches Each Limit
+//
+// Slowly ramp ν from solid to gas, then back.
+// At each step, record enstrophy and dEnst/dnu.
+// The resulting curve is the VISCOSITY RESPONSE FUNCTION.
+//
+// If it's linear: viscosity effect is uniform (boring)
+// If it's nonlinear: there are critical viscosity values (interesting)
+// If there's hysteresis: the path matters (very interesting)
+// ============================================================================
+
+fn test_viscosity_ramp() -> i64 {
+    println("=== Exp 5: Viscosity Ramp — Solid→Gas→Solid ===");
+    println("  Slowly decrease nu from 0.1 to 0.0005, then increase back");
+    println("  Track enstrophy to detect hysteresis and critical points");
+    println("");
+
+    let amp: f64 = 2.0;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 2.0;
+    let dt: f64 = 0.0001;
+    let pi: f64 = 3.14159265358979;
+
+    // Start at solid-like
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+
+    println("  Phase    Step    nu         Enstrophy   dEnst      Direction");
+
+    var s: i64 = 0;
+    var prev_enst: f64 = enstrophy(ox, oy, oz);
+    var ramp_down: i64 = 1;
+    let ramp_steps: i64 = 20000;
+    let total: i64 = 40000;
+
+    while s < total {
+        // Ramp: first half down, second half up
+        var frac: f64 = 0.0;
+        if s < ramp_steps {
+            frac = (s as f64) / (ramp_steps as f64);
+            ramp_down = 1;
+        } else {
+            frac = 1.0 - ((s - ramp_steps) as f64) / (ramp_steps as f64);
+            ramp_down = 0;
+        }
+        // Exponential ramp: nu = 0.1 * 10^(-frac*2.3) → 0.1 to 0.0005
+        // Simpler: linear interpolation in log space
+        let nu_high: f64 = 0.1;
+        let nu_low: f64 = 0.0005;
+        let nu_t: f64 = nu_high * exp(0.0 - frac * 5.298);
+
+        let e: f64 = enstrophy(ox, oy, oz);
+        if e > 1000.0 {
+            print("  ");
+            if ramp_down == 1 { print("DOWN   "); } else { print("UP     "); }
+            print_i64(s);
+            println("  BLOW-UP");
+            s = total;
+        } else {
+            let check: i64 = s - (s / 2000) * 2000;
+            if check == 0 {
+                let de: f64 = e - prev_enst;
+
+                print("  ");
+                if ramp_down == 1 { print("DOWN   "); } else { print("UP     "); }
+                print_i64(s);
+                print("    ");
+                print_f64(nu_t);
+                print("  ");
+                print_f64(e);
+                print("  ");
+                print_f64(de);
+
+                if de > 0.0001 { println("  GROWING"); }
+                else {
+                    if de < 0.0 - 0.0001 { println("  SHRINKING"); }
+                    else { println("  STEADY"); }
+                }
+
+                prev_enst = e;
+            }
+
+            let nu2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 0);
+            let nv2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 1);
+            let nw2: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 2);
+            let nox: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 3);
+            let noy: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 4);
+            let noz: f64 = step6(u, v, w, ox, oy, oz, nu_t, sigma, lambda, lambda2, dt, 5);
+            u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+            s = s + 1;
+        }
+    }
+
+    println("");
+    println("  HYSTERESIS TEST:");
+    println("  If enstrophy at same nu differs between down-ramp and up-ramp,");
+    println("  the system has memory — the PATH through the viscosity spectrum");
+    println("  matters, not just the current viscosity value.");
+    println("  This would mean the 'weak lever' has hidden state.");
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  VISCOSITY SPECTRUM: SOLID → FLUID → GAS                 #");
+    println("#                                                          #");
+    println("#  Flip the board: instead of viscosity as a weak lever,   #");
+    println("#  map the ENTIRE spectrum from solid to gas.              #");
+    println("#  Establish guardrails at both limits.                    #");
+    println("#  Oscillate between them — the wave IS the diagnostic.   #");
+    println("#                                                          #");
+    println("#  Chaos agent = gas phase (low nu, probing)               #");
+    println("#  Order agent = solid phase (high nu, damping)            #");
+    println("#  The oscillation between them sweeps the spectrum.       #");
+    println("############################################################");
+    println("");
+
+    test_spectrum();
+    test_oscillation();
+    test_transfer_function();
+    test_dual_oscillation();
+    test_viscosity_ramp();
+
+    println("############################################################");
+    println("#  WHAT THE SPECTRUM REVEALS:                              #");
+    println("#                                                          #");
+    println("#  1. Guardrails: solid limit and gas limit diagnostics    #");
+    println("#  2. Oscillation response: amplitude, phase, asymmetry   #");
+    println("#  3. Transfer function: resonance = natural timescale     #");
+    println("#  4. Differentials: how much each level changes across    #");
+    println("#     the spectrum — the 'weak lever' made visible        #");
+    println("#  5. Hysteresis: does the path matter? Hidden state?     #");
+    println("#                                                          #");
+    println("#  The viscosity spectrum is not a single number.          #");
+    println("#  It is a TRANSFER FUNCTION with structure.               #");
+    println("#  The dual agent oscillation probes that structure.       #");
+    println("############################################################");
+
+    0
+}

@@ -1,0 +1,1050 @@
+// Experiment: Symmetry Breaking and Phase Transitions
+//
+// Four experiments probing structural properties of the interaction matrix:
+//
+// Exp 1: Symmetric objectives -> does the learned matrix remain symmetric?
+// Exp 2: Critical component count -> is there a phase transition in K?
+// Exp 3: Perturbation sensitivity -> is the fixed point an attractor?
+// Exp 4: Competing hierarchies -> does the matrix discover group structure?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn dot4(a0: f64, a1: f64, a2: f64, a3: f64, b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
+}
+
+fn norm4(a0: f64, a1: f64, a2: f64, a3: f64) -> f64 {
+    sqrt(dot4(a0, a1, a2, a3, a0, a1, a2, a3))
+}
+
+fn cosine4(a0: f64, a1: f64, a2: f64, a3: f64, b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    let d: f64 = dot4(a0, a1, a2, a3, b0, b1, b2, b3);
+    let na: f64 = norm4(a0, a1, a2, a3);
+    let nb: f64 = norm4(b0, b1, b2, b3);
+    d / (na * nb + 0.000000000001)
+}
+
+// Project gradient gi off gj with strength alpha * |cosine|, return dimension d
+fn project_dim(gi: f64, gj_0: f64, gj_1: f64, gj_2: f64, gj_3: f64,
+               gi_0: f64, gi_1: f64, gi_2: f64, gi_3: f64,
+               alpha: f64, dim: i64) -> f64 {
+    let cos_val: f64 = cosine4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3);
+    if cos_val >= 0.0 {
+        return gi;
+    }
+    let scale: f64 = alpha * (0.0 - cos_val);
+    let gj_sq: f64 = dot4(gj_0, gj_1, gj_2, gj_3, gj_0, gj_1, gj_2, gj_3) + 0.000000000001;
+    let proj: f64 = scale * dot4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3) / gj_sq;
+    if dim == 0 { gi - proj * gj_0 }
+    else { if dim == 1 { gi - proj * gj_1 }
+    else { if dim == 2 { gi - proj * gj_2 }
+    else { gi - proj * gj_3 } } }
+}
+
+// Quadratic loss: sum (w_d - target_d)^2 for 4 dimensions
+fn loss4(w0: f64, w1: f64, w2: f64, w3: f64,
+         t0: f64, t1: f64, t2: f64, t3: f64) -> f64 {
+    let d0: f64 = (w0 - t0) * (w0 - t0);
+    let d1: f64 = (w1 - t1) * (w1 - t1);
+    let d2: f64 = (w2 - t2) * (w2 - t2);
+    let d3: f64 = (w3 - t3) * (w3 - t3);
+    d0 + d1 + d2 + d3
+}
+
+// Gradient of loss4 in dimension d
+fn grad4(w: f64, t: f64) -> f64 {
+    2.0 * (w - t)
+}
+
+// ============================================================
+//  EXP 1: Symmetric Objectives -> Asymmetric Matrix
+// ============================================================
+// Targets: A=[3,0,0,0], B=[0,3,0,0], C=[0,0,3,0]
+// Perfectly symmetric arrangement. 6 alphas trained over 60 meta-cycles.
+
+fn exp1_run_cycle(alpha_ab: f64, alpha_ac: f64, alpha_ba: f64,
+                  alpha_bc: f64, alpha_ca: f64, alpha_cb: f64,
+                  steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var ga_0: f64 = 0.0;
+    var ga_1: f64 = 0.0;
+    var ga_2: f64 = 0.0;
+    var ga_3: f64 = 0.0;
+    var gb_0: f64 = 0.0;
+    var gb_1: f64 = 0.0;
+    var gb_2: f64 = 0.0;
+    var gb_3: f64 = 0.0;
+    var gc_0: f64 = 0.0;
+    var gc_1: f64 = 0.0;
+    var gc_2: f64 = 0.0;
+    var gc_3: f64 = 0.0;
+    var ra_0: f64 = 0.0;
+    var ra_1: f64 = 0.0;
+    var ra_2: f64 = 0.0;
+    var ra_3: f64 = 0.0;
+    var rb_0: f64 = 0.0;
+    var rb_1: f64 = 0.0;
+    var rb_2: f64 = 0.0;
+    var rb_3: f64 = 0.0;
+    var rc_0: f64 = 0.0;
+    var rc_1: f64 = 0.0;
+    var rc_2: f64 = 0.0;
+    var rc_3: f64 = 0.0;
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        // Gradients: A targets [3,0,0,0], B targets [0,3,0,0], C targets [0,0,3,0]
+        ga_0 = grad4(w0, 3.0);
+        ga_1 = grad4(w1, 0.0);
+        ga_2 = grad4(w2, 0.0);
+        ga_3 = grad4(w3, 0.0);
+
+        gb_0 = grad4(w0, 0.0);
+        gb_1 = grad4(w1, 3.0);
+        gb_2 = grad4(w2, 0.0);
+        gb_3 = grad4(w3, 0.0);
+
+        gc_0 = grad4(w0, 0.0);
+        gc_1 = grad4(w1, 0.0);
+        gc_2 = grad4(w2, 3.0);
+        gc_3 = grad4(w3, 0.0);
+
+        // Project A off B and C
+        ra_0 = project_dim(ga_0, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 0);
+        ra_0 = project_dim(ra_0, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 0);
+        ra_1 = project_dim(ga_1, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 1);
+        ra_1 = project_dim(ra_1, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 1);
+        ra_2 = project_dim(ga_2, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 2);
+        ra_2 = project_dim(ra_2, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 2);
+        ra_3 = project_dim(ga_3, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 3);
+        ra_3 = project_dim(ra_3, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 3);
+
+        // Project B off A and C
+        rb_0 = project_dim(gb_0, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 0);
+        rb_0 = project_dim(rb_0, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 0);
+        rb_1 = project_dim(gb_1, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 1);
+        rb_1 = project_dim(rb_1, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 1);
+        rb_2 = project_dim(gb_2, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 2);
+        rb_2 = project_dim(rb_2, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 2);
+        rb_3 = project_dim(gb_3, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 3);
+        rb_3 = project_dim(rb_3, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 3);
+
+        // Project C off A and B
+        rc_0 = project_dim(gc_0, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 0);
+        rc_0 = project_dim(rc_0, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 0);
+        rc_1 = project_dim(gc_1, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 1);
+        rc_1 = project_dim(rc_1, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 1);
+        rc_2 = project_dim(gc_2, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 2);
+        rc_2 = project_dim(rc_2, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 2);
+        rc_3 = project_dim(gc_3, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 3);
+        rc_3 = project_dim(rc_3, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 3);
+
+        w0 = w0 - lr * (ra_0 + rb_0 + rc_0);
+        w1 = w1 - lr * (ra_1 + rb_1 + rc_1);
+        w2 = w2 - lr * (ra_2 + rb_2 + rc_2);
+        w3 = w3 - lr * (ra_3 + rb_3 + rc_3);
+
+        step = step + 1;
+    }
+
+    let la: f64 = loss4(w0, w1, w2, w3, 3.0, 0.0, 0.0, 0.0);
+    let lb: f64 = loss4(w0, w1, w2, w3, 0.0, 3.0, 0.0, 0.0);
+    let lc: f64 = loss4(w0, w1, w2, w3, 0.0, 0.0, 3.0, 0.0);
+    la + lb + lc
+}
+
+fn exp1_meta_grad(base_ab: f64, base_ac: f64, base_ba: f64,
+                  base_bc: f64, base_ca: f64, base_cb: f64,
+                  which: i64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    var ab_p: f64 = base_ab;
+    var ac_p: f64 = base_ac;
+    var ba_p: f64 = base_ba;
+    var bc_p: f64 = base_bc;
+    var ca_p: f64 = base_ca;
+    var cb_p: f64 = base_cb;
+    var ab_m: f64 = base_ab;
+    var ac_m: f64 = base_ac;
+    var ba_m: f64 = base_ba;
+    var bc_m: f64 = base_bc;
+    var ca_m: f64 = base_ca;
+    var cb_m: f64 = base_cb;
+
+    if which == 0 { ab_p = base_ab + h; ab_m = base_ab - h; }
+    if which == 1 { ac_p = base_ac + h; ac_m = base_ac - h; }
+    if which == 2 { ba_p = base_ba + h; ba_m = base_ba - h; }
+    if which == 3 { bc_p = base_bc + h; bc_m = base_bc - h; }
+    if which == 4 { ca_p = base_ca + h; ca_m = base_ca - h; }
+    if which == 5 { cb_p = base_cb + h; cb_m = base_cb - h; }
+
+    let lp: f64 = exp1_run_cycle(ab_p, ac_p, ba_p, bc_p, ca_p, cb_p, steps);
+    let lm: f64 = exp1_run_cycle(ab_m, ac_m, ba_m, bc_m, ca_m, cb_m, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp1() -> i64 {
+    var alpha_ab: f64 = 0.5;
+    var alpha_ac: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var alpha_bc: f64 = 0.5;
+    var alpha_ca: f64 = 0.5;
+    var alpha_cb: f64 = 0.5;
+    var prev_ab: f64 = 0.5;
+    var prev_ac: f64 = 0.5;
+    var prev_ba: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var prev_cb: f64 = 0.5;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var loss: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var max_alpha: f64 = 0.0;
+    var min_alpha: f64 = 0.0;
+    var asym: f64 = 0.0;
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 60;
+
+    println("============================================================");
+    println("  EXP 1: SYMMETRIC OBJECTIVES -> ASYMMETRIC MATRIX?");
+    println("  Targets: A=[3,0,0,0] B=[0,3,0,0] C=[0,0,3,0]");
+    println("  All pairs have identical conflict angle (orthogonal).");
+    println("  60 meta-cycles, lr=0.005, 200 inner steps");
+    println("============================================================");
+    println("");
+
+    loss = exp1_run_cycle(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, inner_steps);
+    print("  Initial loss (all alpha=0.5): ");
+    print_f64(loss);
+    println("");
+    println("");
+
+    println("  Cycle  Loss       Drift      ab     ac     ba     bc     ca     cb");
+    println("  -----  ---------  ---------  -----  -----  -----  -----  -----  -----");
+
+    while cycle < meta_cycles {
+        prev_ab = alpha_ab;
+        prev_ac = alpha_ac;
+        prev_ba = alpha_ba;
+        prev_bc = alpha_bc;
+        prev_ca = alpha_ca;
+        prev_cb = alpha_cb;
+
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 2.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 2.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 2.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 2.0);
+
+        loss = exp1_run_cycle(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, inner_steps);
+        drift = abs_f64(alpha_ab - prev_ab) + abs_f64(alpha_ac - prev_ac)
+              + abs_f64(alpha_ba - prev_ba) + abs_f64(alpha_bc - prev_bc)
+              + abs_f64(alpha_ca - prev_ca) + abs_f64(alpha_cb - prev_cb);
+
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(loss);
+            print("  ");
+            print_f64(drift);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ac);
+            print("  ");
+            print_f64(alpha_ba);
+            print("  ");
+            print_f64(alpha_bc);
+            print("  ");
+            print_f64(alpha_ca);
+            print("  ");
+            print_f64(alpha_cb);
+            println("");
+        }
+        if cycle == 29 {
+            print("  29     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(drift);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ac);
+            print("  ");
+            print_f64(alpha_ba);
+            print("  ");
+            print_f64(alpha_bc);
+            print("  ");
+            print_f64(alpha_ca);
+            print("  ");
+            print_f64(alpha_cb);
+            println("");
+        }
+        if cycle == 59 {
+            print("  59     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(drift);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ac);
+            print("  ");
+            print_f64(alpha_ba);
+            print("  ");
+            print_f64(alpha_bc);
+            print("  ");
+            print_f64(alpha_ca);
+            print("  ");
+            print_f64(alpha_cb);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    println("");
+    println("  Final 3x3 Interaction Matrix:");
+    println("          ->A      ->B      ->C");
+    print("  A:  [  ---   ");
+    print_f64(alpha_ab);
+    print("  ");
+    print_f64(alpha_ac);
+    println("  ]");
+    print("  B:  [  ");
+    print_f64(alpha_ba);
+    print("  ---   ");
+    print_f64(alpha_bc);
+    println("  ]");
+    print("  C:  [  ");
+    print_f64(alpha_ca);
+    print("  ");
+    print_f64(alpha_cb);
+    println("  ---   ]");
+    println("");
+
+    // Compute asymmetry score: max(alpha) - min(alpha)
+    max_alpha = alpha_ab;
+    if alpha_ac > max_alpha { max_alpha = alpha_ac; }
+    if alpha_ba > max_alpha { max_alpha = alpha_ba; }
+    if alpha_bc > max_alpha { max_alpha = alpha_bc; }
+    if alpha_ca > max_alpha { max_alpha = alpha_ca; }
+    if alpha_cb > max_alpha { max_alpha = alpha_cb; }
+
+    min_alpha = alpha_ab;
+    if alpha_ac < min_alpha { min_alpha = alpha_ac; }
+    if alpha_ba < min_alpha { min_alpha = alpha_ba; }
+    if alpha_bc < min_alpha { min_alpha = alpha_bc; }
+    if alpha_ca < min_alpha { min_alpha = alpha_ca; }
+    if alpha_cb < min_alpha { min_alpha = alpha_cb; }
+
+    asym = max_alpha - min_alpha;
+    print("  Asymmetry score (max-min): ");
+    print_f64(asym);
+    println("");
+
+    if asym > 0.1 {
+        println("  RESULT: Symmetry BROKEN - sequential meta-gradient updates");
+        println("  break the symmetric arrangement of objectives.");
+    } else {
+        println("  RESULT: Symmetry PRESERVED - matrix remains uniform.");
+    }
+    println("");
+
+    0
+}
+
+// ============================================================
+//  EXP 2: Critical Component Count (Phase Transition)
+// ============================================================
+// Add objectives K=2..8. Targets: target_i[d] = 3.0 if d==i%4 else 0.
+// For each K, run meta-training and measure convergence.
+// Uses simplified 2-alpha approach: all same-direction alphas share a value.
+
+fn exp2_loss_k(w0: f64, w1: f64, w2: f64, w3: f64, k: i64) -> f64 {
+    var total: f64 = 0.0;
+    var i: i64 = 0;
+    var t0: f64 = 0.0;
+    var t1: f64 = 0.0;
+    var t2: f64 = 0.0;
+    var t3: f64 = 0.0;
+    var r: i64 = 0;
+
+    while i < k {
+        r = i - (i / 4) * 4;
+        t0 = 0.0;
+        t1 = 0.0;
+        t2 = 0.0;
+        t3 = 0.0;
+        if r == 0 { t0 = 3.0; }
+        if r == 1 { t1 = 3.0; }
+        if r == 2 { t2 = 3.0; }
+        if r == 3 { t3 = 3.0; }
+        total = total + loss4(w0, w1, w2, w3, t0, t1, t2, t3);
+        i = i + 1;
+    }
+    total
+}
+
+// Gradient of the combined K-objective loss in one dimension
+fn exp2_grad_dim(w: f64, k: i64, dim: i64) -> f64 {
+    var total: f64 = 0.0;
+    var i: i64 = 0;
+    var r: i64 = 0;
+    var t: f64 = 0.0;
+
+    while i < k {
+        r = i - (i / 4) * 4;
+        t = 0.0;
+        if r == dim { t = 3.0; }
+        total = total + 2.0 * (w - t);
+        i = i + 1;
+    }
+    total
+}
+
+fn exp2_run_cycle(alpha: f64, k: i64, steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+    let lr: f64 = 0.005;
+
+    // With uniform alpha, all objectives project off each other equally.
+    // Effective gradient = sum of per-objective gradients, each scaled by
+    // projection against (K-1) others with strength alpha.
+    // Simplified: use combined gradient with projection damping.
+    while step < steps {
+        g0 = exp2_grad_dim(w0, k, 0);
+        g1 = exp2_grad_dim(w1, k, 1);
+        g2 = exp2_grad_dim(w2, k, 2);
+        g3 = exp2_grad_dim(w3, k, 3);
+
+        // Apply projection damping: scale by 1/(1 + alpha*(K-1)*conflict_factor)
+        // conflict_factor increases with K since more objectives pull apart
+        let ki: f64 = k * 1.0;
+        let damp: f64 = 1.0 / (1.0 + alpha * (ki - 1.0) * 0.3);
+        w0 = w0 - lr * g0 * damp;
+        w1 = w1 - lr * g1 * damp;
+        w2 = w2 - lr * g2 * damp;
+        w3 = w3 - lr * g3 * damp;
+
+        step = step + 1;
+    }
+
+    exp2_loss_k(w0, w1, w2, w3, k)
+}
+
+fn exp2_meta_grad(alpha: f64, k: i64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    let lp: f64 = exp2_run_cycle(alpha + h, k, steps);
+    let lm: f64 = exp2_run_cycle(alpha - h, k, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp2_for_k(k: i64) -> i64 {
+    var alpha: f64 = 0.5;
+    var prev_alpha: f64 = 0.5;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var loss: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var converge_cycle: i64 = 0;
+    var converged: i64 = 0;
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 40;
+
+    while cycle < meta_cycles {
+        prev_alpha = alpha;
+        mg = exp2_meta_grad(alpha, k, inner_steps);
+        alpha = clamp(alpha - meta_lr * mg, 0.0, 3.0);
+        loss = exp2_run_cycle(alpha, k, inner_steps);
+        drift = abs_f64(alpha - prev_alpha);
+
+        if drift < 0.001 {
+            if converged == 0 {
+                converge_cycle = cycle;
+                converged = 1;
+            }
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let ki: f64 = k * 1.0;
+    let loss_per_k: f64 = loss / ki;
+
+    print("  K=");
+    print_i64(k);
+    print("  loss=");
+    print_f64(loss);
+    print("  loss/K=");
+    print_f64(loss_per_k);
+    print("  alpha=");
+    print_f64(alpha);
+
+    if converged == 1 {
+        print("  converged@cycle=");
+        print_i64(converge_cycle);
+    } else {
+        print("  NOT CONVERGED (drift=");
+        print_f64(drift);
+        print(")");
+    }
+    println("");
+
+    converged
+}
+
+fn run_exp2() -> i64 {
+    var k: i64 = 2;
+    var conv: i64 = 0;
+    var prev_conv: i64 = 1;
+    var phase_k: i64 = 0;
+
+    println("============================================================");
+    println("  EXP 2: CRITICAL COMPONENT COUNT (PHASE TRANSITION)");
+    println("  K objectives, target_i[d]=3 if d==i%4 else 0");
+    println("  40 meta-cycles per K, lr=0.005, 200 inner steps");
+    println("============================================================");
+    println("");
+
+    while k <= 8 {
+        conv = run_exp2_for_k(k);
+        if prev_conv == 1 {
+            if conv == 0 {
+                phase_k = k;
+            }
+        }
+        prev_conv = conv;
+        k = k + 1;
+    }
+
+    println("");
+    if phase_k > 0 {
+        print("  PHASE TRANSITION detected at K=");
+        print_i64(phase_k);
+        println("");
+        println("  System transitions from converging to non-converging.");
+    } else {
+        println("  No sharp phase transition detected in K=2..8 range.");
+        println("  System may degrade gradually rather than abruptly.");
+    }
+    println("");
+
+    0
+}
+
+// ============================================================
+//  EXP 3: Perturbation Sensitivity (Structural Stability)
+// ============================================================
+// Start from converged matrix, perturb one alpha, measure recovery.
+
+fn exp3_test_perturbation(perturb_size: f64) -> i64 {
+    // Start from a "converged" baseline: all alphas = 1.0
+    // (reasonable equilibrium for symmetric targets)
+    var alpha_ab: f64 = 1.0;
+    var alpha_ac: f64 = 1.0;
+    var alpha_ba: f64 = 1.0;
+    var alpha_bc: f64 = 1.0;
+    var alpha_ca: f64 = 1.0;
+    var alpha_cb: f64 = 1.0;
+    var prev_ab: f64 = 0.0;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var recover_cycle: i64 = 0;
+    var recovered: i64 = 0;
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 40;
+
+    // Apply perturbation to alpha_ab
+    alpha_ab = alpha_ab + perturb_size;
+    alpha_ab = clamp(alpha_ab, 0.0, 3.0);
+
+    let initial_ab: f64 = alpha_ab;
+
+    while cycle < meta_cycles {
+        prev_ab = alpha_ab;
+
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 3.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 3.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 3.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 3.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 3.0);
+        mg = exp1_meta_grad(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 3.0);
+
+        drift = abs_f64(alpha_ab - prev_ab);
+
+        if drift < 0.001 {
+            if recovered == 0 {
+                recover_cycle = cycle;
+                recovered = 1;
+            }
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let final_dist: f64 = abs_f64(alpha_ab - 1.0);
+
+    print("  perturb=+");
+    print_f64(perturb_size);
+    print("  initial_ab=");
+    print_f64(initial_ab);
+    print("  final_ab=");
+    print_f64(alpha_ab);
+    print("  dist_from_eq=");
+    print_f64(final_dist);
+
+    if recovered == 1 {
+        print("  recovered@cycle=");
+        print_i64(recover_cycle);
+    } else {
+        print("  NOT recovered");
+    }
+    println("");
+
+    recovered
+}
+
+fn run_exp3() -> i64 {
+    var all_recovered: i64 = 1;
+    var r: i64 = 0;
+
+    println("============================================================");
+    println("  EXP 3: PERTURBATION SENSITIVITY (STRUCTURAL STABILITY)");
+    println("  Start from converged matrix (all alpha=1.0).");
+    println("  Perturb alpha_ab, track recovery over 40 meta-cycles.");
+    println("============================================================");
+    println("");
+
+    r = exp3_test_perturbation(0.1);
+    if r == 0 { all_recovered = 0; }
+    r = exp3_test_perturbation(0.5);
+    if r == 0 { all_recovered = 0; }
+    r = exp3_test_perturbation(1.0);
+    if r == 0 { all_recovered = 0; }
+    r = exp3_test_perturbation(2.0);
+    if r == 0 { all_recovered = 0; }
+
+    println("");
+    if all_recovered == 1 {
+        println("  RESULT: Fixed point is a STRONG ATTRACTOR.");
+        println("  All perturbations recovered -> structurally stable.");
+    } else {
+        println("  RESULT: Fixed point has LIMITED basin of attraction.");
+        println("  Large perturbations escape -> structural instability.");
+    }
+    println("");
+
+    0
+}
+
+// ============================================================
+//  EXP 4: Competing Hierarchies (Group Structure Discovery)
+// ============================================================
+// Group 1: targets [3,3,0,0] and [4,2,0,0] (cooperative)
+// Group 2: targets [-3,-3,0,0] and [-2,-4,0,0] (cooperative)
+// Groups are adversarial to each other.
+// 4 objectives -> 12 alphas (i->j for each ordered pair).
+// We track within-group vs between-group alphas.
+
+fn exp4_run_cycle(a01: f64, a02: f64, a03: f64,
+                  a10: f64, a12: f64, a13: f64,
+                  a20: f64, a21: f64, a23: f64,
+                  a30: f64, a31: f64, a32: f64,
+                  steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    // Gradients for 4 objectives
+    var g0_0: f64 = 0.0;
+    var g0_1: f64 = 0.0;
+    var g0_2: f64 = 0.0;
+    var g0_3: f64 = 0.0;
+    var g1_0: f64 = 0.0;
+    var g1_1: f64 = 0.0;
+    var g1_2: f64 = 0.0;
+    var g1_3: f64 = 0.0;
+    var g2_0: f64 = 0.0;
+    var g2_1: f64 = 0.0;
+    var g2_2: f64 = 0.0;
+    var g2_3: f64 = 0.0;
+    var g3_0: f64 = 0.0;
+    var g3_1: f64 = 0.0;
+    var g3_2: f64 = 0.0;
+    var g3_3: f64 = 0.0;
+    // Resolved for obj 0
+    var r0_0: f64 = 0.0;
+    var r0_1: f64 = 0.0;
+    var r0_2: f64 = 0.0;
+    var r0_3: f64 = 0.0;
+    // Resolved for obj 1
+    var r1_0: f64 = 0.0;
+    var r1_1: f64 = 0.0;
+    var r1_2: f64 = 0.0;
+    var r1_3: f64 = 0.0;
+    // Resolved for obj 2
+    var r2_0: f64 = 0.0;
+    var r2_1: f64 = 0.0;
+    var r2_2: f64 = 0.0;
+    var r2_3: f64 = 0.0;
+    // Resolved for obj 3
+    var r3_0: f64 = 0.0;
+    var r3_1: f64 = 0.0;
+    var r3_2: f64 = 0.0;
+    var r3_3: f64 = 0.0;
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        // Obj 0: target [3,3,0,0]
+        g0_0 = grad4(w0, 3.0);
+        g0_1 = grad4(w1, 3.0);
+        g0_2 = grad4(w2, 0.0);
+        g0_3 = grad4(w3, 0.0);
+        // Obj 1: target [4,2,0,0]
+        g1_0 = grad4(w0, 4.0);
+        g1_1 = grad4(w1, 2.0);
+        g1_2 = grad4(w2, 0.0);
+        g1_3 = grad4(w3, 0.0);
+        // Obj 2: target [-3,-3,0,0]
+        g2_0 = grad4(w0, 0.0 - 3.0);
+        g2_1 = grad4(w1, 0.0 - 3.0);
+        g2_2 = grad4(w2, 0.0);
+        g2_3 = grad4(w3, 0.0);
+        // Obj 3: target [-2,-4,0,0]
+        g3_0 = grad4(w0, 0.0 - 2.0);
+        g3_1 = grad4(w1, 0.0 - 4.0);
+        g3_2 = grad4(w2, 0.0);
+        g3_3 = grad4(w3, 0.0);
+
+        // Resolve obj 0: project off 1, 2, 3
+        r0_0 = project_dim(g0_0, g1_0, g1_1, g1_2, g1_3, g0_0, g0_1, g0_2, g0_3, a01, 0);
+        r0_0 = project_dim(r0_0, g2_0, g2_1, g2_2, g2_3, g0_0, g0_1, g0_2, g0_3, a02, 0);
+        r0_0 = project_dim(r0_0, g3_0, g3_1, g3_2, g3_3, g0_0, g0_1, g0_2, g0_3, a03, 0);
+        r0_1 = project_dim(g0_1, g1_0, g1_1, g1_2, g1_3, g0_0, g0_1, g0_2, g0_3, a01, 1);
+        r0_1 = project_dim(r0_1, g2_0, g2_1, g2_2, g2_3, g0_0, g0_1, g0_2, g0_3, a02, 1);
+        r0_1 = project_dim(r0_1, g3_0, g3_1, g3_2, g3_3, g0_0, g0_1, g0_2, g0_3, a03, 1);
+        r0_2 = project_dim(g0_2, g1_0, g1_1, g1_2, g1_3, g0_0, g0_1, g0_2, g0_3, a01, 2);
+        r0_2 = project_dim(r0_2, g2_0, g2_1, g2_2, g2_3, g0_0, g0_1, g0_2, g0_3, a02, 2);
+        r0_2 = project_dim(r0_2, g3_0, g3_1, g3_2, g3_3, g0_0, g0_1, g0_2, g0_3, a03, 2);
+        r0_3 = project_dim(g0_3, g1_0, g1_1, g1_2, g1_3, g0_0, g0_1, g0_2, g0_3, a01, 3);
+        r0_3 = project_dim(r0_3, g2_0, g2_1, g2_2, g2_3, g0_0, g0_1, g0_2, g0_3, a02, 3);
+        r0_3 = project_dim(r0_3, g3_0, g3_1, g3_2, g3_3, g0_0, g0_1, g0_2, g0_3, a03, 3);
+
+        // Resolve obj 1: project off 0, 2, 3
+        r1_0 = project_dim(g1_0, g0_0, g0_1, g0_2, g0_3, g1_0, g1_1, g1_2, g1_3, a10, 0);
+        r1_0 = project_dim(r1_0, g2_0, g2_1, g2_2, g2_3, g1_0, g1_1, g1_2, g1_3, a12, 0);
+        r1_0 = project_dim(r1_0, g3_0, g3_1, g3_2, g3_3, g1_0, g1_1, g1_2, g1_3, a13, 0);
+        r1_1 = project_dim(g1_1, g0_0, g0_1, g0_2, g0_3, g1_0, g1_1, g1_2, g1_3, a10, 1);
+        r1_1 = project_dim(r1_1, g2_0, g2_1, g2_2, g2_3, g1_0, g1_1, g1_2, g1_3, a12, 1);
+        r1_1 = project_dim(r1_1, g3_0, g3_1, g3_2, g3_3, g1_0, g1_1, g1_2, g1_3, a13, 1);
+        r1_2 = project_dim(g1_2, g0_0, g0_1, g0_2, g0_3, g1_0, g1_1, g1_2, g1_3, a10, 2);
+        r1_2 = project_dim(r1_2, g2_0, g2_1, g2_2, g2_3, g1_0, g1_1, g1_2, g1_3, a12, 2);
+        r1_2 = project_dim(r1_2, g3_0, g3_1, g3_2, g3_3, g1_0, g1_1, g1_2, g1_3, a13, 2);
+        r1_3 = project_dim(g1_3, g0_0, g0_1, g0_2, g0_3, g1_0, g1_1, g1_2, g1_3, a10, 3);
+        r1_3 = project_dim(r1_3, g2_0, g2_1, g2_2, g2_3, g1_0, g1_1, g1_2, g1_3, a12, 3);
+        r1_3 = project_dim(r1_3, g3_0, g3_1, g3_2, g3_3, g1_0, g1_1, g1_2, g1_3, a13, 3);
+
+        // Resolve obj 2: project off 0, 1, 3
+        r2_0 = project_dim(g2_0, g0_0, g0_1, g0_2, g0_3, g2_0, g2_1, g2_2, g2_3, a20, 0);
+        r2_0 = project_dim(r2_0, g1_0, g1_1, g1_2, g1_3, g2_0, g2_1, g2_2, g2_3, a21, 0);
+        r2_0 = project_dim(r2_0, g3_0, g3_1, g3_2, g3_3, g2_0, g2_1, g2_2, g2_3, a23, 0);
+        r2_1 = project_dim(g2_1, g0_0, g0_1, g0_2, g0_3, g2_0, g2_1, g2_2, g2_3, a20, 1);
+        r2_1 = project_dim(r2_1, g1_0, g1_1, g1_2, g1_3, g2_0, g2_1, g2_2, g2_3, a21, 1);
+        r2_1 = project_dim(r2_1, g3_0, g3_1, g3_2, g3_3, g2_0, g2_1, g2_2, g2_3, a23, 1);
+        r2_2 = project_dim(g2_2, g0_0, g0_1, g0_2, g0_3, g2_0, g2_1, g2_2, g2_3, a20, 2);
+        r2_2 = project_dim(r2_2, g1_0, g1_1, g1_2, g1_3, g2_0, g2_1, g2_2, g2_3, a21, 2);
+        r2_2 = project_dim(r2_2, g3_0, g3_1, g3_2, g3_3, g2_0, g2_1, g2_2, g2_3, a23, 2);
+        r2_3 = project_dim(g2_3, g0_0, g0_1, g0_2, g0_3, g2_0, g2_1, g2_2, g2_3, a20, 3);
+        r2_3 = project_dim(r2_3, g1_0, g1_1, g1_2, g1_3, g2_0, g2_1, g2_2, g2_3, a21, 3);
+        r2_3 = project_dim(r2_3, g3_0, g3_1, g3_2, g3_3, g2_0, g2_1, g2_2, g2_3, a23, 3);
+
+        // Resolve obj 3: project off 0, 1, 2
+        r3_0 = project_dim(g3_0, g0_0, g0_1, g0_2, g0_3, g3_0, g3_1, g3_2, g3_3, a30, 0);
+        r3_0 = project_dim(r3_0, g1_0, g1_1, g1_2, g1_3, g3_0, g3_1, g3_2, g3_3, a31, 0);
+        r3_0 = project_dim(r3_0, g2_0, g2_1, g2_2, g2_3, g3_0, g3_1, g3_2, g3_3, a32, 0);
+        r3_1 = project_dim(g3_1, g0_0, g0_1, g0_2, g0_3, g3_0, g3_1, g3_2, g3_3, a30, 1);
+        r3_1 = project_dim(r3_1, g1_0, g1_1, g1_2, g1_3, g3_0, g3_1, g3_2, g3_3, a31, 1);
+        r3_1 = project_dim(r3_1, g2_0, g2_1, g2_2, g2_3, g3_0, g3_1, g3_2, g3_3, a32, 1);
+        r3_2 = project_dim(g3_2, g0_0, g0_1, g0_2, g0_3, g3_0, g3_1, g3_2, g3_3, a30, 2);
+        r3_2 = project_dim(r3_2, g1_0, g1_1, g1_2, g1_3, g3_0, g3_1, g3_2, g3_3, a31, 2);
+        r3_2 = project_dim(r3_2, g2_0, g2_1, g2_2, g2_3, g3_0, g3_1, g3_2, g3_3, a32, 2);
+        r3_3 = project_dim(g3_3, g0_0, g0_1, g0_2, g0_3, g3_0, g3_1, g3_2, g3_3, a30, 3);
+        r3_3 = project_dim(r3_3, g1_0, g1_1, g1_2, g1_3, g3_0, g3_1, g3_2, g3_3, a31, 3);
+        r3_3 = project_dim(r3_3, g2_0, g2_1, g2_2, g2_3, g3_0, g3_1, g3_2, g3_3, a32, 3);
+
+        w0 = w0 - lr * (r0_0 + r1_0 + r2_0 + r3_0);
+        w1 = w1 - lr * (r0_1 + r1_1 + r2_1 + r3_1);
+        w2 = w2 - lr * (r0_2 + r1_2 + r2_2 + r3_2);
+        w3 = w3 - lr * (r0_3 + r1_3 + r2_3 + r3_3);
+
+        step = step + 1;
+    }
+
+    let l0: f64 = loss4(w0, w1, w2, w3, 3.0, 3.0, 0.0, 0.0);
+    let l1: f64 = loss4(w0, w1, w2, w3, 4.0, 2.0, 0.0, 0.0);
+    let l2: f64 = loss4(w0, w1, w2, w3, 0.0 - 3.0, 0.0 - 3.0, 0.0, 0.0);
+    let l3: f64 = loss4(w0, w1, w2, w3, 0.0 - 2.0, 0.0 - 4.0, 0.0, 0.0);
+    l0 + l1 + l2 + l3
+}
+
+fn exp4_meta_grad(a01: f64, a02: f64, a03: f64,
+                  a10: f64, a12: f64, a13: f64,
+                  a20: f64, a21: f64, a23: f64,
+                  a30: f64, a31: f64, a32: f64,
+                  which: i64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    var p01: f64 = a01;
+    var p02: f64 = a02;
+    var p03: f64 = a03;
+    var p10: f64 = a10;
+    var p12: f64 = a12;
+    var p13: f64 = a13;
+    var p20: f64 = a20;
+    var p21: f64 = a21;
+    var p23: f64 = a23;
+    var p30: f64 = a30;
+    var p31: f64 = a31;
+    var p32: f64 = a32;
+    var m01: f64 = a01;
+    var m02: f64 = a02;
+    var m03: f64 = a03;
+    var m10: f64 = a10;
+    var m12: f64 = a12;
+    var m13: f64 = a13;
+    var m20: f64 = a20;
+    var m21: f64 = a21;
+    var m23: f64 = a23;
+    var m30: f64 = a30;
+    var m31: f64 = a31;
+    var m32: f64 = a32;
+
+    if which == 0 { p01 = a01 + h; m01 = a01 - h; }
+    if which == 1 { p02 = a02 + h; m02 = a02 - h; }
+    if which == 2 { p03 = a03 + h; m03 = a03 - h; }
+    if which == 3 { p10 = a10 + h; m10 = a10 - h; }
+    if which == 4 { p12 = a12 + h; m12 = a12 - h; }
+    if which == 5 { p13 = a13 + h; m13 = a13 - h; }
+    if which == 6 { p20 = a20 + h; m20 = a20 - h; }
+    if which == 7 { p21 = a21 + h; m21 = a21 - h; }
+    if which == 8 { p23 = a23 + h; m23 = a23 - h; }
+    if which == 9 { p30 = a30 + h; m30 = a30 - h; }
+    if which == 10 { p31 = a31 + h; m31 = a31 - h; }
+    if which == 11 { p32 = a32 + h; m32 = a32 - h; }
+
+    let lp: f64 = exp4_run_cycle(p01, p02, p03, p10, p12, p13, p20, p21, p23, p30, p31, p32, steps);
+    let lm: f64 = exp4_run_cycle(m01, m02, m03, m10, m12, m13, m20, m21, m23, m30, m31, m32, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+fn run_exp4() -> i64 {
+    // 12 alphas: a_ij means "projection of obj i off obj j"
+    // Obj 0,1 = Group 1; Obj 2,3 = Group 2
+    var a01: f64 = 0.5;
+    var a02: f64 = 0.5;
+    var a03: f64 = 0.5;
+    var a10: f64 = 0.5;
+    var a12: f64 = 0.5;
+    var a13: f64 = 0.5;
+    var a20: f64 = 0.5;
+    var a21: f64 = 0.5;
+    var a23: f64 = 0.5;
+    var a30: f64 = 0.5;
+    var a31: f64 = 0.5;
+    var a32: f64 = 0.5;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var loss: f64 = 0.0;
+    var w: i64 = 0;
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 40;
+
+    println("============================================================");
+    println("  EXP 4: COMPETING HIERARCHIES (GROUP STRUCTURE)");
+    println("  Group 1: [3,3,0,0] and [4,2,0,0] (cooperative)");
+    println("  Group 2: [-3,-3,0,0] and [-2,-4,0,0] (cooperative)");
+    println("  Groups are adversarial. 12 alphas, 40 meta-cycles.");
+    println("============================================================");
+    println("");
+
+    loss = exp4_run_cycle(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, inner_steps);
+    print("  Initial loss: ");
+    print_f64(loss);
+    println("");
+    println("");
+
+    while cycle < meta_cycles {
+        w = 0;
+        while w < 12 {
+            mg = exp4_meta_grad(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, w, inner_steps);
+            if w == 0 { a01 = clamp(a01 - meta_lr * mg, 0.0, 2.0); }
+            if w == 1 { a02 = clamp(a02 - meta_lr * mg, 0.0, 2.0); }
+            if w == 2 { a03 = clamp(a03 - meta_lr * mg, 0.0, 2.0); }
+            if w == 3 { a10 = clamp(a10 - meta_lr * mg, 0.0, 2.0); }
+            if w == 4 { a12 = clamp(a12 - meta_lr * mg, 0.0, 2.0); }
+            if w == 5 { a13 = clamp(a13 - meta_lr * mg, 0.0, 2.0); }
+            if w == 6 { a20 = clamp(a20 - meta_lr * mg, 0.0, 2.0); }
+            if w == 7 { a21 = clamp(a21 - meta_lr * mg, 0.0, 2.0); }
+            if w == 8 { a23 = clamp(a23 - meta_lr * mg, 0.0, 2.0); }
+            if w == 9 { a30 = clamp(a30 - meta_lr * mg, 0.0, 2.0); }
+            if w == 10 { a31 = clamp(a31 - meta_lr * mg, 0.0, 2.0); }
+            if w == 11 { a32 = clamp(a32 - meta_lr * mg, 0.0, 2.0); }
+            w = w + 1;
+        }
+
+        loss = exp4_run_cycle(a01, a02, a03, a10, a12, a13, a20, a21, a23, a30, a31, a32, inner_steps);
+
+        if cycle < 3 {
+            print("  cycle ");
+            print_i64(cycle);
+            print("  loss=");
+            print_f64(loss);
+            println("");
+        }
+        if cycle == 19 {
+            print("  cycle 19  loss=");
+            print_f64(loss);
+            println("");
+        }
+        if cycle == 39 {
+            print("  cycle 39  loss=");
+            print_f64(loss);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    println("");
+    println("  Learned 4x4 Interaction Matrix:");
+    println("          Obj0     Obj1     Obj2     Obj3");
+    println("         (G1a)    (G1b)    (G2a)    (G2b)");
+
+    print("  Obj0:  ---      ");
+    print_f64(a01);
+    print("  ");
+    print_f64(a02);
+    print("  ");
+    print_f64(a03);
+    println("");
+
+    print("  Obj1:  ");
+    print_f64(a10);
+    print("  ---      ");
+    print_f64(a12);
+    print("  ");
+    print_f64(a13);
+    println("");
+
+    print("  Obj2:  ");
+    print_f64(a20);
+    print("  ");
+    print_f64(a21);
+    print("  ---      ");
+    print_f64(a23);
+    println("");
+
+    print("  Obj3:  ");
+    print_f64(a30);
+    print("  ");
+    print_f64(a31);
+    print("  ");
+    print_f64(a32);
+    println("  ---");
+
+    // Compute within-group vs between-group averages
+    let within_avg: f64 = (a01 + a10 + a23 + a32) / 4.0;
+    let between_avg: f64 = (a02 + a03 + a12 + a13 + a20 + a21 + a30 + a31) / 8.0;
+
+    println("");
+    print("  Within-group avg alpha:  ");
+    print_f64(within_avg);
+    println("");
+    print("  Between-group avg alpha: ");
+    print_f64(between_avg);
+    println("");
+
+    let gap: f64 = between_avg - within_avg;
+    print("  Gap (between - within):  ");
+    print_f64(gap);
+    println("");
+    println("");
+
+    if gap > 0.1 {
+        println("  RESULT: Group structure DISCOVERED.");
+        println("  Higher alpha between groups (adversarial) than within (cooperative).");
+        println("  The interaction matrix encodes the coalition topology.");
+    } else {
+        if gap > 0.0 {
+            println("  RESULT: Weak group signal detected.");
+            println("  Between-group alpha slightly higher, but gap < 0.1.");
+        } else {
+            println("  RESULT: No group structure in the interaction matrix.");
+        }
+    }
+    println("");
+
+    0
+}
+
+// ============================================================
+//  MAIN
+// ============================================================
+
+fn main() -> i64 {
+    println("################################################################");
+    println("#  SYMMETRY BREAKING AND PHASE TRANSITIONS                    #");
+    println("#  Structural properties of the interaction matrix            #");
+    println("################################################################");
+    println("");
+
+    run_exp1();
+    run_exp2();
+    run_exp3();
+    run_exp4();
+
+    println("================================================================");
+    println("  ALL EXPERIMENTS COMPLETE");
+    println("================================================================");
+
+    0
+}

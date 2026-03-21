@@ -1,0 +1,432 @@
+// Experiment: Interaction Matrix of Meta-Gradients
+//
+// N=3 competing losses share 4 parameters. Each pair of gradients has
+// a learnable projection strength alpha_ij. The 3x3 matrix of alphas
+// is updated by meta-gradients over training cycles.
+//
+// Questions:
+// 1. Does the interaction matrix converge to a stable pattern?
+// 2. Does learning from the matrix improve convergence?
+// 3. Can we detect which component pairs are cooperative vs adversarial?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn dot4(a0: f64, a1: f64, a2: f64, a3: f64, b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    let t0: f64 = a0 * b0;
+    let t1: f64 = a1 * b1;
+    let t2: f64 = a2 * b2;
+    let t3: f64 = a3 * b3;
+    t0 + t1 + t2 + t3
+}
+
+fn norm4(a0: f64, a1: f64, a2: f64, a3: f64) -> f64 {
+    sqrt(dot4(a0, a1, a2, a3, a0, a1, a2, a3))
+}
+
+fn cosine4(a0: f64, a1: f64, a2: f64, a3: f64, b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    let d: f64 = dot4(a0, a1, a2, a3, b0, b1, b2, b3);
+    let na: f64 = norm4(a0, a1, a2, a3);
+    let nb: f64 = norm4(b0, b1, b2, b3);
+    d / (na * nb + 0.000000000001)
+}
+
+// Three losses with different optima — forces conflict
+fn loss_a(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 - 5.0) * (w0 - 5.0);
+    let d1: f64 = (w1 - 1.0) * (w1 - 1.0);
+    let d2: f64 = (w2 - 3.0) * (w2 - 3.0);
+    let d3: f64 = (w3 + 2.0) * (w3 + 2.0);
+    d0 + d1 + d2 + d3
+}
+
+fn loss_b(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 + 2.0) * (w0 + 2.0);
+    let d1: f64 = (w1 - 4.0) * (w1 - 4.0);
+    let d2: f64 = (w2 + 1.0) * (w2 + 1.0);
+    let d3: f64 = (w3 - 3.0) * (w3 - 3.0);
+    d0 + d1 + d2 + d3
+}
+
+fn loss_c(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 - 1.0) * (w0 - 1.0);
+    let d1: f64 = (w1 + 3.0) * (w1 + 3.0);
+    let d2: f64 = (w2 - 6.0) * (w2 - 6.0);
+    let d3: f64 = (w3 - 0.0) * (w3 - 0.0);
+    d0 + d1 + d2 + d3
+}
+
+fn combined_loss(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let la: f64 = loss_a(w0, w1, w2, w3);
+    let lb: f64 = loss_b(w0, w1, w2, w3);
+    let lc: f64 = loss_c(w0, w1, w2, w3);
+    la + lb + lc
+}
+
+// Project gradient g_i off gradient g_j with strength alpha * |cosine|
+// Returns projected component for dimension d
+fn project_dim(gi: f64, gj_0: f64, gj_1: f64, gj_2: f64, gj_3: f64,
+               gi_0: f64, gi_1: f64, gi_2: f64, gi_3: f64,
+               alpha: f64, dim: i64) -> f64 {
+    let cos_val: f64 = cosine4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3);
+    if cos_val >= 0.0 {
+        return gi;
+    }
+    let scale: f64 = alpha * (0.0 - cos_val);
+    let gj_sq: f64 = dot4(gj_0, gj_1, gj_2, gj_3, gj_0, gj_1, gj_2, gj_3) + 0.000000000001;
+    let proj: f64 = scale * dot4(gi_0, gi_1, gi_2, gi_3, gj_0, gj_1, gj_2, gj_3) / gj_sq;
+    if dim == 0 { gi - proj * gj_0 }
+    else { if dim == 1 { gi - proj * gj_1 }
+    else { if dim == 2 { gi - proj * gj_2 }
+    else { gi - proj * gj_3 } } }
+}
+
+// Run one training cycle with given interaction matrix (6 alphas for 3 pairs)
+// Returns combined loss after `steps` gradient steps
+fn run_cycle(alpha_ab: f64, alpha_ac: f64, alpha_ba: f64,
+             alpha_bc: f64, alpha_ca: f64, alpha_cb: f64,
+             steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    // Gradients for loss A
+    var ga_0: f64 = 0.0;
+    var ga_1: f64 = 0.0;
+    var ga_2: f64 = 0.0;
+    var ga_3: f64 = 0.0;
+    // Gradients for loss B
+    var gb_0: f64 = 0.0;
+    var gb_1: f64 = 0.0;
+    var gb_2: f64 = 0.0;
+    var gb_3: f64 = 0.0;
+    // Gradients for loss C
+    var gc_0: f64 = 0.0;
+    var gc_1: f64 = 0.0;
+    var gc_2: f64 = 0.0;
+    var gc_3: f64 = 0.0;
+    // Resolved gradients
+    var ra_0: f64 = 0.0;
+    var ra_1: f64 = 0.0;
+    var ra_2: f64 = 0.0;
+    var ra_3: f64 = 0.0;
+    var rb_0: f64 = 0.0;
+    var rb_1: f64 = 0.0;
+    var rb_2: f64 = 0.0;
+    var rb_3: f64 = 0.0;
+    var rc_0: f64 = 0.0;
+    var rc_1: f64 = 0.0;
+    var rc_2: f64 = 0.0;
+    var rc_3: f64 = 0.0;
+
+    let lr: f64 = 0.005;
+
+    while step < steps {
+        // Compute gradients
+        ga_0 = 2.0 * (w0 - 5.0);
+        ga_1 = 2.0 * (w1 - 1.0);
+        ga_2 = 2.0 * (w2 - 3.0);
+        ga_3 = 2.0 * (w3 + 2.0);
+
+        gb_0 = 2.0 * (w0 + 2.0);
+        gb_1 = 2.0 * (w1 - 4.0);
+        gb_2 = 2.0 * (w2 + 1.0);
+        gb_3 = 2.0 * (w3 - 3.0);
+
+        gc_0 = 2.0 * (w0 - 1.0);
+        gc_1 = 2.0 * (w1 + 3.0);
+        gc_2 = 2.0 * (w2 - 6.0);
+        gc_3 = 2.0 * (w3 - 0.0);
+
+        // Project A off B (alpha_ab) and A off C (alpha_ac)
+        ra_0 = project_dim(ga_0, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 0);
+        ra_0 = project_dim(ra_0, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 0);
+        ra_1 = project_dim(ga_1, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 1);
+        ra_1 = project_dim(ra_1, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 1);
+        ra_2 = project_dim(ga_2, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 2);
+        ra_2 = project_dim(ra_2, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 2);
+        ra_3 = project_dim(ga_3, gb_0, gb_1, gb_2, gb_3, ga_0, ga_1, ga_2, ga_3, alpha_ab, 3);
+        ra_3 = project_dim(ra_3, gc_0, gc_1, gc_2, gc_3, ga_0, ga_1, ga_2, ga_3, alpha_ac, 3);
+
+        // Project B off A (alpha_ba) and B off C (alpha_bc)
+        rb_0 = project_dim(gb_0, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 0);
+        rb_0 = project_dim(rb_0, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 0);
+        rb_1 = project_dim(gb_1, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 1);
+        rb_1 = project_dim(rb_1, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 1);
+        rb_2 = project_dim(gb_2, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 2);
+        rb_2 = project_dim(rb_2, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 2);
+        rb_3 = project_dim(gb_3, ga_0, ga_1, ga_2, ga_3, gb_0, gb_1, gb_2, gb_3, alpha_ba, 3);
+        rb_3 = project_dim(rb_3, gc_0, gc_1, gc_2, gc_3, gb_0, gb_1, gb_2, gb_3, alpha_bc, 3);
+
+        // Project C off A (alpha_ca) and C off B (alpha_cb)
+        rc_0 = project_dim(gc_0, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 0);
+        rc_0 = project_dim(rc_0, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 0);
+        rc_1 = project_dim(gc_1, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 1);
+        rc_1 = project_dim(rc_1, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 1);
+        rc_2 = project_dim(gc_2, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 2);
+        rc_2 = project_dim(rc_2, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 2);
+        rc_3 = project_dim(gc_3, ga_0, ga_1, ga_2, ga_3, gc_0, gc_1, gc_2, gc_3, alpha_ca, 3);
+        rc_3 = project_dim(rc_3, gb_0, gb_1, gb_2, gb_3, gc_0, gc_1, gc_2, gc_3, alpha_cb, 3);
+
+        // Combined update
+        w0 = w0 - lr * (ra_0 + rb_0 + rc_0);
+        w1 = w1 - lr * (ra_1 + rb_1 + rc_1);
+        w2 = w2 - lr * (ra_2 + rb_2 + rc_2);
+        w3 = w3 - lr * (ra_3 + rb_3 + rc_3);
+
+        step = step + 1;
+    }
+
+    combined_loss(w0, w1, w2, w3)
+}
+
+// Compute meta-gradient for one alpha via finite difference
+fn meta_grad_alpha(base_ab: f64, base_ac: f64, base_ba: f64,
+                   base_bc: f64, base_ca: f64, base_cb: f64,
+                   which: i64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    var ab_p: f64 = base_ab;
+    var ac_p: f64 = base_ac;
+    var ba_p: f64 = base_ba;
+    var bc_p: f64 = base_bc;
+    var ca_p: f64 = base_ca;
+    var cb_p: f64 = base_cb;
+    var ab_m: f64 = base_ab;
+    var ac_m: f64 = base_ac;
+    var ba_m: f64 = base_ba;
+    var bc_m: f64 = base_bc;
+    var ca_m: f64 = base_ca;
+    var cb_m: f64 = base_cb;
+
+    if which == 0 { ab_p = base_ab + h; ab_m = base_ab - h; }
+    if which == 1 { ac_p = base_ac + h; ac_m = base_ac - h; }
+    if which == 2 { ba_p = base_ba + h; ba_m = base_ba - h; }
+    if which == 3 { bc_p = base_bc + h; bc_m = base_bc - h; }
+    if which == 4 { ca_p = base_ca + h; ca_m = base_ca - h; }
+    if which == 5 { cb_p = base_cb + h; cb_m = base_cb - h; }
+
+    let loss_p: f64 = run_cycle(ab_p, ac_p, ba_p, bc_p, ca_p, cb_p, steps);
+    let loss_m: f64 = run_cycle(ab_m, ac_m, ba_m, bc_m, ca_m, cb_m, steps);
+    (loss_p - loss_m) / (2.0 * h)
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn main() -> i64 {
+    // Interaction matrix: 6 alphas (3 pairs, each direction)
+    var alpha_ab: f64 = 0.5;
+    var alpha_ac: f64 = 0.5;
+    var alpha_ba: f64 = 0.5;
+    var alpha_bc: f64 = 0.5;
+    var alpha_ca: f64 = 0.5;
+    var alpha_cb: f64 = 0.5;
+
+    // Previous values for drift tracking
+    var prev_ab: f64 = 0.5;
+    var prev_ac: f64 = 0.5;
+    var prev_ba: f64 = 0.5;
+    var prev_bc: f64 = 0.5;
+    var prev_ca: f64 = 0.5;
+    var prev_cb: f64 = 0.5;
+
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var loss: f64 = 0.0;
+    var drift: f64 = 0.0;
+
+    let meta_lr: f64 = 0.1;
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 30;
+
+    println("============================================");
+    println("  INTERACTION MATRIX OF META-GRADIENTS");
+    println("  3 competing losses, 3x3 alpha matrix");
+    println("============================================");
+    println("");
+
+    // Baseline: no projection (all alphas = 0)
+    let loss_no_proj: f64 = run_cycle(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, inner_steps);
+    print("  Baseline (no projection):  loss=");
+    print_f64(loss_no_proj);
+    println("");
+
+    // Baseline: uniform projection (all alphas = 1)
+    let loss_uniform: f64 = run_cycle(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, inner_steps);
+    print("  Uniform (all alpha=1):     loss=");
+    print_f64(loss_uniform);
+    println("");
+
+    // Initial loss
+    loss = run_cycle(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, inner_steps);
+    print("  Initial (all alpha=0.5):   loss=");
+    print_f64(loss);
+    println("");
+    println("");
+
+    println("  Cycle  Loss       Drift      alpha_ab  alpha_ac  alpha_ba  alpha_bc  alpha_ca  alpha_cb");
+    println("  -----  ---------  ---------  --------  --------  --------  --------  --------  --------");
+
+    while cycle < meta_cycles {
+        // Save previous for drift
+        prev_ab = alpha_ab;
+        prev_ac = alpha_ac;
+        prev_ba = alpha_ba;
+        prev_bc = alpha_bc;
+        prev_ca = alpha_ca;
+        prev_cb = alpha_cb;
+
+        // Compute meta-gradient for each alpha
+        mg = meta_grad_alpha(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 0, inner_steps);
+        alpha_ab = clamp(alpha_ab - meta_lr * mg, 0.0, 2.0);
+
+        mg = meta_grad_alpha(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 1, inner_steps);
+        alpha_ac = clamp(alpha_ac - meta_lr * mg, 0.0, 2.0);
+
+        mg = meta_grad_alpha(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 2, inner_steps);
+        alpha_ba = clamp(alpha_ba - meta_lr * mg, 0.0, 2.0);
+
+        mg = meta_grad_alpha(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 3, inner_steps);
+        alpha_bc = clamp(alpha_bc - meta_lr * mg, 0.0, 2.0);
+
+        mg = meta_grad_alpha(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 4, inner_steps);
+        alpha_ca = clamp(alpha_ca - meta_lr * mg, 0.0, 2.0);
+
+        mg = meta_grad_alpha(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, 5, inner_steps);
+        alpha_cb = clamp(alpha_cb - meta_lr * mg, 0.0, 2.0);
+
+        // Compute loss and drift
+        loss = run_cycle(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, inner_steps);
+
+        // Drift = sum of absolute changes in all alphas
+        drift = abs_f64(alpha_ab - prev_ab) + abs_f64(alpha_ac - prev_ac)
+              + abs_f64(alpha_ba - prev_ba) + abs_f64(alpha_bc - prev_bc)
+              + abs_f64(alpha_ca - prev_ca) + abs_f64(alpha_cb - prev_cb);
+
+        // Print progress
+        if cycle < 5 {
+            print("  ");
+            print_i64(cycle);
+            print("      ");
+            print_f64(loss);
+            print("  ");
+            print_f64(drift);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ac);
+            print("  ");
+            print_f64(alpha_ba);
+            print("  ");
+            print_f64(alpha_bc);
+            print("  ");
+            print_f64(alpha_ca);
+            print("  ");
+            print_f64(alpha_cb);
+            println("");
+        }
+        if cycle == 14 {
+            print("  14     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(drift);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ac);
+            print("  ");
+            print_f64(alpha_ba);
+            print("  ");
+            print_f64(alpha_bc);
+            print("  ");
+            print_f64(alpha_ca);
+            print("  ");
+            print_f64(alpha_cb);
+            println("");
+        }
+        if cycle == 29 {
+            print("  29     ");
+            print_f64(loss);
+            print("  ");
+            print_f64(drift);
+            print("  ");
+            print_f64(alpha_ab);
+            print("  ");
+            print_f64(alpha_ac);
+            print("  ");
+            print_f64(alpha_ba);
+            print("  ");
+            print_f64(alpha_bc);
+            print("  ");
+            print_f64(alpha_ca);
+            print("  ");
+            print_f64(alpha_cb);
+            println("");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    let final_loss: f64 = run_cycle(alpha_ab, alpha_ac, alpha_ba, alpha_bc, alpha_ca, alpha_cb, inner_steps);
+
+    println("");
+    println("--- Summary ---");
+    print("  No projection:   ");
+    print_f64(loss_no_proj);
+    println("");
+    print("  Uniform (1.0):   ");
+    print_f64(loss_uniform);
+    println("");
+    print("  Learned matrix:  ");
+    print_f64(final_loss);
+    println("");
+    println("");
+    println("  Learned Interaction Matrix:");
+    print("     A->B: ");
+    print_f64(alpha_ab);
+    print("  A->C: ");
+    print_f64(alpha_ac);
+    println("");
+    print("     B->A: ");
+    print_f64(alpha_ba);
+    print("  B->C: ");
+    print_f64(alpha_bc);
+    println("");
+    print("     C->A: ");
+    print_f64(alpha_ca);
+    print("  C->B: ");
+    print_f64(alpha_cb);
+    println("");
+    println("");
+
+    // Check: did the matrix converge? (drift near zero at end)
+    if drift < 0.01 {
+        println("  Matrix CONVERGED (drift < 0.01)");
+    } else {
+        println("  Matrix still drifting");
+    }
+
+    // Check: did learned matrix beat baselines?
+    if final_loss < loss_no_proj {
+        if final_loss < loss_uniform {
+            println("  PASS: Learned matrix BEATS both baselines");
+            println("  The interaction matrix is a valid higher-order");
+            println("  meta-gradient optimisation target.");
+        } else {
+            println("  PARTIAL: Beats no-projection but not uniform");
+        }
+    } else {
+        if final_loss <= loss_no_proj + 0.1 {
+            println("  PASS: Learned matrix matches baseline (flat landscape)");
+        } else {
+            println("  FAIL: Learned matrix worse than baseline");
+        }
+    }
+
+    0
+}

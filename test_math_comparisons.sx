@@ -1,0 +1,849 @@
+// Comprehensive comparison operator tests for f64 and i64
+// Tests all 6 comparison operators with positive, negative, zero, and edge cases
+
+// ============================================================
+// F64 COMPARISON TESTS
+// ============================================================
+
+fn test_f64_greater_than() -> i64 {
+    var failures: i64 = 0;
+
+    // 5.0 > 3.0 should be true
+    if 5.0 > 3.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 5.0 > 3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 3.0 > 5.0 should be false
+    if 3.0 > 5.0 {
+        println("FAIL: 3.0 > 5.0 expected false");
+        failures = failures + 1;
+    }
+
+    // 3.0 > 3.0 should be false
+    if 3.0 > 3.0 {
+        println("FAIL: 3.0 > 3.0 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_less_than() -> i64 {
+    var failures: i64 = 0;
+
+    // 3.0 < 5.0 should be true
+    if 3.0 < 5.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3.0 < 5.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 5.0 < 3.0 should be false
+    if 5.0 < 3.0 {
+        println("FAIL: 5.0 < 3.0 expected false");
+        failures = failures + 1;
+    }
+
+    // 3.0 < 3.0 should be false
+    if 3.0 < 3.0 {
+        println("FAIL: 3.0 < 3.0 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_greater_equal() -> i64 {
+    var failures: i64 = 0;
+
+    // 5.0 >= 3.0 should be true
+    if 5.0 >= 3.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 5.0 >= 3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 3.0 >= 3.0 should be true
+    if 3.0 >= 3.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3.0 >= 3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 2.0 >= 3.0 should be false
+    if 2.0 >= 3.0 {
+        println("FAIL: 2.0 >= 3.0 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_less_equal() -> i64 {
+    var failures: i64 = 0;
+
+    // 3.0 <= 5.0 should be true
+    if 3.0 <= 5.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3.0 <= 5.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 3.0 <= 3.0 should be true
+    if 3.0 <= 3.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3.0 <= 3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 5.0 <= 3.0 should be false
+    if 5.0 <= 3.0 {
+        println("FAIL: 5.0 <= 3.0 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_equal() -> i64 {
+    var failures: i64 = 0;
+
+    // 3.0 == 3.0 should be true
+    if 3.0 == 3.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3.0 == 3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 3.0 == 4.0 should be false
+    if 3.0 == 4.0 {
+        println("FAIL: 3.0 == 4.0 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_not_equal() -> i64 {
+    var failures: i64 = 0;
+
+    // 3.0 != 4.0 should be true
+    if 3.0 != 4.0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3.0 != 4.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 3.0 != 3.0 should be false
+    if 3.0 != 3.0 {
+        println("FAIL: 3.0 != 3.0 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_negatives() -> i64 {
+    var failures: i64 = 0;
+    var a: f64 = -5.0;
+    var b: f64 = -3.0;
+
+    // -5.0 < -3.0 should be true
+    if a < b {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -5.0 < -3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // -3.0 > -5.0 should be true
+    if b > a {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -3.0 > -5.0 expected true");
+        failures = failures + 1;
+    }
+
+    // -5.0 > -3.0 should be false
+    if a > b {
+        println("FAIL: -5.0 > -3.0 expected false");
+        failures = failures + 1;
+    }
+
+    // -3.0 < -5.0 should be false
+    if b < a {
+        println("FAIL: -3.0 < -5.0 expected false");
+        failures = failures + 1;
+    }
+
+    // -3.0 >= -3.0 should be true
+    if b >= b {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -3.0 >= -3.0 expected true");
+        failures = failures + 1;
+    }
+
+    // -5.0 <= -5.0 should be true
+    if a <= a {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -5.0 <= -5.0 expected true");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_zero() -> i64 {
+    var failures: i64 = 0;
+    var zero: f64 = 0.0;
+    var neg_zero: f64 = -0.0;
+    var pos: f64 = 1.0;
+    var neg: f64 = -1.0;
+
+    // 0.0 == 0.0
+    if zero == zero {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0.0 == 0.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 0.0 == -0.0 (IEEE 754: positive and negative zero are equal)
+    if zero == neg_zero {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0.0 == -0.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 0.0 > -1.0
+    if zero > neg {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0.0 > -1.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 0.0 < 1.0
+    if zero < pos {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0.0 < 1.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 0.0 >= 0.0
+    if zero >= zero {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0.0 >= 0.0 expected true");
+        failures = failures + 1;
+    }
+
+    // 0.0 <= 0.0
+    if zero <= zero {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0.0 <= 0.0 expected true");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_f64_if_else_branch() -> i64 {
+    var failures: i64 = 0;
+    var x: f64 = 7.5;
+    var y: f64 = 3.2;
+    var result: i64 = 0;
+
+    // Conditional branching on f64 comparison
+    if x > y {
+        result = 1;
+    } else {
+        result = 0;
+    }
+    if result != 1 {
+        println("FAIL: f64 if/else branch (x > y)");
+        failures = failures + 1;
+    }
+
+    // Chained if/else
+    if x < 5.0 {
+        result = 10;
+    } else {
+        if x < 8.0 {
+            result = 20;
+        } else {
+            result = 30;
+        }
+    }
+    // 7.5 is >= 5.0 and < 8.0, so result should be 20
+    if result != 20 {
+        println("FAIL: f64 chained if/else expected 20");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// ============================================================
+// I64 COMPARISON TESTS
+// ============================================================
+
+fn test_i64_greater_than() -> i64 {
+    var failures: i64 = 0;
+
+    if 5 > 3 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 5 > 3 expected true");
+        failures = failures + 1;
+    }
+
+    if 3 > 5 {
+        println("FAIL: 3 > 5 expected false");
+        failures = failures + 1;
+    }
+
+    if 3 > 3 {
+        println("FAIL: 3 > 3 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_less_than() -> i64 {
+    var failures: i64 = 0;
+
+    if 3 < 5 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3 < 5 expected true");
+        failures = failures + 1;
+    }
+
+    if 5 < 3 {
+        println("FAIL: 5 < 3 expected false");
+        failures = failures + 1;
+    }
+
+    if 3 < 3 {
+        println("FAIL: 3 < 3 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_greater_equal() -> i64 {
+    var failures: i64 = 0;
+
+    if 5 >= 3 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 5 >= 3 expected true");
+        failures = failures + 1;
+    }
+
+    if 3 >= 3 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3 >= 3 expected true");
+        failures = failures + 1;
+    }
+
+    if 2 >= 3 {
+        println("FAIL: 2 >= 3 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_less_equal() -> i64 {
+    var failures: i64 = 0;
+
+    if 3 <= 5 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3 <= 5 expected true");
+        failures = failures + 1;
+    }
+
+    if 3 <= 3 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3 <= 3 expected true");
+        failures = failures + 1;
+    }
+
+    if 5 <= 3 {
+        println("FAIL: 5 <= 3 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_equal() -> i64 {
+    var failures: i64 = 0;
+
+    if 42 == 42 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 42 == 42 expected true");
+        failures = failures + 1;
+    }
+
+    if 42 == 43 {
+        println("FAIL: 42 == 43 expected false");
+        failures = failures + 1;
+    }
+
+    if 0 == 0 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0 == 0 expected true");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_not_equal() -> i64 {
+    var failures: i64 = 0;
+
+    if 3 != 4 {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 3 != 4 expected true");
+        failures = failures + 1;
+    }
+
+    if 3 != 3 {
+        println("FAIL: 3 != 3 expected false");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_negatives() -> i64 {
+    var failures: i64 = 0;
+    var a: i64 = -10;
+    var b: i64 = -3;
+    var c: i64 = 0;
+
+    // -10 < -3
+    if a < b {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -10 < -3 expected true");
+        failures = failures + 1;
+    }
+
+    // -3 > -10
+    if b > a {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -3 > -10 expected true");
+        failures = failures + 1;
+    }
+
+    // -10 < 0
+    if a < c {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -10 < 0 expected true");
+        failures = failures + 1;
+    }
+
+    // 0 > -3
+    if c > b {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 0 > -3 expected true");
+        failures = failures + 1;
+    }
+
+    // -10 == -10
+    if a == a {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -10 == -10 expected true");
+        failures = failures + 1;
+    }
+
+    // -10 != -3
+    if a != b {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -10 != -3 expected true");
+        failures = failures + 1;
+    }
+
+    // -3 >= -10
+    if b >= a {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -3 >= -10 expected true");
+        failures = failures + 1;
+    }
+
+    // -10 <= -3
+    if a <= b {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -10 <= -3 expected true");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+fn test_i64_large_values() -> i64 {
+    var failures: i64 = 0;
+    var big: i64 = 1000000000;
+    var bigger: i64 = 2000000000;
+    var neg_big: i64 = -1000000000;
+
+    if bigger > big {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 2000000000 > 1000000000 expected true");
+        failures = failures + 1;
+    }
+
+    if big < bigger {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 1000000000 < 2000000000 expected true");
+        failures = failures + 1;
+    }
+
+    if neg_big < big {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: -1000000000 < 1000000000 expected true");
+        failures = failures + 1;
+    }
+
+    if big > neg_big {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 1000000000 > -1000000000 expected true");
+        failures = failures + 1;
+    }
+
+    if big != bigger {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 1000000000 != 2000000000 expected true");
+        failures = failures + 1;
+    }
+
+    if big == big {
+        let _pass: i64 = 0;
+    } else {
+        println("FAIL: 1000000000 == 1000000000 expected true");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// ============================================================
+// MIXED / CODEGEN STRESS TESTS
+// ============================================================
+
+// f64 comparison result stored in i64 variable
+fn test_f64_result_in_i64() -> i64 {
+    var failures: i64 = 0;
+    var a: f64 = 10.5;
+    var b: f64 = 3.7;
+    var flag: i64 = 0;
+
+    if a > b {
+        flag = 1;
+    } else {
+        flag = 0;
+    }
+    if flag != 1 {
+        println("FAIL: f64 cmp result in i64 (a > b)");
+        failures = failures + 1;
+    }
+
+    if a < b {
+        flag = 1;
+    } else {
+        flag = 0;
+    }
+    if flag != 0 {
+        println("FAIL: f64 cmp result in i64 (a < b)");
+        failures = failures + 1;
+    }
+
+    if a == b {
+        flag = 1;
+    } else {
+        flag = 0;
+    }
+    if flag != 0 {
+        println("FAIL: f64 cmp result in i64 (a == b)");
+        failures = failures + 1;
+    }
+
+    if a != b {
+        flag = 1;
+    } else {
+        flag = 0;
+    }
+    if flag != 1 {
+        println("FAIL: f64 cmp result in i64 (a != b)");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// Nested if/else with f64 conditions
+fn classify_f64(val: f64) -> i64 {
+    var result: i64 = 0;
+    if val < 0.0 {
+        result = -1;
+    } else {
+        if val == 0.0 {
+            result = 0;
+        } else {
+            if val < 10.0 {
+                result = 1;
+            } else {
+                if val < 100.0 {
+                    result = 2;
+                } else {
+                    result = 3;
+                }
+            }
+        }
+    }
+    result
+}
+
+fn test_nested_f64_conditions() -> i64 {
+    var failures: i64 = 0;
+    var r: i64 = 0;
+
+    r = classify_f64(-5.0);
+    if r != -1 {
+        println("FAIL: classify_f64(-5.0) expected -1");
+        failures = failures + 1;
+    }
+
+    r = classify_f64(0.0);
+    if r != 0 {
+        println("FAIL: classify_f64(0.0) expected 0");
+        failures = failures + 1;
+    }
+
+    r = classify_f64(7.5);
+    if r != 1 {
+        println("FAIL: classify_f64(7.5) expected 1");
+        failures = failures + 1;
+    }
+
+    r = classify_f64(50.0);
+    if r != 2 {
+        println("FAIL: classify_f64(50.0) expected 2");
+        failures = failures + 1;
+    }
+
+    r = classify_f64(999.0);
+    if r != 3 {
+        println("FAIL: classify_f64(999.0) expected 3");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// f64 comparison inside while loop condition
+fn test_f64_while_loop() -> i64 {
+    var failures: i64 = 0;
+    var x: f64 = 0.0;
+    var count: i64 = 0;
+
+    // Count how many steps until x >= 1.0 (incrementing by 0.25)
+    while x < 1.0 {
+        x = x + 0.25;
+        count = count + 1;
+    }
+    // 0.25, 0.50, 0.75, 1.00 = 4 steps
+    if count != 4 {
+        println("FAIL: f64 while loop count expected 4");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// Count true comparisons in a loop (comparison result used in arithmetic)
+fn test_i64_comparison_counting() -> i64 {
+    var failures: i64 = 0;
+    var true_count: i64 = 0;
+    var i: i64 = 0;
+
+    // Count how many values 0..9 are >= 5
+    while i < 10 {
+        if i >= 5 {
+            true_count = true_count + 1;
+        }
+        i = i + 1;
+    }
+    // 5,6,7,8,9 = 5 values
+    if true_count != 5 {
+        println("FAIL: i64 comparison counting expected 5");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// f64 decreasing loop with > comparison
+fn test_f64_decreasing_loop() -> i64 {
+    var failures: i64 = 0;
+    var x: f64 = 10.0;
+    var count: i64 = 0;
+
+    while x > 0.0 {
+        x = x - 2.5;
+        count = count + 1;
+    }
+    // 7.5, 5.0, 2.5, 0.0 = 4 steps (stops when x == 0.0, not > 0.0)
+    if count != 4 {
+        println("FAIL: f64 decreasing loop expected 4 steps");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// Mixed i64 and f64 vars in same function (codegen stress)
+fn test_mixed_vars_stress() -> i64 {
+    var failures: i64 = 0;
+    var fi: f64 = 2.5;
+    var fj: f64 = 7.5;
+    var ii: i64 = 2;
+    var ij: i64 = 7;
+
+    // f64 comparison
+    if fi >= fj {
+        println("FAIL: 2.5 >= 7.5 expected false");
+        failures = failures + 1;
+    }
+
+    // i64 comparison
+    if ii >= ij {
+        println("FAIL: 2 >= 7 expected false");
+        failures = failures + 1;
+    }
+
+    // Both should agree on ordering
+    if fi < fj {
+        if ii < ij {
+            let _ok: i64 = 0;
+        } else {
+            println("FAIL: mixed vars ordering mismatch");
+            failures = failures + 1;
+        }
+    } else {
+        println("FAIL: mixed vars f64 ordering wrong");
+        failures = failures + 1;
+    }
+
+    failures
+}
+
+// ============================================================
+// MAIN — Run all tests, report results
+// ============================================================
+
+fn run_test(name: i64, result: i64) -> i64 {
+    print("  Test ");
+    print_i64(name);
+    if result == 0 {
+        println(" PASS");
+    } else {
+        print(" FAIL (");
+        print_i64(result);
+        println(" failures)");
+    }
+    result
+}
+
+fn main() -> i64 {
+    var total_failures: i64 = 0;
+
+    println("========================================");
+    println("  COMPARISON OPERATOR TEST SUITE");
+    println("========================================");
+    println("");
+
+    println("--- F64 Comparisons ---");
+    total_failures = total_failures + run_test(1, test_f64_greater_than());
+    total_failures = total_failures + run_test(2, test_f64_less_than());
+    total_failures = total_failures + run_test(3, test_f64_greater_equal());
+    total_failures = total_failures + run_test(4, test_f64_less_equal());
+    total_failures = total_failures + run_test(5, test_f64_equal());
+    total_failures = total_failures + run_test(6, test_f64_not_equal());
+    total_failures = total_failures + run_test(7, test_f64_negatives());
+    total_failures = total_failures + run_test(8, test_f64_zero());
+    total_failures = total_failures + run_test(9, test_f64_if_else_branch());
+
+    println("");
+    println("--- I64 Comparisons ---");
+    total_failures = total_failures + run_test(10, test_i64_greater_than());
+    total_failures = total_failures + run_test(11, test_i64_less_than());
+    total_failures = total_failures + run_test(12, test_i64_greater_equal());
+    total_failures = total_failures + run_test(13, test_i64_less_equal());
+    total_failures = total_failures + run_test(14, test_i64_equal());
+    total_failures = total_failures + run_test(15, test_i64_not_equal());
+    total_failures = total_failures + run_test(16, test_i64_negatives());
+    total_failures = total_failures + run_test(17, test_i64_large_values());
+
+    println("");
+    println("--- Mixed / Codegen Stress ---");
+    total_failures = total_failures + run_test(18, test_f64_result_in_i64());
+    total_failures = total_failures + run_test(19, test_nested_f64_conditions());
+    total_failures = total_failures + run_test(20, test_f64_while_loop());
+    total_failures = total_failures + run_test(21, test_i64_comparison_counting());
+    total_failures = total_failures + run_test(22, test_f64_decreasing_loop());
+    total_failures = total_failures + run_test(23, test_mixed_vars_stress());
+
+    println("");
+    println("========================================");
+    print("  Total failures: ");
+    print_i64(total_failures);
+    println("");
+    if total_failures == 0 {
+        println("  ALL 23 TESTS PASSED");
+    } else {
+        println("  SOME TESTS FAILED");
+    }
+    println("========================================");
+
+    total_failures
+}

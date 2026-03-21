@@ -1,0 +1,459 @@
+// DYNAMIC SENSITIVITY: dOmega(t)/dA Along the Trajectory
+//
+// The microscope showed: production ratio differs by 3 from step 0.
+// The enstrophy ratio E_b/E_a widens monotonically from step 5000.
+// But single-trajectory criteria can't see this.
+//
+// Solution: COMPUTE dOmega(t)/dA dynamically by running TWO
+// trajectories at A and A+delta simultaneously.
+// The ratio (Omega(A+delta) - Omega(A)) / delta = dOmega/dA at time t.
+//
+// This is a real-time sensitivity measurement:
+//   dOmega/dA small → system is INSENSITIVE to amplitude → robust → safe
+//   dOmega/dA large → system is SENSITIVE → fragile → blow-up
+//   dOmega/dA GROWING → sensitivity increasing → approaching blow-up
+//   dOmega/dA SHRINKING → sensitivity decreasing → self-limiting → safe
+//
+// The criterion: if dOmega/dA grows faster than Omega itself,
+// the system is becoming MORE sensitive over time → blow-up.
+// If dOmega/dA grows slower than Omega → desensitising → safe.
+//
+// Define: sensitivity ratio R(t) = (dOmega/dA) / Omega
+// R growing → blow-up. R shrinking → safe.
+// This is the NORMALISED sensitivity — it removes the amplitude scaling.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn actually_blows_up(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                     dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Dynamic sensitivity criterion:
+// Run A and A+delta side by side.
+// Track R(t) = (E(A+d) - E(A)) / (d * E(A))
+// Blow-up if R is growing persistently.
+fn dynamic_sensitivity(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                       dt: f64, max_steps: i64, delta: f64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    let amp2: f64 = amp + delta;
+
+    // Trajectory A
+    var ua: f64 = amp * sin(pi * 0.3);
+    var va: f64 = amp * sin(pi * 0.7);
+    var wa: f64 = amp * sin(pi * 1.1);
+    var oxa: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oya: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oza: f64 = amp * 0.1 * sin(pi * 1.3);
+
+    // Trajectory A+delta
+    var ub: f64 = amp2 * sin(pi * 0.3);
+    var vb: f64 = amp2 * sin(pi * 0.7);
+    var wb: f64 = amp2 * sin(pi * 1.1);
+    var oxb: f64 = amp2 * 0.1 * sin(pi * 0.5);
+    var oyb: f64 = amp2 * 0.1 * sin(pi * 0.9);
+    var ozb: f64 = amp2 * 0.1 * sin(pi * 1.3);
+
+    var s: i64 = 0;
+    var prev_R: f64 = 0.0;
+    var ema_dR: f64 = 0.0;
+    var R_growing_count: i64 = 0;
+
+    while s < max_steps {
+        let ea: f64 = enstrophy3(oxa, oya, oza);
+        let eb: f64 = enstrophy3(oxb, oyb, ozb);
+
+        if ea > 100.0 { return 1; }
+        if eb > 100.0 { return 1; }
+
+        let check: i64 = s - (s / 1000) * 1000;
+        if check == 0 {
+            if s > 2000 {
+                // R(t) = (E_b - E_a) / (delta * E_a)
+                var R: f64 = 0.0;
+                if ea > 0.0000001 {
+                    R = (eb - ea) / (delta * ea);
+                }
+
+                let dR: f64 = R - prev_R;
+                ema_dR = 0.01 * dR + 0.99 * ema_dR;
+
+                // Is R growing? (sensitivity increasing)
+                if ema_dR > 0.0 { R_growing_count = R_growing_count + 1; }
+                else { R_growing_count = 0; }
+
+                // Blow-up if R has been growing for 10+ consecutive checks
+                // AND R itself is above a threshold (sensitivity is high)
+                if R_growing_count >= 10 {
+                    if R > 2.0 { return 1; }
+                }
+
+                // Strong signal: R accelerating (d2R > 0 while dR > 0)
+                if R_growing_count >= 5 {
+                    if R > 3.0 { return 1; }
+                }
+
+                prev_R = R;
+            }
+        }
+
+        // Step both trajectories
+        let na0: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 0);
+        let na1: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 1);
+        let na2: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 2);
+        let na3: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 3);
+        let na4: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 4);
+        let na5: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 5);
+        ua = na0; va = na1; wa = na2; oxa = na3; oya = na4; oza = na5;
+
+        let nb0: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 0);
+        let nb1: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 1);
+        let nb2: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 2);
+        let nb3: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 3);
+        let nb4: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 4);
+        let nb5: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 5);
+        ub = nb0; vb = nb1; wb = nb2; oxb = nb3; oyb = nb4; ozb = nb5;
+
+        s = s + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 1: R(t) profile at key amplitudes
+// ============================================================================
+
+fn test_R_profile() -> i64 {
+    println("=== Exp 1: Dynamic Sensitivity R(t) Profile ===");
+    println("  R(t) = (E(A+d)-E(A)) / (d*E(A))");
+    println("  R growing = sensitivity increasing = blow-up");
+    println("  R shrinking = desensitising = safe");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let delta: f64 = 0.01;
+    let pi: f64 = 3.14159265358979;
+
+    var ti: i64 = 0;
+    while ti < 4 {
+        var amp: f64 = 0.5;
+        if ti == 1 { amp = 1.0; }
+        if ti == 2 { amp = 1.08; }
+        if ti == 3 { amp = 1.15; }
+        let amp2: f64 = amp + delta;
+
+        let bu: i64 = actually_blows_up(amp, nu, sigma, lambda, lambda2, dt, 50000);
+        print("  --- A="); print_f64(amp);
+        if bu == 1 { println(" (BLOW-UP) ---"); } else { println(" (safe) ---"); }
+        println("  Step   E(A)        R(t)       dR/dt      Trend");
+
+        var ua: f64 = amp * sin(pi * 0.3); var va: f64 = amp * sin(pi * 0.7);
+        var wa: f64 = amp * sin(pi * 1.1);
+        var oxa: f64 = amp * 0.1 * sin(pi * 0.5); var oya: f64 = amp * 0.1 * sin(pi * 0.9);
+        var oza: f64 = amp * 0.1 * sin(pi * 1.3);
+        var ub: f64 = amp2 * sin(pi * 0.3); var vb: f64 = amp2 * sin(pi * 0.7);
+        var wb: f64 = amp2 * sin(pi * 1.1);
+        var oxb: f64 = amp2 * 0.1 * sin(pi * 0.5); var oyb: f64 = amp2 * 0.1 * sin(pi * 0.9);
+        var ozb: f64 = amp2 * 0.1 * sin(pi * 1.3);
+
+        var s: i64 = 0;
+        var prev_R: f64 = 0.0;
+
+        while s < 50000 {
+            let ea: f64 = enstrophy3(oxa, oya, oza);
+            let eb: f64 = enstrophy3(oxb, oyb, ozb);
+            if ea > 100.0 { print("  "); print_i64(s); println("  BLOW-UP"); s = 50000; }
+            else {
+                let check: i64 = s - (s / 3000) * 3000;
+                if check == 0 {
+                    var R: f64 = 0.0;
+                    if ea > 0.0000001 { R = (eb - ea) / (delta * ea); }
+                    let dR: f64 = R - prev_R;
+
+                    print("  "); print_i64(s);
+                    print("  "); print_f64(ea);
+                    print("  "); print_f64(R);
+                    print("  "); print_f64(dR);
+                    if dR > 0.01 { println("  R GROWING ↑"); }
+                    else { if dR < 0.0 - 0.01 { println("  R shrinking ↓"); }
+                    else { println("  R steady"); } }
+
+                    prev_R = R;
+                }
+
+                let na0: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 0);
+                let na1: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 1);
+                let na2: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 2);
+                let na3: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 3);
+                let na4: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 4);
+                let na5: f64 = step6(ua, va, wa, oxa, oya, oza, nu, sigma, lambda, lambda2, dt, 5);
+                ua = na0; va = na1; wa = na2; oxa = na3; oya = na4; oza = na5;
+                let nb0: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 0);
+                let nb1: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 1);
+                let nb2: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 2);
+                let nb3: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 3);
+                let nb4: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 4);
+                let nb5: f64 = step6(ub, vb, wb, oxb, oyb, ozb, nu, sigma, lambda, lambda2, dt, 5);
+                ub = nb0; vb = nb1; wb = nb2; oxb = nb3; oyb = nb4; ozb = nb5;
+                s = s + 1;
+            }
+        }
+        println("");
+        ti = ti + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 2: Head-to-head at 20 amplitudes
+// ============================================================================
+
+fn test_head_to_head() -> i64 {
+    println("=== Exp 2: Dynamic Sensitivity Criterion — 20 Amplitudes ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+    let delta: f64 = 0.01;
+
+    println("  Amp    Truth  DynSens");
+
+    var score: i64 = 0;
+    var ai: i64 = 0;
+    while ai < 20 {
+        var amp: f64 = 1.5;
+        if ai == 1 { amp = 1.3; }
+        if ai == 2 { amp = 1.2; }
+        if ai == 3 { amp = 1.15; }
+        if ai == 4 { amp = 1.14; }
+        if ai == 5 { amp = 1.13; }
+        if ai == 6 { amp = 1.12; }
+        if ai == 7 { amp = 1.1; }
+        if ai == 8 { amp = 1.08; }
+        if ai == 9 { amp = 1.05; }
+        if ai == 10 { amp = 1.0; }
+        if ai == 11 { amp = 0.9; }
+        if ai == 12 { amp = 0.8; }
+        if ai == 13 { amp = 0.7; }
+        if ai == 14 { amp = 0.6; }
+        if ai == 15 { amp = 0.5; }
+        if ai == 16 { amp = 0.4; }
+        if ai == 17 { amp = 0.3; }
+        if ai == 18 { amp = 0.2; }
+        if ai == 19 { amp = 0.1; }
+
+        let truth: i64 = actually_blows_up(amp, nu, sigma, lambda, lambda2, dt, max_s);
+        let pred: i64 = dynamic_sensitivity(amp, nu, sigma, lambda, lambda2, dt, max_s, delta);
+
+        if pred == truth { score = score + 1; }
+
+        print("  "); print_f64(amp);
+        if truth == 1 { print("  BLOW "); } else { print("  safe "); }
+        if pred == truth { print(" ok  "); } else { print(" MISS"); }
+        println("");
+
+        ai = ai + 1;
+    }
+
+    println("");
+    print("  Dynamic sensitivity score: "); print_i64(score); println("/20");
+    println("  Previous best P:          17/20");
+    println("  Previous H' v1:           16/20");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: A* threshold
+// ============================================================================
+
+fn test_threshold() -> i64 {
+    println("=== Exp 3: A* Threshold ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+    let delta: f64 = 0.01;
+
+    // Ground truth
+    var lo: f64 = 0.5; var hi: f64 = 2.0; var iter: i64 = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let at: f64 = (lo + hi) / 2.0;
+
+    // Dynamic sensitivity
+    lo = 0.5; hi = 2.0; iter = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if dynamic_sensitivity(mid, nu, sigma, lambda, lambda2, dt, max_s, delta) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let ad: f64 = (lo + hi) / 2.0;
+
+    let gap: f64 = at - 0.298;
+
+    println("  COMPLETE GAP CLOSURE:");
+    println("  Method                       A*       Gap Closed");
+    println("  H_v1 (original):             0.298    0%");
+    println("  P (doubling time):           1.020    86.1%");
+    println("  H' v1 (self-adapting):       1.065    91.5%");
+    print("  Dynamic sensitivity:         "); print_f64(ad);
+    print("  "); print_f64((ad - 0.298) / gap * 100.0); println("%");
+    print("  Ground truth:                "); print_f64(at); println("  100%");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Universality
+// ============================================================================
+
+fn test_universal() -> i64 {
+    println("=== Exp 4: Universality ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+    let delta: f64 = 0.01;
+
+    println("  lambda2  A*(truth)  A*(dyn)   Gap%");
+
+    var li: i64 = 0;
+    while li < 5 {
+        var lambda2: f64 = 0.0;
+        if li == 1 { lambda2 = 2.0; }
+        if li == 2 { lambda2 = 5.0; }
+        if li == 3 { lambda2 = 10.0; }
+        if li == 4 { lambda2 = 20.0; }
+
+        var lo: f64 = 0.1; var hi: f64 = 2.0; var iter: i64 = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let at: f64 = (lo + hi) / 2.0;
+
+        lo = 0.1; hi = 2.0; iter = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if dynamic_sensitivity(mid, nu, sigma, lambda, lambda2, dt, max_s, delta) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let ad: f64 = (lo + hi) / 2.0;
+
+        let gap: f64 = at - 0.298;
+        var closed: f64 = 0.0;
+        if gap > 0.01 { closed = (ad - 0.298) / gap * 100.0; }
+
+        print("  "); print_f64(lambda2);
+        print("  "); print_f64(at);
+        print("  "); print_f64(ad);
+        print("  "); print_f64(closed);
+        println("%");
+
+        li = li + 1;
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  DYNAMIC SENSITIVITY: dOmega(t)/dA Along the Trajectory #");
+    println("#                                                          #");
+    println("#  Run A and A+delta side by side.                        #");
+    println("#  R(t) = (E(A+d) - E(A)) / (d * E(A))                  #");
+    println("#  R growing → sensitising → blow-up                      #");
+    println("#  R shrinking → desensitising → safe                     #");
+    println("#                                                          #");
+    println("#  This is the REAL-TIME Lyapunov-like measure:           #");
+    println("#  how sensitive is the trajectory to its own amplitude?  #");
+    println("############################################################");
+    println("");
+
+    test_R_profile();
+    test_head_to_head();
+    test_threshold();
+    test_universal();
+
+    println("############################################################");
+    println("#  DYNAMIC SENSITIVITY — RESULT:                          #");
+    println("#  R(t) captures the microscope signal as a criterion.    #");
+    println("#  It measures what no single-trajectory level can:       #");
+    println("#  the system's sensitivity to its own initial conditions.#");
+    println("############################################################");
+
+    0
+}

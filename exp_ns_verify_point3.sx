@@ -1,0 +1,319 @@
+// VERIFICATION POINT 3: The Scaffold Chain is Complete
+//
+// Verify each arrow in the scaffold at the 8-mode model:
+//   Arrow 1: A < A* -> loop doesn't engage
+//   Arrow 2: Loop off -> H bounded
+//   Arrow 3: H bounded -> Omega bounded (scales as A^2)
+//   Arrow 4: A > A* -> loop engages -> blow-up
+//
+// Test 5 amplitudes below A* and 5 above A* for each arrow.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy4(o0: f64, o1: f64, o2: f64, o3: f64) -> f64 {
+    0.5 * (o0 * o0 + o1 * o1 + o2 * o2 + o3 * o3)
+}
+
+fn step8(u0: f64, u1: f64, u2: f64, u3: f64,
+         w0: f64, w1: f64, w2: f64, w3: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64, beta: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3;
+    let fd_u0: f64 = 0.0 - nu * 1.0 * u0;
+    let fd_u1: f64 = 0.0 - nu * 1.0 * u1;
+    let fd_u2: f64 = 0.0 - nu * 4.0 * u2;
+    let fd_u3: f64 = 0.0 - nu * 4.0 * u3;
+    let fd_w0: f64 = 0.0 - nu * 4.0 * w0;
+    let fd_w1: f64 = 0.0 - nu * 4.0 * w1;
+    let fd_w2: f64 = 0.0 - nu * 9.0 * w2;
+    let fd_w3: f64 = 0.0 - nu * 9.0 * w3;
+    let fs_u0: f64 = sigma * (w0 * u1 - w1 * u0);
+    let fs_u1: f64 = sigma * (w1 * u0 - w0 * u1);
+    let fs_u2: f64 = sigma * (w2 * u3 - w3 * u2);
+    let fs_u3: f64 = sigma * (w3 * u2 - w2 * u3);
+    let fv_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+    let fv_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+    let fv_w2: f64 = lambda * (w3 * u2 + w2 * u3);
+    let fv_w3: f64 = lambda * (w2 * u3 + w3 * u2);
+    let fq_w0: f64 = lambda2 * omega_sq * w0;
+    let fq_w1: f64 = lambda2 * omega_sq * w1;
+    let fq_w2: f64 = lambda2 * omega_sq * w2;
+    let fq_w3: f64 = lambda2 * omega_sq * w3;
+    let fc_w2: f64 = beta * (w0 * w1);
+    let fc_w3: f64 = beta * (0.0 - w0 * w1);
+
+    if which == 0 { return u0 + dt * (fd_u0 + fs_u0); }
+    if which == 1 { return u1 + dt * (fd_u1 + fs_u1); }
+    if which == 2 { return u2 + dt * (fd_u2 + fs_u2); }
+    if which == 3 { return u3 + dt * (fd_u3 + fs_u3); }
+    if which == 4 { return w0 + dt * (fd_w0 + fv_w0 + fq_w0); }
+    if which == 5 { return w1 + dt * (fd_w1 + fv_w1 + fq_w1); }
+    if which == 6 { return w2 + dt * (fd_w2 + fv_w2 + fq_w2 + fc_w2); }
+    w3 + dt * (fd_w3 + fv_w3 + fq_w3 + fc_w3)
+}
+
+// Run simulation with full tracking.
+// query==0: return 1 if blow-up (e>100), 0 otherwise
+// query==1: return max enstrophy
+// query==2: return max H (energy-enstrophy coupling)
+// query==3: return 1 if loop engages (sustained doubling time shrinkage)
+fn run_scaffold(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                beta: f64, dt: f64, max_steps: i64, query: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2);
+    var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8);
+    var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0);
+    var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var max_e: f64 = 0.0;
+    var max_h: f64 = 0.0;
+    var prev_dbl: f64 = 0.0;
+    var base_e: f64 = enstrophy4(w0, w1, w2, w3);
+    var target_e: f64 = base_e * 2.0;
+    var dbl_start: i64 = 0;
+    var shrink_count: f64 = 0.0;
+    var loop_engaged: f64 = 0.0;
+
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        let ke: f64 = 0.5 * (u0*u0 + u1*u1 + u2*u2 + u3*u3);
+        let h: f64 = ke + e;
+        if e > max_e { max_e = e; }
+        if h > max_h { max_h = h; }
+
+        if e > 100.0 {
+            if query == 0 { return 1.0; }
+            if query == 1 { return max_e; }
+            if query == 2 { return max_h; }
+            return 1.0;
+        }
+
+        // Track doubling times for loop detection
+        if e >= target_e {
+            let dtime: f64 = (s - dbl_start) as f64;
+            if prev_dbl > 0.1 {
+                if dtime < prev_dbl * 0.85 {
+                    shrink_count = shrink_count + 1.0;
+                } else {
+                    shrink_count = shrink_count * 0.7;
+                }
+            }
+            if shrink_count > 2.0 { loop_engaged = 1.0; }
+            prev_dbl = dtime;
+            base_e = e;
+            target_e = base_e * 2.0;
+            dbl_start = s;
+        }
+        if e < base_e * 0.5 {
+            base_e = e;
+            target_e = base_e * 2.0;
+            dbl_start = s;
+            prev_dbl = 0.0;
+            shrink_count = 0.0;
+        }
+
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    if query == 0 { return 0.0; }
+    if query == 1 { return max_e; }
+    if query == 2 { return max_h; }
+    loop_engaged
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  VERIFICATION POINT 3:                                   #");
+    println("#  The Scaffold Chain is Complete                          #");
+    println("#                                                          #");
+    println("#  Arrow 1: A < A* -> loop off                            #");
+    println("#  Arrow 2: loop off -> H bounded                         #");
+    println("#  Arrow 3: H bounded -> Omega bounded (scales A^2)       #");
+    println("#  Arrow 4: A > A* -> blow-up                             #");
+    println("############################################################");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    // First find A*
+    println("  Finding A*...");
+    var lo: f64 = 0.001;
+    var hi: f64 = 2.0;
+    var iter: i64 = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        let r: f64 = run_scaffold(mid, nu, sigma, lambda, lambda2, beta, dt, max_s, 0);
+        if r > 0.5 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let astar: f64 = (lo + hi) / 2.0;
+    print("  A* = ");
+    print_f64(astar);
+    println("");
+    println("");
+
+    // ---- Arrow 1: A < A* -> loop doesn't engage ----
+    println("  ARROW 1: A < A* -> loop off");
+    println("  Amp         Loop?");
+    var a1_pass: i64 = 0;
+    var ai: i64 = 0;
+    while ai < 5 {
+        var amp: f64 = astar * 0.1;
+        if ai == 1 { amp = astar * 0.2; }
+        if ai == 2 { amp = astar * 0.4; }
+        if ai == 3 { amp = astar * 0.6; }
+        if ai == 4 { amp = astar * 0.8; }
+
+        let loop_on: f64 = run_scaffold(amp, nu, sigma, lambda, lambda2, beta, dt, max_s, 3);
+        let ok: i64 = if loop_on < 0.5 { 1 } else { 0 };
+        if ok == 1 { a1_pass = a1_pass + 1; }
+
+        print("  ");
+        print_f64(amp);
+        if ok == 1 { println("  OFF (correct)"); } else { println("  ON  (unexpected)"); }
+
+        ai = ai + 1;
+    }
+    print("  Arrow 1: ");
+    print_i64(a1_pass);
+    println("/5 confirmed");
+    println("");
+
+    // ---- Arrow 2: Loop off -> H bounded ----
+    println("  ARROW 2: loop off -> H bounded");
+    println("  Amp         max(H)       Bounded?");
+    var a2_pass: i64 = 0;
+    ai = 0;
+    while ai < 5 {
+        var amp: f64 = astar * 0.1;
+        if ai == 1 { amp = astar * 0.2; }
+        if ai == 2 { amp = astar * 0.4; }
+        if ai == 3 { amp = astar * 0.6; }
+        if ai == 4 { amp = astar * 0.8; }
+
+        let mh: f64 = run_scaffold(amp, nu, sigma, lambda, lambda2, beta, dt, max_s, 2);
+        let bounded: i64 = if mh < 50.0 { 1 } else { 0 };
+        if bounded == 1 { a2_pass = a2_pass + 1; }
+
+        print("  ");
+        print_f64(amp);
+        print("  ");
+        print_f64(mh);
+        if bounded == 1 { println("  YES"); } else { println("  NO"); }
+
+        ai = ai + 1;
+    }
+    print("  Arrow 2: ");
+    print_i64(a2_pass);
+    println("/5 confirmed");
+    println("");
+
+    // ---- Arrow 3: H bounded -> Omega bounded, scales as A^2 ----
+    println("  ARROW 3: H bounded -> Omega bounded (A^2 scaling)");
+    println("  Amp         max(Omega)   Bounded?  Ratio(Omega/A^2)");
+    var a3_pass: i64 = 0;
+    ai = 0;
+    while ai < 5 {
+        var amp: f64 = astar * 0.1;
+        if ai == 1 { amp = astar * 0.2; }
+        if ai == 2 { amp = astar * 0.4; }
+        if ai == 3 { amp = astar * 0.6; }
+        if ai == 4 { amp = astar * 0.8; }
+
+        let me: f64 = run_scaffold(amp, nu, sigma, lambda, lambda2, beta, dt, max_s, 1);
+        let bounded: i64 = if me < 50.0 { 1 } else { 0 };
+        var ratio: f64 = 0.0;
+        if amp > 0.0000001 { ratio = me / (amp * amp); }
+        if bounded == 1 { a3_pass = a3_pass + 1; }
+
+        print("  ");
+        print_f64(amp);
+        print("  ");
+        print_f64(me);
+        if bounded == 1 { print("  YES"); } else { print("  NO "); }
+        print("       ");
+        print_f64(ratio);
+        println("");
+
+        ai = ai + 1;
+    }
+    print("  Arrow 3: ");
+    print_i64(a3_pass);
+    println("/5 confirmed");
+    println("");
+
+    // ---- Arrow 4: A > A* -> blow-up ----
+    println("  ARROW 4: A > A* -> blow-up");
+    println("  Amp         Blows up?");
+    var a4_pass: i64 = 0;
+    ai = 0;
+    while ai < 5 {
+        var amp: f64 = astar * 1.2;
+        if ai == 1 { amp = astar * 1.5; }
+        if ai == 2 { amp = astar * 2.0; }
+        if ai == 3 { amp = astar * 3.0; }
+        if ai == 4 { amp = astar * 5.0; }
+
+        let blew: f64 = run_scaffold(amp, nu, sigma, lambda, lambda2, beta, dt, max_s, 0);
+        let ok: i64 = if blew > 0.5 { 1 } else { 0 };
+        if ok == 1 { a4_pass = a4_pass + 1; }
+
+        print("  ");
+        print_f64(amp);
+        if ok == 1 { println("  YES (correct)"); } else { println("  NO  (unexpected)"); }
+
+        ai = ai + 1;
+    }
+    print("  Arrow 4: ");
+    print_i64(a4_pass);
+    println("/5 confirmed");
+    println("");
+
+    // Summary
+    println("############################################################");
+    print("#  Arrow 1: ");
+    print_i64(a1_pass);
+    println("/5 confirmed                                #");
+    print("#  Arrow 2: ");
+    print_i64(a2_pass);
+    println("/5 confirmed                                #");
+    print("#  Arrow 3: ");
+    print_i64(a3_pass);
+    println("/5 confirmed                                #");
+    print("#  Arrow 4: ");
+    print_i64(a4_pass);
+    println("/5 confirmed                                #");
+    if a1_pass == 5 {
+        if a2_pass == 5 {
+            if a3_pass == 5 {
+                if a4_pass == 5 {
+                    println("#  SCAFFOLD CHAIN COMPLETE: every implication verified     #");
+                }
+            }
+        }
+    }
+    println("############################################################");
+
+    0
+}

@@ -1,0 +1,289 @@
+// 10-MODE MODEL: 5 velocity + 5 vorticity
+//
+// k=1: u0, u1 (velocity), w0, w1 (vorticity)
+// k=2: u2, u3 (velocity), w2, w3 (vorticity)
+// k=3: u4 (velocity), w4 (vorticity)
+//
+// Diffusion: -nu * k^2 * component
+// Cascade: k=1→k=2 (beta1), k=2→k=3 (beta2)
+// Two cascade stages = richer energy transfer
+//
+// 6-mode: P/truth = 86.1%, A* = 1.136
+// 8-mode: P/truth = 95.5%, A* = 0.290
+// 10-mode: ?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy5(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64) -> f64 {
+    0.5 * (w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3 + w4 * w4)
+}
+
+// 10-mode step
+// Velocity: u0,u1(k=1), u2,u3(k=2), u4(k=3)
+// Vorticity: w0,w1(k=1), w2,w3(k=2), w4(k=3)
+fn step10(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+          w0: f64, w1: f64, w2: f64, w3: f64, w4: f64,
+          nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+          beta1: f64, beta2: f64, dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = w0*w0 + w1*w1 + w2*w2 + w3*w3 + w4*w4;
+    // Diffusion
+    let d_u0: f64 = 0.0 - nu * 1.0 * u0;
+    let d_u1: f64 = 0.0 - nu * 1.0 * u1;
+    let d_u2: f64 = 0.0 - nu * 4.0 * u2;
+    let d_u3: f64 = 0.0 - nu * 4.0 * u3;
+    let d_u4: f64 = 0.0 - nu * 9.0 * u4;
+    let d_w0: f64 = 0.0 - nu * 1.0 * w0;
+    let d_w1: f64 = 0.0 - nu * 1.0 * w1;
+    let d_w2: f64 = 0.0 - nu * 4.0 * w2;
+    let d_w3: f64 = 0.0 - nu * 4.0 * w3;
+    let d_w4: f64 = 0.0 - nu * 9.0 * w4;
+    // Velocity-vorticity coupling (sigma)
+    let s_u0: f64 = sigma * (w0 * u1 - w1 * u0);
+    let s_u1: f64 = sigma * (w1 * u0 - w0 * u1);
+    let s_u2: f64 = sigma * (w2 * u3 - w3 * u2);
+    let s_u3: f64 = sigma * (w3 * u2 - w2 * u3);
+    let s_u4: f64 = sigma * (w4 * u2 - w2 * u4);
+    // Vortex stretching (lambda)
+    let v_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+    let v_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+    let v_w2: f64 = lambda * (w3 * u2 + w2 * u3);
+    let v_w3: f64 = lambda * (w2 * u3 + w3 * u2);
+    let v_w4: f64 = lambda * (w2 * u4 + w4 * u2);
+    // Quadratic self-amplification (lambda2)
+    let q_w0: f64 = lambda2 * omega_sq * w0;
+    let q_w1: f64 = lambda2 * omega_sq * w1;
+    let q_w2: f64 = lambda2 * omega_sq * w2;
+    let q_w3: f64 = lambda2 * omega_sq * w3;
+    let q_w4: f64 = lambda2 * omega_sq * w4;
+    // Forward cascade: k=1→k=2 (beta1), k=2→k=3 (beta2)
+    let c_w2: f64 = beta1 * (w0 * w1);
+    let c_w3: f64 = beta1 * (0.0 - w0 * w1);
+    let c_w4: f64 = beta2 * (w2 * w3);
+
+    if which == 0 { return u0 + dt * (d_u0 + s_u0); }
+    if which == 1 { return u1 + dt * (d_u1 + s_u1); }
+    if which == 2 { return u2 + dt * (d_u2 + s_u2); }
+    if which == 3 { return u3 + dt * (d_u3 + s_u3); }
+    if which == 4 { return u4 + dt * (d_u4 + s_u4); }
+    if which == 5 { return w0 + dt * (d_w0 + v_w0 + q_w0); }
+    if which == 6 { return w1 + dt * (d_w1 + v_w1 + q_w1); }
+    if which == 7 { return w2 + dt * (d_w2 + v_w2 + q_w2 + c_w2); }
+    if which == 8 { return w3 + dt * (d_w3 + v_w3 + q_w3 + c_w3); }
+    w4 + dt * (d_w4 + v_w4 + q_w4 + c_w4)
+}
+
+fn init_and_run_10(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                   beta1: f64, beta2: f64, dt: f64, max_steps: i64,
+                   query: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.15);
+    var u1: f64 = amp * sin(pi * 0.45);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.65);
+    var u3: f64 = amp * 0.5 * sin(pi * 0.85);
+    var u4: f64 = amp * 0.25 * sin(pi * 1.05);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.25);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.55);
+    var w2: f64 = amp * 0.05 * sin(pi * 0.75);
+    var w3: f64 = amp * 0.05 * sin(pi * 0.95);
+    var w4: f64 = amp * 0.025 * sin(pi * 1.15);
+    var s: i64 = 0;
+    // State for doubling time (query=1)
+    var base_e: f64 = enstrophy5(w0, w1, w2, w3, w4);
+    var target_e: f64 = base_e * 2.0;
+    var prev_dbl: f64 = 0.0;
+    var dbl_start: i64 = 0;
+    var shrink: f64 = 0.0;
+    var max_e: f64 = base_e;
+    var prev_e: f64 = base_e;
+    var prev_e2: f64 = base_e;
+
+    while s < max_steps {
+        let e: f64 = enstrophy5(w0, w1, w2, w3, w4);
+        if e > 100.0 {
+            if query == 0 { return s as f64; }
+            if query == 1 { return 0.0 - 1.0; }
+            return max_e;
+        }
+        if e > max_e { max_e = e; }
+        // Doubling time tracking
+        if e >= target_e {
+            let dtime: f64 = (s - dbl_start) as f64;
+            if prev_dbl > 0.1 {
+                if dtime < prev_dbl * 0.85 { shrink = shrink + 1.0; }
+                else { shrink = shrink * 0.7; }
+            }
+            if query == 1 { if shrink > 2.0 { return 0.0 - 1.0; } }
+            prev_dbl = dtime; base_e = e; target_e = base_e * 2.0; dbl_start = s;
+        }
+        if e < base_e * 0.5 {
+            base_e = e; target_e = base_e * 2.0; dbl_start = s;
+            prev_dbl = 0.0; shrink = 0.0;
+        }
+        prev_e2 = prev_e; prev_e = e;
+
+        let n0: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 0);
+        let n1: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 1);
+        let n2: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 2);
+        let n3: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 3);
+        let n4: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 4);
+        let n5: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 5);
+        let n6: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 6);
+        let n7: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 7);
+        let n8: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 8);
+        let n9: f64 = step10(u0,u1,u2,u3,u4,w0,w1,w2,w3,w4, nu,sigma,lambda,lambda2,beta1,beta2,dt, 9);
+        u0=n0; u1=n1; u2=n2; u3=n3; u4=n4;
+        w0=n5; w1=n6; w2=n7; w3=n8; w4=n9;
+        s = s + 1;
+    }
+    if query == 0 { return max_steps as f64; }
+    if query == 1 { return 0.0; }
+    max_e
+}
+
+fn blows_up_10(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               beta1: f64, beta2: f64, dt: f64, max_steps: i64) -> i64 {
+    let r: f64 = init_and_run_10(amp, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_steps, 0);
+    if r < (max_steps as f64) { return 1; }
+    0
+}
+
+fn criterion_P_10(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                  beta1: f64, beta2: f64, dt: f64, max_steps: i64) -> i64 {
+    let r: f64 = init_and_run_10(amp, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_steps, 1);
+    if r < 0.0 { return 1; }
+    0
+}
+
+fn test_10mode() -> i64 {
+    println("=== 10-MODE MODEL ===");
+    println("  5 velocity (k=1,2,3) + 5 vorticity (k=1,2,3)");
+    println("  Two cascade stages: k=1→k=2 (beta1), k=2→k=3 (beta2)");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let beta1: f64 = 0.5;
+    let beta2: f64 = 0.3;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    // Ground truth A*
+    var lo: f64 = 0.001; var hi: f64 = 2.0; var iter: i64 = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if blows_up_10(mid, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let at: f64 = (lo + hi) / 2.0;
+
+    // P criterion A*
+    lo = 0.001; hi = 2.0; iter = 0;
+    while iter < 16 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_P_10(mid, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let ap: f64 = (lo + hi) / 2.0;
+
+    print("  Ground truth A*: "); print_f64(at); println("");
+    print("  P criterion A*:  "); print_f64(ap); println("");
+    var ratio: f64 = 0.0;
+    if at > 0.001 { ratio = ap / at * 100.0; }
+    print("  P/truth ratio:   "); print_f64(ratio); println("%");
+    println("");
+
+    // Head-to-head
+    println("  Amp      Truth  P");
+    var score: i64 = 0;
+    var ai: i64 = 0;
+    while ai < 14 {
+        var amp: f64 = 0.5;
+        if ai == 1 { amp = 0.3; }
+        if ai == 2 { amp = 0.2; }
+        if ai == 3 { amp = 0.1; }
+        if ai == 4 { amp = 0.05; }
+        if ai == 5 { amp = 0.03; }
+        if ai == 6 { amp = 0.02; }
+        if ai == 7 { amp = 0.01; }
+        if ai == 8 { amp = 0.005; }
+        if ai == 9 { amp = 0.003; }
+        if ai == 10 { amp = 0.002; }
+        if ai == 11 { amp = 0.001; }
+        if ai == 12 { amp = 0.0005; }
+        if ai == 13 { amp = 0.0001; }
+
+        let truth: i64 = blows_up_10(amp, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_s);
+        let pred: i64 = criterion_P_10(amp, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_s);
+        if pred == truth { score = score + 1; }
+
+        print("  "); print_f64(amp);
+        if truth == 1 { print("  BLOW "); } else { print("  safe "); }
+        if pred == truth { print(" ok  "); } else { print(" MISS"); }
+        println("");
+
+        ai = ai + 1;
+    }
+    println("");
+    print("  P score: "); print_i64(score); println("/14");
+    println("");
+
+    // Alpha scaling
+    println("  Scaling law (below A*):");
+    println("  Amp         max(Omega)     alpha");
+    var prev_la: f64 = 0.0;
+    var prev_le: f64 = 0.0;
+    ai = 0;
+    while ai < 5 {
+        var amp: f64 = 0.001;
+        if ai == 1 { amp = 0.0005; }
+        if ai == 2 { amp = 0.00025; }
+        if ai == 3 { amp = 0.000125; }
+        if ai == 4 { amp = 0.0000625; }
+
+        let me: f64 = init_and_run_10(amp, nu, sigma, lambda, lambda2, beta1, beta2, dt, max_s, 2);
+        let la: f64 = ln(amp) / ln(2.0);
+        var le: f64 = 0.0;
+        if me > 0.0000000001 { le = ln(me) / ln(2.0); }
+        var alpha: f64 = 0.0;
+        if ai > 0 { if abs_f64(la - prev_la) > 0.01 { alpha = (le - prev_le) / (la - prev_la); } }
+
+        print("  "); print_f64(amp);
+        print("  "); print_f64(me);
+        print("  "); print_f64(alpha);
+        println("");
+        prev_la = la; prev_le = le;
+        ai = ai + 1;
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  10-MODE AND 12-MODE MODELS                             #");
+    println("#                                                          #");
+    println("#  6-mode: solved (91.5% at T=50k, 100% at T=100k)       #");
+    println("#  8-mode: P=95.5%, 16/16 perfect, alpha=2               #");
+    println("#  10-mode: 5 vel + 5 vort, two cascade stages            #");
+    println("#                                                          #");
+    println("#  Does the framework continue to improve with modes?     #");
+    println("############################################################");
+    println("");
+
+    test_10mode();
+
+    println("############################################################");
+    println("#  SCALING SUMMARY:                                       #");
+    println("#  6-mode: P/truth = 86.1%                                #");
+    println("#  8-mode: P/truth = 95.5%                                #");
+    println("#  10-mode: see above                                     #");
+    println("#                                                          #");
+    println("#  If P/truth improves → framework gets BETTER with depth #");
+    println("############################################################");
+
+    0
+}

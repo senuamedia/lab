@@ -1,0 +1,477 @@
+// Stress Test: Hard Optimization Benchmarks
+//
+// Tests the interaction matrix and convergence score on functions
+// specifically designed to break optimizers:
+//
+// 1. Rosenbrock (banana valley) — narrow curved valley, non-convex
+// 2. Rastrigin (multimodal) — hundreds of local minima
+// 3. Ackley (deceptive) — flat outer region, deep hole at origin
+//
+// Each test uses 3 competing objectives at different points in the
+// landscape, with 10 parameters (not 3-4), and 200+ meta-cycles.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn dot_n(a: i64, b: i64, n: i64) -> f64 {
+    var sum: f64 = 0.0;
+    var i: i64 = 0;
+    while i < n {
+        let ai: f64 = bits_to_f64(vec_get(a, i));
+        let bi: f64 = bits_to_f64(vec_get(b, i));
+        sum = sum + ai * bi;
+        i = i + 1;
+    }
+    sum
+}
+
+fn norm_n(a: i64, n: i64) -> f64 {
+    sqrt(dot_n(a, a, n))
+}
+
+fn cosine_n(a: i64, b: i64, n: i64) -> f64 {
+    let d: f64 = dot_n(a, b, n);
+    let na: f64 = norm_n(a, n);
+    let nb: f64 = norm_n(b, n);
+    d / (na * nb + 0.000000000001)
+}
+
+// Create a vector of n f64 values, all set to val
+fn vec_fill(n: i64, val: f64) -> i64 {
+    let v: i64 = vec_new();
+    var i: i64 = 0;
+    while i < n {
+        vec_push(v, f64_to_bits(val));
+        i = i + 1;
+    }
+    v
+}
+
+fn vec_set_f64(v: i64, idx: i64, val: f64) -> i64 {
+    vec_set(v, idx, f64_to_bits(val));
+    0
+}
+
+fn vec_get_f64(v: i64, idx: i64) -> f64 {
+    bits_to_f64(vec_get(v, idx))
+}
+
+// ============================================================================
+// Rosenbrock function: f(x) = sum_{i=0}^{n-2} [100(x_{i+1} - x_i^2)^2 + (1 - x_i)^2]
+// Global minimum at x = (1, 1, ..., 1), f = 0
+// The valley is narrow and curved — very hard to optimise
+// ============================================================================
+
+fn rosenbrock(w: i64, n: i64) -> f64 {
+    var sum: f64 = 0.0;
+    var i: i64 = 0;
+    while i < n - 1 {
+        let xi: f64 = vec_get_f64(w, i);
+        let xi1: f64 = vec_get_f64(w, i + 1);
+        let t1: f64 = xi1 - xi * xi;
+        let t2: f64 = 1.0 - xi;
+        sum = sum + 100.0 * t1 * t1 + t2 * t2;
+        i = i + 1;
+    }
+    sum
+}
+
+// Rosenbrock gradient for dimension d
+fn rosenbrock_grad_d(w: i64, n: i64, d: i64) -> f64 {
+    let xd: f64 = vec_get_f64(w, d);
+    var grad: f64 = 0.0;
+    // Contribution from term (d, d+1)
+    if d < n - 1 {
+        let xd1: f64 = vec_get_f64(w, d + 1);
+        grad = grad - 400.0 * xd * (xd1 - xd * xd) + 2.0 * (xd - 1.0);
+    }
+    // Contribution from term (d-1, d)
+    if d > 0 {
+        let xdm1: f64 = vec_get_f64(w, d - 1);
+        grad = grad + 200.0 * (xd - xdm1 * xdm1);
+    }
+    grad
+}
+
+// Shifted Rosenbrock: minimum at target instead of (1,1,...,1)
+fn shifted_rosenbrock(w: i64, target: i64, n: i64) -> f64 {
+    // Compute w - target + 1 (shift so minimum is at target)
+    let shifted: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n {
+        let wi: f64 = vec_get_f64(w, i);
+        let ti: f64 = vec_get_f64(target, i);
+        vec_set_f64(shifted, i, wi - ti + 1.0);
+        i = i + 1;
+    }
+    rosenbrock(shifted, n)
+}
+
+fn shifted_rosenbrock_grad(w: i64, target: i64, n: i64) -> i64 {
+    let shifted: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n {
+        let wi: f64 = vec_get_f64(w, i);
+        let ti: f64 = vec_get_f64(target, i);
+        vec_set_f64(shifted, i, wi - ti + 1.0);
+        i = i + 1;
+    }
+    let grad: i64 = vec_fill(n, 0.0);
+    i = 0;
+    while i < n {
+        vec_set_f64(grad, i, rosenbrock_grad_d(shifted, n, i));
+        i = i + 1;
+    }
+    grad
+}
+
+// ============================================================================
+// Rastrigin function: f(x) = 10n + sum [x_i^2 - 10*cos(2*pi*x_i)]
+// Highly multimodal — local minima everywhere on a grid
+// Global minimum at x = (0, 0, ..., 0), f = 0
+// ============================================================================
+
+fn rastrigin(w: i64, n: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var sum: f64 = 10.0 * (n as f64);
+    var i: i64 = 0;
+    while i < n {
+        let xi: f64 = vec_get_f64(w, i);
+        sum = sum + xi * xi - 10.0 * cos(2.0 * pi * xi);
+        i = i + 1;
+    }
+    sum
+}
+
+fn rastrigin_grad_d(w: i64, n: i64, d: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    let xd: f64 = vec_get_f64(w, d);
+    2.0 * xd + 20.0 * pi * sin(2.0 * pi * xd)
+}
+
+fn shifted_rastrigin_grad(w: i64, target: i64, n: i64) -> i64 {
+    let shifted: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n {
+        vec_set_f64(shifted, i, vec_get_f64(w, i) - vec_get_f64(target, i));
+        i = i + 1;
+    }
+    let grad: i64 = vec_fill(n, 0.0);
+    i = 0;
+    while i < n {
+        vec_set_f64(grad, i, rastrigin_grad_d(shifted, n, i));
+        i = i + 1;
+    }
+    grad
+}
+
+fn shifted_rastrigin(w: i64, target: i64, n: i64) -> f64 {
+    let shifted: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n {
+        vec_set_f64(shifted, i, vec_get_f64(w, i) - vec_get_f64(target, i));
+        i = i + 1;
+    }
+    rastrigin(shifted, n)
+}
+
+// Clip gradient norm to max_norm
+fn clip_gradient(g: i64, n: i64, max_norm: f64) -> i64 {
+    let gn: f64 = norm_n(g, n);
+    if gn <= max_norm {
+        return g;
+    }
+    let scale: f64 = max_norm / gn;
+    let result: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n {
+        vec_set_f64(result, i, vec_get_f64(g, i) * scale);
+        i = i + 1;
+    }
+    result
+}
+
+// ============================================================================
+// Cosine-scaled projection for n-dimensional gradients
+// ============================================================================
+
+fn project_gradient(gi: i64, gj: i64, alpha: f64, n: i64) -> i64 {
+    let cos_val: f64 = cosine_n(gi, gj, n);
+    if cos_val >= 0.0 {
+        // No conflict — return gi unchanged
+        let result: i64 = vec_fill(n, 0.0);
+        var k: i64 = 0;
+        while k < n {
+            vec_set_f64(result, k, vec_get_f64(gi, k));
+            k = k + 1;
+        }
+        return result;
+    }
+    let scale: f64 = alpha * (0.0 - cos_val);
+    let gj_sq: f64 = dot_n(gj, gj, n) + 0.000000000001;
+    let coeff: f64 = scale * dot_n(gi, gj, n) / gj_sq;
+    let result: i64 = vec_fill(n, 0.0);
+    var k: i64 = 0;
+    while k < n {
+        let gi_k: f64 = vec_get_f64(gi, k);
+        let gj_k: f64 = vec_get_f64(gj, k);
+        vec_set_f64(result, k, gi_k - coeff * gj_k);
+        k = k + 1;
+    }
+    result
+}
+
+// ============================================================================
+// Training cycle: 3 competing objectives, n dimensions
+// Returns combined loss
+// ============================================================================
+
+fn train_cycle(target_a: i64, target_b: i64, target_c: i64,
+               alpha_ab: f64, alpha_ac: f64, alpha_ba: f64,
+               alpha_bc: f64, alpha_ca: f64, alpha_cb: f64,
+               n: i64, steps: i64, lr: f64, mode: i64) -> f64 {
+    // mode: 0 = Rosenbrock, 1 = Rastrigin
+    let w: i64 = vec_fill(n, 0.0);
+    var step: i64 = 0;
+
+    while step < steps {
+        // Compute gradients for each objective
+        var ga: i64 = 0;
+        var gb: i64 = 0;
+        var gc: i64 = 0;
+        if mode == 0 {
+            ga = shifted_rosenbrock_grad(w, target_a, n);
+            gb = shifted_rosenbrock_grad(w, target_b, n);
+            gc = shifted_rosenbrock_grad(w, target_c, n);
+        } else {
+            ga = shifted_rastrigin_grad(w, target_a, n);
+            gb = shifted_rastrigin_grad(w, target_b, n);
+            gc = shifted_rastrigin_grad(w, target_c, n);
+        }
+
+        // Clip gradients to prevent explosion (Rosenbrock has 100x multiplier)
+        ga = clip_gradient(ga, n, 100.0);
+        gb = clip_gradient(gb, n, 100.0);
+        gc = clip_gradient(gc, n, 100.0);
+
+        // Project each gradient off the other two
+        let ra: i64 = project_gradient(project_gradient(ga, gb, alpha_ab, n), gc, alpha_ac, n);
+        let rb: i64 = project_gradient(project_gradient(gb, ga, alpha_ba, n), gc, alpha_bc, n);
+        let rc: i64 = project_gradient(project_gradient(gc, ga, alpha_ca, n), gb, alpha_cb, n);
+
+        // Combined update
+        var i: i64 = 0;
+        while i < n {
+            let wi: f64 = vec_get_f64(w, i);
+            let ui: f64 = vec_get_f64(ra, i) + vec_get_f64(rb, i) + vec_get_f64(rc, i);
+            vec_set_f64(w, i, wi - lr * ui);
+            i = i + 1;
+        }
+        step = step + 1;
+    }
+
+    // Combined loss
+    var la: f64 = 0.0;
+    var lb: f64 = 0.0;
+    var lc: f64 = 0.0;
+    if mode == 0 {
+        la = shifted_rosenbrock(w, target_a, n);
+        lb = shifted_rosenbrock(w, target_b, n);
+        lc = shifted_rosenbrock(w, target_c, n);
+    } else {
+        la = shifted_rastrigin(w, target_a, n);
+        lb = shifted_rastrigin(w, target_b, n);
+        lc = shifted_rastrigin(w, target_c, n);
+    }
+    la + lb + lc
+}
+
+fn meta_grad_one(ta: i64, tb: i64, tc: i64,
+                 ab: f64, ac: f64, ba: f64, bc: f64, ca: f64, cb: f64,
+                 which: i64, n: i64, steps: i64, lr: f64, mode: i64) -> f64 {
+    let h: f64 = 0.01;
+    var ab_p: f64 = ab; var ac_p: f64 = ac; var ba_p: f64 = ba;
+    var bc_p: f64 = bc; var ca_p: f64 = ca; var cb_p: f64 = cb;
+    var ab_m: f64 = ab; var ac_m: f64 = ac; var ba_m: f64 = ba;
+    var bc_m: f64 = bc; var ca_m: f64 = ca; var cb_m: f64 = cb;
+    if which == 0 { ab_p = ab + h; ab_m = ab - h; }
+    if which == 1 { ac_p = ac + h; ac_m = ac - h; }
+    if which == 2 { ba_p = ba + h; ba_m = ba - h; }
+    if which == 3 { bc_p = bc + h; bc_m = bc - h; }
+    if which == 4 { ca_p = ca + h; ca_m = ca - h; }
+    if which == 5 { cb_p = cb + h; cb_m = cb - h; }
+    let lp: f64 = train_cycle(ta, tb, tc, ab_p, ac_p, ba_p, bc_p, ca_p, cb_p, n, steps, lr, mode);
+    let lm: f64 = train_cycle(ta, tb, tc, ab_m, ac_m, ba_m, bc_m, ca_m, cb_m, n, steps, lr, mode);
+    (lp - lm) / (2.0 * h)
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+// ============================================================================
+// Run a full stress test: learn interaction matrix on hard function
+// ============================================================================
+
+fn stress_test(name: i64, mode: i64, n: i64, meta_cycles: i64) -> i64 {
+    // Three conflicting targets in n dimensions
+    let ta: i64 = vec_fill(n, 0.0);
+    let tb: i64 = vec_fill(n, 0.0);
+    let tc: i64 = vec_fill(n, 0.0);
+
+    // Set conflicting targets
+    var i: i64 = 0;
+    while i < n {
+        let fi: f64 = i as f64;
+        // A wants positive, B wants negative, C wants mixed
+        vec_set_f64(ta, i, 2.0 + fi * 0.3);
+        vec_set_f64(tb, i, 0.0 - 1.0 - fi * 0.2);
+        if i % 2 == 0 {
+            vec_set_f64(tc, i, 3.0);
+        } else {
+            vec_set_f64(tc, i, 0.0 - 2.0);
+        }
+        i = i + 1;
+    }
+
+    // Interaction matrix
+    var ab: f64 = 0.5;
+    var ac: f64 = 0.5;
+    var ba: f64 = 0.5;
+    var bc: f64 = 0.5;
+    var ca: f64 = 0.5;
+    var cb: f64 = 0.5;
+
+    var p_ab: f64 = 0.5;
+    var p_ac: f64 = 0.5;
+    var p_ba: f64 = 0.5;
+    var p_bc: f64 = 0.5;
+    var p_ca: f64 = 0.5;
+    var p_cb: f64 = 0.5;
+
+    var drift_cur: f64 = 0.0;
+    var drift_prev: f64 = 0.0;
+    var d_prime: f64 = 0.0;
+    var score: f64 = 999.0;
+    var loss: f64 = 0.0;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+
+    let mlr: f64 = 0.1;
+    let inner_steps: i64 = 300;
+    // Rosenbrock needs much smaller lr due to 100x gradient multiplier
+    var lr: f64 = 0.0001;
+    if mode == 0 { lr = 0.000005; }
+
+    // Baselines
+    let loss_none: f64 = train_cycle(ta, tb, tc, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, n, inner_steps, lr, mode);
+    let loss_uniform: f64 = train_cycle(ta, tb, tc, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, n, inner_steps, lr, mode);
+
+    print("  ");
+    print_i64(name);
+    print(" (n=");
+    print_i64(n);
+    print(", ");
+    print_i64(meta_cycles);
+    println(" cycles)");
+    print("    Baseline (no proj):  ");
+    print_f64(loss_none);
+    println("");
+    print("    Baseline (uniform):  ");
+    print_f64(loss_uniform);
+    println("");
+
+    // Learn interaction matrix
+    while cycle < meta_cycles {
+        p_ab = ab; p_ac = ac; p_ba = ba; p_bc = bc; p_ca = ca; p_cb = cb;
+
+        mg = meta_grad_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 0, n, inner_steps, lr, mode);
+        ab = clamp(ab - mlr * mg, 0.0, 2.0);
+        mg = meta_grad_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 1, n, inner_steps, lr, mode);
+        ac = clamp(ac - mlr * mg, 0.0, 2.0);
+        mg = meta_grad_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 2, n, inner_steps, lr, mode);
+        ba = clamp(ba - mlr * mg, 0.0, 2.0);
+        mg = meta_grad_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 3, n, inner_steps, lr, mode);
+        bc = clamp(bc - mlr * mg, 0.0, 2.0);
+        mg = meta_grad_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 4, n, inner_steps, lr, mode);
+        ca = clamp(ca - mlr * mg, 0.0, 2.0);
+        mg = meta_grad_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 5, n, inner_steps, lr, mode);
+        cb = clamp(cb - mlr * mg, 0.0, 2.0);
+
+        drift_prev = drift_cur;
+        drift_cur = abs_f64(ab - p_ab) + abs_f64(ac - p_ac)
+                  + abs_f64(ba - p_ba) + abs_f64(bc - p_bc)
+                  + abs_f64(ca - p_ca) + abs_f64(cb - p_cb);
+        d_prime = drift_cur - drift_prev;
+        score = drift_cur + abs_f64(d_prime);
+
+        cycle = cycle + 1;
+    }
+
+    loss = train_cycle(ta, tb, tc, ab, ac, ba, bc, ca, cb, n, inner_steps, lr, mode);
+
+    print("    Learned matrix:      ");
+    print_f64(loss);
+    println("");
+    print("    Final drift:         ");
+    print_f64(drift_cur);
+    println("");
+    print("    Convergence score:   ");
+    print_f64(score);
+    println("");
+
+    // Verdict
+    var result: i64 = 0;
+    if loss <= loss_none + 0.1 {
+        if drift_cur < 0.01 {
+            println("    PASS: Matrix converged, loss competitive");
+        } else {
+            println("    PARTIAL: Loss competitive but matrix still drifting");
+        }
+    } else {
+        println("    FAIL: Learned matrix worse than baseline");
+        result = 1;
+    }
+    println("");
+    result
+}
+
+fn main() -> i64 {
+    var failures: i64 = 0;
+
+    println("============================================");
+    println("  STRESS TEST: HARD OPTIMIZATION BENCHMARKS");
+    println("============================================");
+    println("");
+
+    // Test 1: Rosenbrock 6D, 50 cycles
+    println("--- Rosenbrock (banana valley) ---");
+    failures = failures + stress_test(1, 0, 6, 50);
+
+    // Test 2: Rastrigin 6D, 50 cycles
+    println("--- Rastrigin (multimodal) ---");
+    failures = failures + stress_test(2, 1, 6, 50);
+
+    // Test 3: Rosenbrock 10D, 100 cycles
+    println("--- Rosenbrock 10D (high-dimensional) ---");
+    failures = failures + stress_test(3, 0, 10, 100);
+
+    // Test 4: Rastrigin 10D, 100 cycles
+    println("--- Rastrigin 10D (multimodal + high-dim) ---");
+    failures = failures + stress_test(4, 1, 10, 100);
+
+    println("============================================");
+    if failures == 0 {
+        println("  ALL STRESS TESTS PASSED");
+    } else {
+        print("  ");
+        print_i64(failures);
+        println(" STRESS TEST(S) FAILED");
+    }
+    println("============================================");
+
+    failures
+}

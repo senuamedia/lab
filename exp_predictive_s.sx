@@ -1,0 +1,686 @@
+// Predictive S Experiment
+//
+// Can S PREDICT the future? And can multi-scale S detect WHERE trouble starts?
+//
+// Exp 1: Predict S(t+1) from S(t), S'(t), S''(t) on the logistic map.
+//        Learn linear model via least squares on first 100 windows,
+//        test on last 100. If prediction works, we can forecast blow-up
+//        BEFORE it happens.
+//
+// Exp 2: Multi-Scale S on 1D Burgers equation.
+//        S_local (midpoint drift), S_gradient (max|du/dx|), S_energy (total energy).
+//        Which scale's S goes negative first? That tells us WHERE trouble starts.
+//
+// Exp 3: S Forecasting for Belief Systems.
+//        3 beliefs tracking values that change at step 100.
+//        Does S provide a leading indicator of regime change?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn logistic(r: f64, x: f64) -> f64 {
+    r * x * (1.0 - x)
+}
+
+fn clamp_f64(x: f64) -> f64 {
+    if x > 10000.0 { return 10000.0; }
+    if x < -10000.0 { return -10000.0; }
+    x
+}
+
+// ============================================================================
+// Exp 1: Predict S(t+1) from S(t), S'(t), S''(t)
+//
+// Logistic map orbit -> windowed drift series -> S time series (200 windows).
+// Linear model: S_pred(t+1) = a*S(t) + b*S'(t) + c*S''(t) + d
+// Learn a,b,c,d via normal equations on first 100, test on last 100.
+// ============================================================================
+
+// Compute windowed drift for one window of 50 iterates.
+// Returns the average |x_{n+1} - x_n| over the window.
+fn window_drift(r: f64, x_start: f64, win_size: i64) -> f64 {
+    var x: f64 = x_start;
+    var sum: f64 = 0.0;
+    var prev: f64 = x;
+    var i: i64 = 0;
+
+    while i < win_size {
+        prev = x;
+        x = logistic(r, x);
+        sum = sum + abs_f64(x - prev);
+        i = i + 1;
+    }
+    sum / (win_size as f64)
+}
+
+// Get x after transient of 500 steps
+fn logistic_transient(r: f64) -> f64 {
+    var x: f64 = 0.3;
+    var i: i64 = 0;
+    while i < 500 {
+        x = logistic(r, x);
+        i = i + 1;
+    }
+    x
+}
+
+// Compute S from consecutive window drifts: S = 1 - (d_new / d_old)
+// S > 0 means drift decreasing (converging), S < 0 means drift growing.
+// We build 200 windows of size 50, giving 200 S values from drift ratios.
+
+// Helper: compute the S time series for one r value.
+// Returns one S value at index `query_idx` (0..199).
+fn s_series_val(r: f64, query_idx: i64) -> f64 {
+    var x: f64 = logistic_transient(r);
+    var prev_drift: f64 = 0.0;
+    var curr_drift: f64 = 0.0;
+    var s_val: f64 = 0.0;
+    var win: i64 = 0;
+
+    prev_drift = window_drift(r, x, 50);
+    // Advance x through first window
+    var j: i64 = 0;
+    while j < 50 {
+        x = logistic(r, x);
+        j = j + 1;
+    }
+
+    while win <= query_idx {
+        curr_drift = window_drift(r, x, 50);
+        j = 0;
+        while j < 50 {
+            x = logistic(r, x);
+            j = j + 1;
+        }
+        if prev_drift > 0.0000000001 {
+            s_val = 1.0 - curr_drift / prev_drift;
+        } else {
+            s_val = 0.0;
+        }
+        prev_drift = curr_drift;
+        win = win + 1;
+    }
+    s_val
+}
+
+// Solve 4x4 least squares for S_pred = a*S + b*S' + c*S'' + d
+// using accumulated sums. We accumulate XtX (4x4 symmetric) and XtY (4x1).
+// Rather than full matrix solve, we use a simplified approach:
+// accumulate sums and solve via iterative gradient descent.
+
+// Accumulate prediction stats for one r value.
+// phase: 0 = training (windows 2..101), 1 = testing (windows 102..199)
+// Returns RMSE for the given phase.
+fn predict_s_rmse(r: f64, a: f64, b: f64, c: f64, d: f64, phase: i64) -> f64 {
+    var start_w: i64 = 2;
+    var end_w: i64 = 101;
+    if phase == 1 {
+        start_w = 102;
+        end_w = 199;
+    }
+
+    var sse: f64 = 0.0;
+    var count: i64 = 0;
+    var w: i64 = start_w;
+
+    while w < end_w {
+        let s0: f64 = s_series_val(r, w - 2);
+        let s1: f64 = s_series_val(r, w - 1);
+        let s2: f64 = s_series_val(r, w);
+        let s_actual: f64 = s_series_val(r, w + 1);
+
+        // S'(t) ~ s1 - s0, S''(t) ~ s2 - 2*s1 + s0
+        let sp: f64 = s1 - s0;
+        let spp: f64 = s2 - 2.0 * s1 + s0;
+        let pred: f64 = a * s2 + b * sp + c * spp + d;
+        let err: f64 = pred - s_actual;
+        sse = sse + err * err;
+        count = count + 1;
+        w = w + 5; // sample every 5th for speed
+    }
+    if count > 0 { sqrt(sse / (count as f64)) } else { 0.0 }
+}
+
+// Learn coefficients via grid search (simple, robust)
+// We try a,b,c,d in {-1, -0.5, 0, 0.5, 1} and pick best
+fn learn_coeff_a(r: f64) -> f64 {
+    var best_a: f64 = 0.0;
+    var best_rmse: f64 = 999999.0;
+    var ai: i64 = -4;
+
+    while ai <= 4 {
+        let a_try: f64 = (ai as f64) * 0.25;
+        let rmse: f64 = predict_s_rmse(r, a_try, 0.0, 0.0, 0.0, 0);
+        if rmse < best_rmse {
+            best_rmse = rmse;
+            best_a = a_try;
+        }
+        ai = ai + 1;
+    }
+    best_a
+}
+
+fn learn_coeff_b(r: f64, a: f64) -> f64 {
+    var best_b: f64 = 0.0;
+    var best_rmse: f64 = 999999.0;
+    var bi: i64 = -4;
+
+    while bi <= 4 {
+        let b_try: f64 = (bi as f64) * 0.25;
+        let rmse: f64 = predict_s_rmse(r, a, b_try, 0.0, 0.0, 0);
+        if rmse < best_rmse {
+            best_rmse = rmse;
+            best_b = b_try;
+        }
+        bi = bi + 1;
+    }
+    best_b
+}
+
+fn learn_coeff_cd(r: f64, a: f64, b: f64) -> f64 {
+    var best_c: f64 = 0.0;
+    var best_d: f64 = 0.0;
+    var best_rmse: f64 = 999999.0;
+    var ci: i64 = -4;
+    var di: i64 = 0;
+
+    while ci <= 4 {
+        let c_try: f64 = (ci as f64) * 0.25;
+        di = -4;
+        while di <= 4 {
+            let d_try: f64 = (di as f64) * 0.1;
+            let rmse: f64 = predict_s_rmse(r, a, b, c_try, d_try, 0);
+            if rmse < best_rmse {
+                best_rmse = rmse;
+                best_c = c_try;
+                best_d = d_try;
+            }
+            di = di + 1;
+        }
+        ci = ci + 1;
+    }
+    // Pack c and d: return c * 1000 + d (both small enough)
+    best_c * 1000.0 + best_d
+}
+
+fn run_exp1_for_r(r: f64) -> i64 {
+    print("  r = ");
+    print_f64(r);
+    println("");
+
+    let a: f64 = learn_coeff_a(r);
+    let b: f64 = learn_coeff_b(r, a);
+    let cd_packed: f64 = learn_coeff_cd(r, a, b);
+
+    // Unpack c and d
+    // c = floor(cd_packed / 1000), but we need integer floor
+    // Since c is in {-1,-0.75,...,1} and d in {-0.4,...,0.4}
+    // cd_packed = c*1000 + d, so c*1000 is the dominant part
+    var c_approx: f64 = 0.0;
+    var ci: i64 = -4;
+    var best_diff: f64 = 999999.0;
+    var best_c: f64 = 0.0;
+    while ci <= 4 {
+        let c_try: f64 = (ci as f64) * 0.25;
+        let diff: f64 = abs_f64(cd_packed - c_try * 1000.0);
+        if diff < best_diff {
+            best_diff = diff;
+            best_c = c_try;
+        }
+        ci = ci + 1;
+    }
+    let c: f64 = best_c;
+    let d: f64 = cd_packed - c * 1000.0;
+
+    print("    Learned: a=");
+    print_f64(a);
+    print(" b=");
+    print_f64(b);
+    print(" c=");
+    print_f64(c);
+    print(" d=");
+    print_f64(d);
+    println("");
+
+    let train_rmse: f64 = predict_s_rmse(r, a, b, c, d, 0);
+    let test_rmse: f64 = predict_s_rmse(r, a, b, c, d, 1);
+
+    print("    Train RMSE: ");
+    print_f64(train_rmse);
+    println("");
+    print("    Test  RMSE: ");
+    print_f64(test_rmse);
+    println("");
+
+    // Show some sample S values for context
+    print("    S(0)=");
+    print_f64(s_series_val(r, 0));
+    print("  S(50)=");
+    print_f64(s_series_val(r, 50));
+    print("  S(150)=");
+    print_f64(s_series_val(r, 150));
+    println("");
+    println("");
+    0
+}
+
+fn run_exp1() -> i64 {
+    println("============================================================");
+    println("  EXP 1: PREDICT S(t+1) FROM S(t), S'(t), S''(t)");
+    println("  Logistic map, 200 windows of size 50");
+    println("  Linear model: S_pred = a*S + b*S' + c*S'' + d");
+    println("  Train on windows 2-101, test on 102-199");
+    println("============================================================");
+    println("");
+
+    // r=2.8 (stable fixed point)
+    run_exp1_for_r(2.8);
+    // r=3.2 (period-2 cycle)
+    run_exp1_for_r(3.2);
+    // r=3.7 (chaos)
+    run_exp1_for_r(3.7);
+
+    println("  INTERPRETATION:");
+    println("  - Low test RMSE = S is predictable => blow-up forecastable");
+    println("  - High test RMSE in chaos = fundamentally unpredictable");
+    println("  - If a~1, b~0, c~0 => S is nearly constant (boring)");
+    println("  - If b,c matter => derivatives carry information");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Multi-Scale S on Burgers Equation
+//
+// 10-point periodic 1D Burgers. Three S diagnostics at different scales.
+// Which goes negative first tells us WHERE instability begins.
+// ============================================================================
+
+fn burgers_step(ul: f64, uc: f64, ur: f64,
+                nu: f64, dt: f64, dx: f64) -> f64 {
+    let dudx: f64 = (ur - ul) / (2.0 * dx);
+    let d2udx2: f64 = (ur - 2.0 * uc + ul) / (dx * dx);
+    clamp_f64(uc + dt * (0.0 - uc * dudx + nu * d2udx2))
+}
+
+fn pi_val() -> f64 {
+    3.14159265358979323846
+}
+
+// Compute one Burgers diagnostic at a given viscosity.
+// Returns the step at which a specific S goes negative.
+// query: 0=S_local, 1=S_gradient, 2=S_energy
+fn burgers_detect(nu: f64, query: i64) -> i64 {
+    let dx: f64 = 0.1;
+    let dt: f64 = 0.00002;
+    let pi: f64 = pi_val();
+
+    // 10-point grid, u[0]..u[9], periodic
+    var u0: f64 = sin(2.0 * pi * 0.0);
+    var u1: f64 = sin(2.0 * pi * 0.1);
+    var u2: f64 = sin(2.0 * pi * 0.2);
+    var u3: f64 = sin(2.0 * pi * 0.3);
+    var u4: f64 = sin(2.0 * pi * 0.4);
+    var u5: f64 = sin(2.0 * pi * 0.5);
+    var u6: f64 = sin(2.0 * pi * 0.6);
+    var u7: f64 = sin(2.0 * pi * 0.7);
+    var u8: f64 = sin(2.0 * pi * 0.8);
+    var u9: f64 = sin(2.0 * pi * 0.9);
+
+    var step: i64 = 0;
+    var detected: i64 = -1;
+    var prev_metric: f64 = 0.0;
+    var curr_metric: f64 = 0.0;
+    var win_sum: f64 = 0.0;
+    var win_count: i64 = 0;
+    var prev_avg: f64 = 0.0;
+
+    // Initial metric
+    if query == 0 { prev_metric = abs_f64(u5); }
+    if query == 1 {
+        prev_metric = burgers_max_grad(u0, u1, u2, u3, u4,
+                                        u5, u6, u7, u8, u9, dx);
+    }
+    if query == 2 {
+        prev_metric = burgers_energy(u0, u1, u2, u3, u4,
+                                      u5, u6, u7, u8, u9);
+    }
+    prev_avg = prev_metric;
+
+    while step < 30000 {
+        // Advance one Burgers step
+        let n0: f64 = burgers_step(u9, u0, u1, nu, dt, dx);
+        let n1: f64 = burgers_step(u0, u1, u2, nu, dt, dx);
+        let n2: f64 = burgers_step(u1, u2, u3, nu, dt, dx);
+        let n3: f64 = burgers_step(u2, u3, u4, nu, dt, dx);
+        let n4: f64 = burgers_step(u3, u4, u5, nu, dt, dx);
+        let n5: f64 = burgers_step(u4, u5, u6, nu, dt, dx);
+        let n6: f64 = burgers_step(u5, u6, u7, nu, dt, dx);
+        let n7: f64 = burgers_step(u6, u7, u8, nu, dt, dx);
+        let n8: f64 = burgers_step(u7, u8, u9, nu, dt, dx);
+        let n9: f64 = burgers_step(u8, u9, u0, nu, dt, dx);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3; u4 = n4;
+        u5 = n5; u6 = n6; u7 = n7; u8 = n8; u9 = n9;
+
+        // Sample metric every 100 steps into windows of size 10
+        if step % 100 == 0 {
+            if query == 0 { curr_metric = abs_f64(u5); }
+            if query == 1 {
+                curr_metric = burgers_max_grad(u0, u1, u2, u3, u4,
+                                                u5, u6, u7, u8, u9, dx);
+            }
+            if query == 2 {
+                curr_metric = burgers_energy(u0, u1, u2, u3, u4,
+                                              u5, u6, u7, u8, u9);
+            }
+            win_sum = win_sum + curr_metric;
+            win_count = win_count + 1;
+
+            if win_count >= 10 {
+                let avg: f64 = win_sum / 10.0;
+                if prev_avg > 0.0000000001 {
+                    let s_val: f64 = 1.0 - avg / prev_avg;
+                    if s_val < 0.0 {
+                        if detected == -1 { detected = step; }
+                    }
+                }
+                prev_avg = avg;
+                win_sum = 0.0;
+                win_count = 0;
+            }
+        }
+        step = step + 1;
+    }
+    detected
+}
+
+fn burgers_max_grad(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+                    u5: f64, u6: f64, u7: f64, u8: f64, u9: f64,
+                    dx: f64) -> f64 {
+    var mg: f64 = 0.0;
+    let g0: f64 = abs_f64((u1 - u9) / (2.0 * dx));
+    let g1: f64 = abs_f64((u2 - u0) / (2.0 * dx));
+    let g2: f64 = abs_f64((u3 - u1) / (2.0 * dx));
+    let g3: f64 = abs_f64((u4 - u2) / (2.0 * dx));
+    let g4: f64 = abs_f64((u5 - u3) / (2.0 * dx));
+    let g5: f64 = abs_f64((u6 - u4) / (2.0 * dx));
+    let g6: f64 = abs_f64((u7 - u5) / (2.0 * dx));
+    let g7: f64 = abs_f64((u8 - u6) / (2.0 * dx));
+    let g8: f64 = abs_f64((u9 - u7) / (2.0 * dx));
+    let g9: f64 = abs_f64((u0 - u8) / (2.0 * dx));
+
+    mg = g0;
+    if g1 > mg { mg = g1; }
+    if g2 > mg { mg = g2; }
+    if g3 > mg { mg = g3; }
+    if g4 > mg { mg = g4; }
+    if g5 > mg { mg = g5; }
+    if g6 > mg { mg = g6; }
+    if g7 > mg { mg = g7; }
+    if g8 > mg { mg = g8; }
+    if g9 > mg { mg = g9; }
+    mg
+}
+
+fn burgers_energy(u0: f64, u1: f64, u2: f64, u3: f64, u4: f64,
+                  u5: f64, u6: f64, u7: f64, u8: f64, u9: f64) -> f64 {
+    (u0*u0 + u1*u1 + u2*u2 + u3*u3 + u4*u4 +
+     u5*u5 + u6*u6 + u7*u7 + u8*u8 + u9*u9) / 2.0
+}
+
+fn run_exp2_for_nu(nu: f64) -> i64 {
+    let s_local: i64 = burgers_detect(nu, 0);
+    let s_grad: i64 = burgers_detect(nu, 1);
+    let s_energy: i64 = burgers_detect(nu, 2);
+
+    print("  nu=");
+    print_f64(nu);
+    print("  S_local=");
+    print_i64(s_local);
+    print("  S_gradient=");
+    print_i64(s_grad);
+    print("  S_energy=");
+    print_i64(s_energy);
+
+    // Determine which fired first
+    var first: i64 = 0; // 0=none, 1=local, 2=gradient, 3=energy
+    var first_step: i64 = 999999;
+    if s_local >= 0 {
+        if s_local < first_step { first_step = s_local; first = 1; }
+    }
+    if s_grad >= 0 {
+        if s_grad < first_step { first_step = s_grad; first = 2; }
+    }
+    if s_energy >= 0 {
+        if s_energy < first_step { first_step = s_energy; first = 3; }
+    }
+
+    if first == 0 { print("  => STABLE"); }
+    if first == 1 { print("  => LOCAL first (point instability)"); }
+    if first == 2 { print("  => GRADIENT first (shock forming)"); }
+    if first == 3 { print("  => ENERGY first (overall instability)"); }
+    println("");
+    0
+}
+
+fn run_exp2() -> i64 {
+    println("============================================================");
+    println("  EXP 2: MULTI-SCALE S ON BURGERS EQUATION");
+    println("  10-point periodic grid, u(x,0) = sin(2*pi*x)");
+    println("  Three S diagnostics: local, gradient, energy");
+    println("  Which goes negative first => WHERE trouble starts");
+    println("============================================================");
+    println("");
+    println("  Sweeping viscosity nu from turbulent to stable:");
+    println("");
+
+    // Very low viscosity (turbulent)
+    run_exp2_for_nu(0.0001);
+    run_exp2_for_nu(0.001);
+    run_exp2_for_nu(0.005);
+    run_exp2_for_nu(0.01);
+    run_exp2_for_nu(0.05);
+    run_exp2_for_nu(0.1);
+
+    println("");
+    println("  INTERPRETATION:");
+    println("  - Low nu: gradient S goes negative first (shock formation)");
+    println("  - Medium nu: local S may go first (point instability)");
+    println("  - High nu: all stable (diffusion dominates)");
+    println("  - S_energy last = global stability lags local detection");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: S Forecasting for Belief Systems
+//
+// 3 beliefs with true values that CHANGE at step 100.
+// Before: p1=0.7, p2=0.5, p3=0.3
+// After:  p1=0.3, p2=0.8, p3=0.6
+//
+// Track S from step 80 to 120 to see if S provides a leading indicator.
+// ============================================================================
+
+fn lcg_next(state: i64) -> i64 {
+    state * 1664525 + 1013904223
+}
+
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    (s % 10000) as f64 / 10000.0
+}
+
+// Run belief system and return S for a specific belief at a specific step.
+// belief: 0,1,2. query_step: which step's S to return.
+fn belief_s_at_step(belief: i64, query_step: i64) -> f64 {
+    // True values: before/after step 100
+    var p_before: f64 = 0.7;
+    var p_after: f64 = 0.3;
+    if belief == 1 { p_before = 0.5; p_after = 0.8; }
+    if belief == 2 { p_before = 0.3; p_after = 0.6; }
+
+    // Beta prior
+    var alpha: f64 = 2.0;
+    var beta: f64 = 2.0;
+    var rng: i64 = 42 + belief * 1000;
+    var step: i64 = 0;
+    var prev_drift: f64 = 0.5;
+    var curr_drift: f64 = 0.0;
+    var s_val: f64 = 0.0;
+
+    while step <= query_step {
+        var p_true: f64 = p_before;
+        if step >= 100 { p_true = p_after; }
+
+        // Observe 5 samples per step
+        var obs: i64 = 0;
+        while obs < 5 {
+            rng = lcg_next(rng);
+            if lcg_f64(rng) < p_true {
+                alpha = alpha + 1.0;
+            } else {
+                beta = beta + 1.0;
+            }
+            obs = obs + 1;
+        }
+
+        // Drift = |current_mean - previous_mean|
+        let mean: f64 = alpha / (alpha + beta);
+        curr_drift = abs_f64(mean - p_true);
+
+        // S = 1 - curr_drift / prev_drift
+        if prev_drift > 0.0000001 {
+            s_val = 1.0 - curr_drift / prev_drift;
+        } else {
+            s_val = 0.0;
+        }
+        prev_drift = curr_drift;
+        step = step + 1;
+    }
+    s_val
+}
+
+fn run_exp3() -> i64 {
+    println("============================================================");
+    println("  EXP 3: S FORECASTING FOR BELIEF SYSTEMS");
+    println("  3 beliefs, true values CHANGE at step 100");
+    println("  Before: p1=0.7, p2=0.5, p3=0.3");
+    println("  After:  p1=0.3, p2=0.8, p3=0.6");
+    println("  Track S from step 80 to 120");
+    println("============================================================");
+    println("");
+    println("  Step   S(belief1)   S(belief2)   S(belief3)   Regime");
+    println("  ----   ----------   ----------   ----------   ------");
+
+    var step: i64 = 80;
+    while step <= 120 {
+        let s1: f64 = belief_s_at_step(0, step);
+        let s2: f64 = belief_s_at_step(1, step);
+        let s3: f64 = belief_s_at_step(2, step);
+
+        print("  ");
+        print_i64(step);
+        print("     ");
+        print_f64(s1);
+        print("     ");
+        print_f64(s2);
+        print("     ");
+        print_f64(s3);
+
+        if step < 100 { print("     BEFORE"); }
+        if step == 100 { print("     CHANGE"); }
+        if step > 100 { print("     AFTER"); }
+        println("");
+
+        step = step + 2; // every other step for readability
+    }
+
+    println("");
+
+    // Compute average S before and after change for each belief
+    var avg_before_1: f64 = 0.0;
+    var avg_before_2: f64 = 0.0;
+    var avg_before_3: f64 = 0.0;
+    var avg_after_1: f64 = 0.0;
+    var avg_after_2: f64 = 0.0;
+    var avg_after_3: f64 = 0.0;
+    var count_b: i64 = 0;
+    var count_a: i64 = 0;
+
+    step = 80;
+    while step < 100 {
+        avg_before_1 = avg_before_1 + belief_s_at_step(0, step);
+        avg_before_2 = avg_before_2 + belief_s_at_step(1, step);
+        avg_before_3 = avg_before_3 + belief_s_at_step(2, step);
+        count_b = count_b + 1;
+        step = step + 2;
+    }
+    step = 101;
+    while step <= 120 {
+        avg_after_1 = avg_after_1 + belief_s_at_step(0, step);
+        avg_after_2 = avg_after_2 + belief_s_at_step(1, step);
+        avg_after_3 = avg_after_3 + belief_s_at_step(2, step);
+        count_a = count_a + 1;
+        step = step + 2;
+    }
+
+    let cb: f64 = count_b as f64;
+    let ca: f64 = count_a as f64;
+
+    println("  Summary:");
+    print("    Belief 1 avg S: before=");
+    print_f64(avg_before_1 / cb);
+    print("  after=");
+    print_f64(avg_after_1 / ca);
+    println("");
+    print("    Belief 2 avg S: before=");
+    print_f64(avg_before_2 / cb);
+    print("  after=");
+    print_f64(avg_after_2 / ca);
+    println("");
+    print("    Belief 3 avg S: before=");
+    print_f64(avg_before_3 / cb);
+    print("  after=");
+    print_f64(avg_after_3 / ca);
+    println("");
+
+    println("");
+    println("  INTERPRETATION:");
+    println("  - S drop at step 100 = system DETECTS the regime change");
+    println("  - S drop BEFORE step 100 = leading indicator (prediction)");
+    println("  - Larger S change = bigger sensitivity to truth shift");
+    println("  - For Anima: monitor S to anticipate environment changes");
+    println("");
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("################################################################");
+    println("#  PREDICTIVE S: Can S Forecast the Future?                    #");
+    println("#  Three experiments on prediction, multi-scale detection,     #");
+    println("#  and belief regime change.                                   #");
+    println("################################################################");
+    println("");
+
+    run_exp1();
+    run_exp2();
+    run_exp3();
+
+    println("################################################################");
+    println("#  CONCLUSIONS                                                 #");
+    println("#  1. If test RMSE << S magnitude, S is predictable and we    #");
+    println("#     can forecast blow-up before it happens.                  #");
+    println("#  2. Multi-scale S reveals WHERE instability starts:          #");
+    println("#     gradient S fires first for shocks, local for points.    #");
+    println("#  3. S drop at regime change gives detection/prediction       #");
+    println("#     capability for belief systems and Anima agents.          #");
+    println("################################################################");
+    0
+}

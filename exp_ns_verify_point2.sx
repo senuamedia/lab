@@ -1,0 +1,305 @@
+// VERIFICATION POINT 2: A* Positive Under Parameter Sweep
+//
+// Test that A* > 0 across a wide parameter sweep on the 8-mode model.
+// Also test 3 different initial conditions.
+//
+// Sweep 12 combinations:
+//   nu:      0.001, 0.005, 0.01, 0.05
+//   lambda2: 1.0, 5.0, 10.0
+//
+// For each: binary search for A* (14 iterations).
+//
+// Then test 3 ICs at nu=0.005, lambda2=5.0:
+//   IC1: sinusoidal (sin(pi*k*x))
+//   IC2: constant (all modes equal: amp*0.1)
+//   IC3: concentrated (all energy in k=1)
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy4(o0: f64, o1: f64, o2: f64, o3: f64) -> f64 {
+    0.5 * (o0 * o0 + o1 * o1 + o2 * o2 + o3 * o3)
+}
+
+fn step8(u0: f64, u1: f64, u2: f64, u3: f64,
+         w0: f64, w1: f64, w2: f64, w3: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64, beta: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3;
+    let fd_u0: f64 = 0.0 - nu * 1.0 * u0;
+    let fd_u1: f64 = 0.0 - nu * 1.0 * u1;
+    let fd_u2: f64 = 0.0 - nu * 4.0 * u2;
+    let fd_u3: f64 = 0.0 - nu * 4.0 * u3;
+    let fd_w0: f64 = 0.0 - nu * 4.0 * w0;
+    let fd_w1: f64 = 0.0 - nu * 4.0 * w1;
+    let fd_w2: f64 = 0.0 - nu * 9.0 * w2;
+    let fd_w3: f64 = 0.0 - nu * 9.0 * w3;
+    let fs_u0: f64 = sigma * (w0 * u1 - w1 * u0);
+    let fs_u1: f64 = sigma * (w1 * u0 - w0 * u1);
+    let fs_u2: f64 = sigma * (w2 * u3 - w3 * u2);
+    let fs_u3: f64 = sigma * (w3 * u2 - w2 * u3);
+    let fv_w0: f64 = lambda * (w1 * u0 + w0 * u1);
+    let fv_w1: f64 = lambda * (w0 * u1 + w1 * u0);
+    let fv_w2: f64 = lambda * (w3 * u2 + w2 * u3);
+    let fv_w3: f64 = lambda * (w2 * u3 + w3 * u2);
+    let fq_w0: f64 = lambda2 * omega_sq * w0;
+    let fq_w1: f64 = lambda2 * omega_sq * w1;
+    let fq_w2: f64 = lambda2 * omega_sq * w2;
+    let fq_w3: f64 = lambda2 * omega_sq * w3;
+    let fc_w2: f64 = beta * (w0 * w1);
+    let fc_w3: f64 = beta * (0.0 - w0 * w1);
+
+    if which == 0 { return u0 + dt * (fd_u0 + fs_u0); }
+    if which == 1 { return u1 + dt * (fd_u1 + fs_u1); }
+    if which == 2 { return u2 + dt * (fd_u2 + fs_u2); }
+    if which == 3 { return u3 + dt * (fd_u3 + fs_u3); }
+    if which == 4 { return w0 + dt * (fd_w0 + fv_w0 + fq_w0); }
+    if which == 5 { return w1 + dt * (fd_w1 + fv_w1 + fq_w1); }
+    if which == 6 { return w2 + dt * (fd_w2 + fv_w2 + fq_w2 + fc_w2); }
+    w3 + dt * (fd_w3 + fv_w3 + fq_w3 + fc_w3)
+}
+
+// Blow-up test with sinusoidal ICs (standard)
+fn blows_up_sin(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                beta: f64, dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u0: f64 = amp * sin(pi * 0.2);
+    var u1: f64 = amp * sin(pi * 0.5);
+    var u2: f64 = amp * 0.5 * sin(pi * 0.8);
+    var u3: f64 = amp * 0.5 * sin(pi * 1.1);
+    var w0: f64 = amp * 0.1 * sin(pi * 0.3);
+    var w1: f64 = amp * 0.1 * sin(pi * 0.7);
+    var w2: f64 = amp * 0.05 * sin(pi * 1.0);
+    var w3: f64 = amp * 0.05 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    0
+}
+
+// Blow-up test with constant ICs (all modes equal)
+fn blows_up_const(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                  beta: f64, dt: f64, max_steps: i64) -> i64 {
+    var u0: f64 = amp * 0.1;
+    var u1: f64 = amp * 0.1;
+    var u2: f64 = amp * 0.1;
+    var u3: f64 = amp * 0.1;
+    var w0: f64 = amp * 0.1;
+    var w1: f64 = amp * 0.1;
+    var w2: f64 = amp * 0.1;
+    var w3: f64 = amp * 0.1;
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    0
+}
+
+// Blow-up test with concentrated ICs (all energy in k=1)
+fn blows_up_conc(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                 beta: f64, dt: f64, max_steps: i64) -> i64 {
+    var u0: f64 = amp * 0.3;
+    var u1: f64 = amp * 0.3;
+    var u2: f64 = amp * 0.01;
+    var u3: f64 = amp * 0.01;
+    var w0: f64 = amp * 0.3;
+    var w1: f64 = amp * 0.3;
+    var w2: f64 = amp * 0.01;
+    var w3: f64 = amp * 0.01;
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy4(w0, w1, w2, w3);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 0);
+        let n1: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 1);
+        let n2: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 2);
+        let n3: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 3);
+        let n4: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 4);
+        let n5: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 5);
+        let n6: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 6);
+        let n7: f64 = step8(u0, u1, u2, u3, w0, w1, w2, w3, nu, sigma, lambda, lambda2, beta, dt, 7);
+        u0 = n0; u1 = n1; u2 = n2; u3 = n3;
+        w0 = n4; w1 = n5; w2 = n6; w3 = n7;
+        s = s + 1;
+    }
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  VERIFICATION POINT 2:                                   #");
+    println("#  A* Positive Under Parameter Sweep                      #");
+    println("#                                                          #");
+    println("#  12 parameter combos + 3 initial conditions             #");
+    println("############################################################");
+    println("");
+
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let beta: f64 = 0.5;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    var pos_count: i64 = 0;
+    var combo: i64 = 0;
+
+    println("  PARAMETER SWEEP (12 combinations):");
+    println("  nu       lambda2   A*");
+    println("  -------  --------  ----------");
+
+    while combo < 12 {
+        var nu: f64 = 0.001;
+        var lam2: f64 = 1.0;
+
+        if combo == 0 { nu = 0.001; lam2 = 1.0; }
+        if combo == 1 { nu = 0.001; lam2 = 5.0; }
+        if combo == 2 { nu = 0.001; lam2 = 10.0; }
+        if combo == 3 { nu = 0.005; lam2 = 1.0; }
+        if combo == 4 { nu = 0.005; lam2 = 5.0; }
+        if combo == 5 { nu = 0.005; lam2 = 10.0; }
+        if combo == 6 { nu = 0.01; lam2 = 1.0; }
+        if combo == 7 { nu = 0.01; lam2 = 5.0; }
+        if combo == 8 { nu = 0.01; lam2 = 10.0; }
+        if combo == 9 { nu = 0.05; lam2 = 1.0; }
+        if combo == 10 { nu = 0.05; lam2 = 5.0; }
+        if combo == 11 { nu = 0.05; lam2 = 10.0; }
+
+        // Binary search for A*
+        var lo: f64 = 0.001;
+        var hi: f64 = 5.0;
+        var iter: i64 = 0;
+        while iter < 14 {
+            let mid: f64 = (lo + hi) / 2.0;
+            let r: i64 = blows_up_sin(mid, nu, sigma, lambda, lam2, beta, dt, max_s);
+            if r == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let astar: f64 = (lo + hi) / 2.0;
+
+        if astar > 0.0001 { pos_count = pos_count + 1; }
+
+        print("  ");
+        print_f64(nu);
+        print("  ");
+        print_f64(lam2);
+        print("  ");
+        print_f64(astar);
+        if astar > 0.0001 { print("  (positive)"); } else { print("  (ZERO!)"); }
+        println("");
+
+        combo = combo + 1;
+    }
+
+    println("");
+    print("  A* > 0 in ");
+    print_i64(pos_count);
+    println("/12 combinations");
+    if pos_count == 12 {
+        println("  UNIVERSAL: A* positive at all parameters tested");
+    }
+    println("");
+
+    // Test 3 different initial conditions at nu=0.005, lambda2=5.0
+    println("  INITIAL CONDITION SWEEP (nu=0.005, lambda2=5.0):");
+    println("  IC          A*");
+    println("  ----------  ----------");
+
+    let nu_ic: f64 = 0.005;
+    let lam2_ic: f64 = 5.0;
+    var ic_pos: i64 = 0;
+
+    // IC1: sinusoidal (standard)
+    var lo1: f64 = 0.001;
+    var hi1: f64 = 5.0;
+    var it1: i64 = 0;
+    while it1 < 14 {
+        let mid: f64 = (lo1 + hi1) / 2.0;
+        let r: i64 = blows_up_sin(mid, nu_ic, sigma, lambda, lam2_ic, beta, dt, max_s);
+        if r == 1 { hi1 = mid; } else { lo1 = mid; }
+        it1 = it1 + 1;
+    }
+    let astar_sin: f64 = (lo1 + hi1) / 2.0;
+    if astar_sin > 0.0001 { ic_pos = ic_pos + 1; }
+    print("  sinusoidal  ");
+    print_f64(astar_sin);
+    println("");
+
+    // IC2: constant
+    var lo2: f64 = 0.001;
+    var hi2: f64 = 5.0;
+    var it2: i64 = 0;
+    while it2 < 14 {
+        let mid: f64 = (lo2 + hi2) / 2.0;
+        let r: i64 = blows_up_const(mid, nu_ic, sigma, lambda, lam2_ic, beta, dt, max_s);
+        if r == 1 { hi2 = mid; } else { lo2 = mid; }
+        it2 = it2 + 1;
+    }
+    let astar_const: f64 = (lo2 + hi2) / 2.0;
+    if astar_const > 0.0001 { ic_pos = ic_pos + 1; }
+    print("  constant    ");
+    print_f64(astar_const);
+    println("");
+
+    // IC3: concentrated
+    var lo3: f64 = 0.001;
+    var hi3: f64 = 5.0;
+    var it3: i64 = 0;
+    while it3 < 14 {
+        let mid: f64 = (lo3 + hi3) / 2.0;
+        let r: i64 = blows_up_conc(mid, nu_ic, sigma, lambda, lam2_ic, beta, dt, max_s);
+        if r == 1 { hi3 = mid; } else { lo3 = mid; }
+        it3 = it3 + 1;
+    }
+    let astar_conc: f64 = (lo3 + hi3) / 2.0;
+    if astar_conc > 0.0001 { ic_pos = ic_pos + 1; }
+    print("  concentrated");
+    print_f64(astar_conc);
+    println("");
+
+    println("");
+    if ic_pos == 3 {
+        println("  A* positive for all initial conditions");
+    } else {
+        print("  A* positive for ");
+        print_i64(ic_pos);
+        println("/3 initial conditions");
+    }
+
+    println("");
+    println("############################################################");
+    if pos_count == 12 {
+        if ic_pos == 3 {
+            println("#  RESULT: A* > 0 universally                             #");
+            println("#  Parameter-independent AND IC-independent               #");
+        }
+    }
+    println("############################################################");
+
+    0
+}

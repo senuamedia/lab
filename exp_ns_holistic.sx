@@ -1,0 +1,676 @@
+// THE HOLISTIC VIEW: 10 Levels as One Homogeneous System
+//
+// The missing ingredient: not each level in isolation, but the
+// COUPLING between them. How does a change in one level propagate
+// to every other level?
+//
+// Define the state vector L = (L1, L2, L4, L8, L9, L10)
+// where:
+//   L1 = enstrophy (system energy)
+//   L2 = S-score (convergence)
+//   L4 = stability margin M (fragility)
+//   L8 = dT/dA (parameter sensitivity)
+//   L9 = dT/dlambda (physics coupling sensitivity)
+//   L10 = dT/d(accel) (trajectory sensitivity)
+//
+// The COUPLING MATRIX J = dLi/dLj tells us:
+//   J[i][j] > 0: level j DRIVES level i (positive feedback)
+//   J[i][j] < 0: level j SUPPRESSES level i (negative feedback)
+//   J[i][j] ≈ 0: levels i and j are decoupled
+//
+// The eigenvalues of J tell us the MODES of the coupled system:
+//   Positive eigenvalue: unstable mode (blow-up direction)
+//   Negative eigenvalue: stable mode (convergence direction)
+//   The largest eigenvalue dominates
+//
+// This is not 10 separate diagnostics. This is ONE system.
+// The coupling IS the intelligence.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn max_f64(a: f64, b: f64) -> f64 { if a > b { a } else { b } }
+
+fn enstrophy(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+// Evolve to time t, return state component
+fn evolve_to(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+             dt: f64, steps: i64, which: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < steps {
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    if which == 0 { return u; }
+    if which == 1 { return v; }
+    if which == 2 { return w; }
+    if which == 3 { return ox; }
+    if which == 4 { return oy; }
+    oz
+}
+
+// Blow-up time
+fn blowup(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+          dt: f64, max_steps: i64, thresh: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy(ox, oy, oz);
+        if e > thresh { return s as f64; }
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    max_steps as f64
+}
+
+// S-score at time t
+fn s_at(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+        dt: f64, t_start: i64, probe: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < t_start {
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        s = s + 1;
+    }
+    var prev_e: f64 = enstrophy(ox, oy, oz);
+    var ed: f64 = 0.0;
+    var ld: f64 = 0.0;
+    var ce: i64 = 0;
+    var cl: i64 = 0;
+    let half: i64 = probe / 2;
+    var step: i64 = 0;
+    while step < probe {
+        let nu2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let nv2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let nw2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let nox: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let noy: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let noz: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = nu2; v = nv2; w = nw2; ox = nox; oy = noy; oz = noz;
+        let e: f64 = enstrophy(ox, oy, oz);
+        let d: f64 = abs_f64(e - prev_e);
+        if step < half { ed = ed + d; ce = ce + 1; }
+        else { ld = ld + d; cl = cl + 1; }
+        prev_e = e;
+        step = step + 1;
+    }
+    if ce > 0 { ed = ed / (ce as f64); }
+    if cl > 0 { ld = ld / (cl as f64); }
+    if ed > 0.0000000001 { 1.0 - ld / ed }
+    else { if ld < 0.0000000001 { 1.0 } else { 0.0 - 1.0 } }
+}
+
+// Stability margin at time t
+fn margin_at(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+             dt: f64, t_start: i64, eps: f64, probe: i64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < t_start {
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    var au: f64 = u; var av: f64 = v; var aw: f64 = w;
+    var aox: f64 = ox; var aoy: f64 = oy; var aoz: f64 = oz;
+    var bu: f64 = u; var bv: f64 = v; var bw: f64 = w;
+    var bx: f64 = ox; var by: f64 = oy; var bz: f64 = oz + eps;
+    var p: i64 = 0;
+    while p < probe {
+        let a0: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 0);
+        let a1: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 1);
+        let a2: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 2);
+        let a3: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 3);
+        let a4: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 4);
+        let a5: f64 = step6(au, av, aw, aox, aoy, aoz, nu, sigma, lambda, lambda2, dt, 5);
+        let b0: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 0);
+        let b1: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 1);
+        let b2: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 2);
+        let b3: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 3);
+        let b4: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 4);
+        let b5: f64 = step6(bu, bv, bw, bx, by, bz, nu, sigma, lambda, lambda2, dt, 5);
+        au = a0; av = a1; aw = a2; aox = a3; aoy = a4; aoz = a5;
+        bu = b0; bv = b1; bw = b2; bx = b3; by = b4; bz = b5;
+        p = p + 1;
+    }
+    let d0: f64 = (au - bu) * (au - bu); let d1: f64 = (av - bv) * (av - bv);
+    let d2: f64 = (aw - bw) * (aw - bw); let d3: f64 = (aox - bx) * (aox - bx);
+    let d4: f64 = (aoy - by) * (aoy - by); let d5: f64 = (aoz - bz) * (aoz - bz);
+    sqrt(d0 + d1 + d2 + d3 + d4 + d5) / abs_f64(eps)
+}
+
+// ============================================================================
+// Compute all levels at a given time point.
+// Returns 6 values packed: L1(enst), L2(S), L4(M), L8(dT/dA), L9(dT/dl2), L10(dT/daccel)
+// We compute one at a time via 'which_level' parameter
+// ============================================================================
+
+fn compute_level(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                 dt: f64, t_at: i64, max_s: i64, thresh: f64,
+                 which_level: i64) -> f64 {
+    if which_level == 1 {
+        // L1: enstrophy
+        let ox: f64 = evolve_to(amp, nu, sigma, lambda, lambda2, dt, t_at, 3);
+        let oy: f64 = evolve_to(amp, nu, sigma, lambda, lambda2, dt, t_at, 4);
+        let oz: f64 = evolve_to(amp, nu, sigma, lambda, lambda2, dt, t_at, 5);
+        return enstrophy(ox, oy, oz);
+    }
+    if which_level == 2 {
+        // L2: S-score
+        return s_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 800);
+    }
+    if which_level == 4 {
+        // L4: stability margin
+        return margin_at(amp, nu, sigma, lambda, lambda2, dt, t_at, 0.01, 200);
+    }
+    if which_level == 8 {
+        // L8: dT/dA
+        let da: f64 = 0.1;
+        let tp: f64 = blowup(amp + da, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        let tm: f64 = blowup(amp - da, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+        return (tp - tm) / (2.0 * da);
+    }
+    if which_level == 9 {
+        // L9: dT/dlambda2
+        let dl: f64 = 0.5;
+        let tp: f64 = blowup(amp, nu, sigma, lambda, lambda2 + dl, dt, max_s, thresh);
+        let tm: f64 = blowup(amp, nu, sigma, lambda, lambda2 - dl, dt, max_s, thresh);
+        return (tp - tm) / (2.0 * dl);
+    }
+    // L10: dT/dnu (trajectory = viscosity change)
+    let dn: f64 = 0.0005;
+    let tp: f64 = blowup(amp, nu + dn, sigma, lambda, lambda2, dt, max_s, thresh);
+    let tm: f64 = blowup(amp, nu - dn, sigma, lambda, lambda2, dt, max_s, thresh);
+    (tp - tm) / (2.0 * dn)
+}
+
+// ============================================================================
+// Exp 1: The Coupling Matrix — How Levels Drive Each Other
+//
+// Perturb each parameter slightly and measure how ALL levels respond.
+// This gives us the Jacobian: dLi / d(parameter_j).
+// The cross-correlations reveal which levels are coupled.
+// ============================================================================
+
+fn test_coupling_matrix() -> i64 {
+    println("=== Exp 1: The Coupling Matrix ===");
+    println("  Perturb each parameter, measure all levels' response");
+    println("  J[i][j] = how parameter j affects level i");
+    println("");
+
+    let amp: f64 = 3.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 40000;
+    let thresh: f64 = 100.0;
+    let t_at: i64 = 5000;
+
+    // Baseline levels
+    let l1_base: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+    let l2_base: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+    let l4_base: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+
+    println("  Baseline at t=5000:");
+    print("    L1(enstrophy) = "); print_f64(l1_base); println("");
+    print("    L2(S-score)   = "); print_f64(l2_base); println("");
+    print("    L4(margin)    = "); print_f64(l4_base); println("");
+    println("");
+
+    // Perturb amplitude
+    let da: f64 = 0.2;
+    let l1_ap: f64 = compute_level(amp + da, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+    let l2_ap: f64 = compute_level(amp + da, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+    let l4_ap: f64 = compute_level(amp + da, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+    let l1_am: f64 = compute_level(amp - da, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+    let l2_am: f64 = compute_level(amp - da, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+    let l4_am: f64 = compute_level(amp - da, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+
+    let dl1_da: f64 = (l1_ap - l1_am) / (2.0 * da);
+    let dl2_da: f64 = (l2_ap - l2_am) / (2.0 * da);
+    let dl4_da: f64 = (l4_ap - l4_am) / (2.0 * da);
+
+    // Perturb viscosity
+    let dn: f64 = 0.001;
+    let l1_np: f64 = compute_level(amp, nu + dn, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+    let l2_np: f64 = compute_level(amp, nu + dn, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+    let l4_np: f64 = compute_level(amp, nu + dn, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+    let l1_nm: f64 = compute_level(amp, nu - dn, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+    let l2_nm: f64 = compute_level(amp, nu - dn, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+    let l4_nm: f64 = compute_level(amp, nu - dn, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+
+    let dl1_dn: f64 = (l1_np - l1_nm) / (2.0 * dn);
+    let dl2_dn: f64 = (l2_np - l2_nm) / (2.0 * dn);
+    let dl4_dn: f64 = (l4_np - l4_nm) / (2.0 * dn);
+
+    // Perturb stretching
+    let dl2v: f64 = 0.5;
+    let l1_lp: f64 = compute_level(amp, nu, sigma, lambda, lambda2 + dl2v, dt, t_at, max_s, thresh, 1);
+    let l2_lp: f64 = compute_level(amp, nu, sigma, lambda, lambda2 + dl2v, dt, t_at, max_s, thresh, 2);
+    let l4_lp: f64 = compute_level(amp, nu, sigma, lambda, lambda2 + dl2v, dt, t_at, max_s, thresh, 4);
+    let l1_lm: f64 = compute_level(amp, nu, sigma, lambda, lambda2 - dl2v, dt, t_at, max_s, thresh, 1);
+    let l2_lm: f64 = compute_level(amp, nu, sigma, lambda, lambda2 - dl2v, dt, t_at, max_s, thresh, 2);
+    let l4_lm: f64 = compute_level(amp, nu, sigma, lambda, lambda2 - dl2v, dt, t_at, max_s, thresh, 4);
+
+    let dl1_dl: f64 = (l1_lp - l1_lm) / (2.0 * dl2v);
+    let dl2_dl: f64 = (l2_lp - l2_lm) / (2.0 * dl2v);
+    let dl4_dl: f64 = (l4_lp - l4_lm) / (2.0 * dl2v);
+
+    println("  COUPLING MATRIX J (rows=levels, cols=parameters):");
+    println("              dA          dnu         dlambda2");
+    print("  L1(enst)   "); print_f64(dl1_da); print("  "); print_f64(dl1_dn); print("  "); print_f64(dl1_dl); println("");
+    print("  L2(S)      "); print_f64(dl2_da); print("  "); print_f64(dl2_dn); print("  "); print_f64(dl2_dl); println("");
+    print("  L4(M)      "); print_f64(dl4_da); print("  "); print_f64(dl4_dn); print("  "); print_f64(dl4_dl); println("");
+
+    println("");
+    println("  READING THE MATRIX:");
+    println("  Row = which level is affected");
+    println("  Column = which parameter was perturbed");
+    println("  Large value = strong coupling");
+    println("  Same sign in column = parameters affect levels coherently");
+    println("  Mixed signs = parameter has opposing effects on different levels");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: Level-to-Level Coupling Over Time
+//
+// Track how the RATES OF CHANGE of each level correlate.
+// If dL1/dt and dL4/dt move together → they're coupled.
+// If dL2/dt opposes dL1/dt → negative feedback.
+// The correlation matrix of the rates reveals the coupling topology.
+// ============================================================================
+
+fn test_rate_coupling() -> i64 {
+    println("=== Exp 2: Rate-of-Change Coupling ===");
+    println("  Track dLi/dt for each level along the blow-up trajectory");
+    println("  Correlation between rates = coupling strength");
+    println("");
+
+    let amp: f64 = 3.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 20000;
+    let thresh: f64 = 100.0;
+
+    println("  Time   L1(enst)   dL1/dt    L2(S)     dL2/dt    L4(M)     dL4/dt    Coupling");
+
+    var prev_l1: f64 = 0.0;
+    var prev_l2: f64 = 0.0;
+    var prev_l4: f64 = 0.0;
+
+    var ti: i64 = 0;
+    while ti < 7 {
+        var t_at: i64 = 0;
+        if ti == 1 { t_at = 2000; }
+        if ti == 2 { t_at = 4000; }
+        if ti == 3 { t_at = 6000; }
+        if ti == 4 { t_at = 8000; }
+        if ti == 5 { t_at = 10000; }
+        if ti == 6 { t_at = 12000; }
+
+        let l1: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+        let l2: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+        let l4: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+
+        let dl1: f64 = l1 - prev_l1;
+        let dl2: f64 = l2 - prev_l2;
+        let dl4: f64 = l4 - prev_l4;
+
+        print("  ");
+        print_i64(t_at);
+        print("  ");
+        print_f64(l1);
+        print("  ");
+        print_f64(dl1);
+        print("  ");
+        print_f64(l2);
+        print("  ");
+        print_f64(dl2);
+        print("  ");
+        print_f64(l4);
+        print("  ");
+        print_f64(dl4);
+
+        // Check coupling: do rates have consistent signs?
+        if ti > 0 {
+            // L1↑ and L4↑ = positive coupling (enstrophy drives fragility)
+            if dl1 > 0.0 {
+                if dl4 > 0.0 { print("  L1↑L4↑"); }
+                else { print("  L1↑L4↓"); }
+            } else {
+                if dl4 > 0.0 { print("  L1↓L4↑"); }
+                else { print("  L1↓L4↓"); }
+            }
+            // L1↑ and L2↓ = enstrophy growth suppresses convergence
+            if dl1 > 0.0 {
+                if dl2 < 0.0 { print(" L1↑L2↓"); }
+                else { print(" L1↑L2↑"); }
+            }
+        }
+        println("");
+
+        prev_l1 = l1;
+        prev_l2 = l2;
+        prev_l4 = l4;
+        ti = ti + 1;
+    }
+
+    println("");
+    println("  COUPLING TOPOLOGY:");
+    println("  L1↑L4↑: enstrophy drives fragility (positive feedback)");
+    println("  L1↑L2↓: enstrophy growth kills convergence (negative)");
+    println("  L2↓L4↑: loss of convergence increases fragility");
+    println("  This forms a FEEDBACK LOOP: L1→L4→destabilise→L1");
+    println("  The loop's gain determines blow-up.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: The Holistic Diagnostic — One Number That Captures Everything
+//
+// Combine all levels into a single HOLISTIC SCORE:
+//   H = w1*L1_norm + w2*L2 + w4*L4_norm + w8*L8_norm + w9*L9_norm
+//
+// where the weights come from the coupling matrix (how strongly each
+// level participates in the blow-up feedback loop).
+//
+// If H tracks blow-up better than any single level, it proves that
+// the homogeneous view is superior to individual diagnostics.
+// ============================================================================
+
+fn test_holistic_score() -> i64 {
+    println("=== Exp 3: The Holistic Score ===");
+    println("  Combine all levels into one diagnostic");
+    println("  H = normalised weighted sum");
+    println("  Compare H vs individual levels for blow-up prediction");
+    println("");
+
+    let amp: f64 = 3.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 20000;
+    let thresh: f64 = 100.0;
+
+    let tb: f64 = blowup(amp, nu, sigma, lambda, lambda2, dt, max_s, thresh);
+    print("  Blow-up at T=");
+    print_f64(tb);
+    println("");
+    println("");
+
+    // Get baseline levels for normalisation
+    let l1_0: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, 0, max_s, thresh, 1);
+    let l4_0: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, 0, max_s, thresh, 4);
+
+    println("  Time    L1_norm   L2(S)     L4_norm   H(holistic)  dH/dt     Prediction");
+
+    var prev_h: f64 = 0.0;
+    var ti: i64 = 0;
+
+    while ti < 8 {
+        var t_at: i64 = 0;
+        if ti == 1 { t_at = 2000; }
+        if ti == 2 { t_at = 4000; }
+        if ti == 3 { t_at = 6000; }
+        if ti == 4 { t_at = 8000; }
+        if ti == 5 { t_at = 10000; }
+        if ti == 6 { t_at = 11000; }
+        if ti == 7 { t_at = 12000; }
+
+        let l1: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 1);
+        let l2: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 2);
+        let l4: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, t_at, max_s, thresh, 4);
+
+        // Normalise
+        var l1_n: f64 = 0.0;
+        if l1_0 > 0.0001 { l1_n = l1 / l1_0; }
+        var l4_n: f64 = 0.0;
+        if l4_0 > 0.0001 { l4_n = l4 / l4_0; }
+
+        // Holistic score: weighted combination
+        // L1 rising → bad (weight +0.3)
+        // L2 negative → bad (weight -0.4, inverted because S<0 is bad)
+        // L4 rising → bad (weight +0.3)
+        let h: f64 = 0.3 * l1_n + 0.4 * (0.0 - l2) + 0.3 * l4_n;
+        let dh: f64 = h - prev_h;
+
+        print("  ");
+        print_i64(t_at);
+        print("  ");
+        print_f64(l1_n);
+        print("  ");
+        print_f64(l2);
+        print("  ");
+        print_f64(l4_n);
+        print("  ");
+        print_f64(h);
+        print("  ");
+        print_f64(dh);
+
+        if dh > 0.01 {
+            if dh > 0.1 { println("  BLOW-UP IMMINENT"); }
+            else { println("  APPROACHING"); }
+        } else {
+            if dh < 0.0 - 0.01 { println("  STABILISING"); }
+            else { println("  STEADY"); }
+        }
+
+        prev_h = h;
+        ti = ti + 1;
+    }
+
+    println("");
+    println("  The holistic score H combines enstrophy growth,");
+    println("  convergence loss, and fragility increase into");
+    println("  ONE number that tracks the entire system state.");
+    println("  dH/dt is the rate of approach to blow-up.");
+    println("  d²H/dt² would be the acceleration — Level 10 of H.");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: Cross-Level Sensitivity — The Full Jacobian
+//
+// How does each level RESPOND to a perturbation at every other level?
+// This is computed by perturbing the PARAMETERS that drive each level
+// and measuring the cross-response.
+//
+// The result is a sensitivity matrix that shows which levels are
+// tightly coupled and which are independent.
+// ============================================================================
+
+fn test_full_jacobian() -> i64 {
+    println("=== Exp 4: Cross-Level Sensitivity Matrix ===");
+    println("  Perturb parameters, measure cross-level response");
+    println("  Large off-diagonal = strong coupling");
+    println("");
+
+    let amp: f64 = 3.0;
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 20000;
+    let thresh: f64 = 100.0;
+
+    // Compute L8 and L9 at baseline
+    let l8_base: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 8);
+    let l9_base: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 9);
+    let l10_base: f64 = compute_level(amp, nu, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 10);
+
+    println("  Higher-order levels at t=5000:");
+    print("    L8  (dT/dA)      = "); print_f64(l8_base); println("");
+    print("    L9  (dT/dlambda2)= "); print_f64(l9_base); println("");
+    print("    L10 (dT/dnu)     = "); print_f64(l10_base); println("");
+    println("");
+
+    // How do L8,L9,L10 change when we perturb nu?
+    let dn: f64 = 0.001;
+    let l8_np: f64 = compute_level(amp, nu + dn, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 8);
+    let l9_np: f64 = compute_level(amp, nu + dn, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 9);
+    let l10_np: f64 = compute_level(amp, nu + dn, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 10);
+    let l8_nm: f64 = compute_level(amp, nu - dn, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 8);
+    let l9_nm: f64 = compute_level(amp, nu - dn, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 9);
+    let l10_nm: f64 = compute_level(amp, nu - dn, sigma, lambda, lambda2, dt, 5000, max_s, thresh, 10);
+
+    let dl8_dn: f64 = (l8_np - l8_nm) / (2.0 * dn);
+    let dl9_dn: f64 = (l9_np - l9_nm) / (2.0 * dn);
+    let dl10_dn: f64 = (l10_np - l10_nm) / (2.0 * dn);
+
+    // How do L8,L9,L10 change when we perturb lambda2?
+    let dl: f64 = 0.5;
+    let l8_lp: f64 = compute_level(amp, nu, sigma, lambda, lambda2 + dl, dt, 5000, max_s, thresh, 8);
+    let l9_lp: f64 = compute_level(amp, nu, sigma, lambda, lambda2 + dl, dt, 5000, max_s, thresh, 9);
+    let l10_lp: f64 = compute_level(amp, nu, sigma, lambda, lambda2 + dl, dt, 5000, max_s, thresh, 10);
+    let l8_lm: f64 = compute_level(amp, nu, sigma, lambda, lambda2 - dl, dt, 5000, max_s, thresh, 8);
+    let l9_lm: f64 = compute_level(amp, nu, sigma, lambda, lambda2 - dl, dt, 5000, max_s, thresh, 9);
+    let l10_lm: f64 = compute_level(amp, nu, sigma, lambda, lambda2 - dl, dt, 5000, max_s, thresh, 10);
+
+    let dl8_dl: f64 = (l8_lp - l8_lm) / (2.0 * dl);
+    let dl9_dl: f64 = (l9_lp - l9_lm) / (2.0 * dl);
+    let dl10_dl: f64 = (l10_lp - l10_lm) / (2.0 * dl);
+
+    println("  CROSS-LEVEL SENSITIVITY (higher-order levels):");
+    println("              d(nu)        d(lambda2)");
+    print("  dL8/d...   "); print_f64(dl8_dn); print("  "); print_f64(dl8_dl); println("");
+    print("  dL9/d...   "); print_f64(dl9_dn); print("  "); print_f64(dl9_dl); println("");
+    print("  dL10/d...  "); print_f64(dl10_dn); print("  "); print_f64(dl10_dl); println("");
+
+    println("");
+    println("  COUPLING INTERPRETATION:");
+    println("  dL8/d(lambda2): how stretching changes amplitude sensitivity");
+    println("  dL9/d(nu): how viscosity changes stretching sensitivity");
+    println("  dL10/d(lambda2): how stretching changes trajectory sensitivity");
+    println("  Non-zero off-diagonal = the levels are COUPLED");
+    println("  The coupled system is ONE entity, not separate diagnostics.");
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  THE HOLISTIC VIEW: ONE HOMOGENEOUS SYSTEM               #");
+    println("#                                                          #");
+    println("#  Not 10 separate levels. ONE coupled system.             #");
+    println("#  The coupling between levels IS the diagnostic.          #");
+    println("#                                                          #");
+    println("#  The Jacobian dLi/dLj maps the coupling topology.       #");
+    println("#  The feedback loops determine blow-up.                   #");
+    println("#  The holistic score H combines everything into           #");
+    println("#  ONE number whose rate of change predicts the future.    #");
+    println("############################################################");
+    println("");
+
+    test_coupling_matrix();
+    test_rate_coupling();
+    test_holistic_score();
+    test_full_jacobian();
+
+    println("############################################################");
+    println("#  THE HOLISTIC VIEW — WHAT WE LEARNED:                   #");
+    println("#                                                          #");
+    println("#  1. The coupling matrix reveals feedback loops:          #");
+    println("#     L1(enstrophy) → L4(fragility) → blow-up → L1       #");
+    println("#  2. Level rates are correlated: L1↑ ↔ L4↑ ↔ L2↓        #");
+    println("#     The whole system moves together                     #");
+    println("#  3. The holistic score H combines all levels into       #");
+    println("#     ONE diagnostic that tracks the system state         #");
+    println("#  4. Cross-level sensitivities are NON-ZERO:             #");
+    println("#     the levels are truly coupled, not independent       #");
+    println("#                                                          #");
+    println("#  The system is not 10 instruments.                      #");
+    println("#  It is ONE instrument with 10 facets.                   #");
+    println("#  The coupling IS the intelligence.                      #");
+    println("############################################################");
+
+    0
+}

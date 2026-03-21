@@ -1,0 +1,340 @@
+// Higher-Order Derivative Analysis of the Collatz Sequence
+//
+// NOT claiming to solve the Collatz conjecture.
+// ASKING: does the meta-gradient derivative series reveal
+// structure in Collatz trajectories that isn't visible
+// from the raw sequences?
+//
+// The Collatz map: if n is even, n/2; if n is odd, 3n+1.
+// Conjecture: all positive integers eventually reach 1.
+//
+// We compute:
+// 1. The "drift" D(n) = average log-ratio per step for starting value n
+// 2. The derivative series D, D', D'', D''' across starting values
+// 3. Whether the "skeptical desire" approach reveals patterns
+//
+// The drift tells us: on average, does the sequence shrink or grow?
+// The derivatives tell us: how does the shrinkage rate CHANGE?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// Collatz step
+fn collatz_step(n: i64) -> i64 {
+    if n % 2 == 0 {
+        n / 2
+    } else {
+        3 * n + 1
+    }
+}
+
+// Count steps to reach 1 (stopping time)
+fn collatz_stopping_time(start: i64) -> i64 {
+    var n: i64 = start;
+    var steps: i64 = 0;
+    while n > 1 {
+        n = collatz_step(n);
+        steps = steps + 1;
+        if steps > 10000 { return 10000; }
+    }
+    steps
+}
+
+// Compute the average log-ratio (drift) of a Collatz trajectory
+// drift > 0 means sequence grows on average, drift < 0 means shrinks
+fn collatz_drift(start: i64) -> f64 {
+    var n: i64 = start;
+    var total_log_ratio: f64 = 0.0;
+    var steps: i64 = 0;
+
+    while n > 1 {
+        let prev: i64 = n;
+        n = collatz_step(n);
+        // log ratio: ln(n_next / n_prev) — positive = grew, negative = shrank
+        if prev > 0 {
+            let ratio: f64 = (n as f64) / (prev as f64);
+            if ratio > 0.0 {
+                total_log_ratio = total_log_ratio + ln(ratio);
+            }
+        }
+        steps = steps + 1;
+        if steps > 5000 { return total_log_ratio / (steps as f64); }
+    }
+
+    if steps > 0 {
+        total_log_ratio / (steps as f64)
+    } else {
+        0.0
+    }
+}
+
+// Compute the max value reached in a Collatz trajectory (excursion)
+fn collatz_max(start: i64) -> i64 {
+    var n: i64 = start;
+    var max_n: i64 = start;
+    var steps: i64 = 0;
+    while n > 1 {
+        n = collatz_step(n);
+        if n > max_n { max_n = n; }
+        steps = steps + 1;
+        if steps > 10000 { return max_n; }
+    }
+    max_n
+}
+
+fn main() -> i64 {
+    println("============================================");
+    println("  COLLATZ SEQUENCE: DERIVATIVE ANALYSIS");
+    println("  Exploring structure via meta-gradients");
+    println("============================================");
+    println("");
+
+    // === Part 1: Drift series across starting values ===
+    println("--- Part 1: Drift D(n) for n = 2..100 ---");
+    println("  n    Steps  MaxVal   Drift");
+
+    // Compute drift for starting values 2 through 100
+    // Store drifts for derivative computation
+    var n: i64 = 2;
+    var prev_drift: f64 = 0.0;
+    var prev_d_prime: f64 = 0.0;
+    var prev_d_double: f64 = 0.0;
+    var d_prime: f64 = 0.0;
+    var d_double: f64 = 0.0;
+    var d_triple: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var steps: i64 = 0;
+    var max_val: i64 = 0;
+
+    // Print selected values
+    while n <= 100 {
+        drift = collatz_drift(n);
+        steps = collatz_stopping_time(n);
+        max_val = collatz_max(n);
+
+        if n <= 10 {
+            print("  ");
+            print_i64(n);
+            print("    ");
+            print_i64(steps);
+            print("    ");
+            print_i64(max_val);
+            print("    ");
+            print_f64(drift);
+            println("");
+        }
+        if n == 27 {
+            print("  27   ");
+            print_i64(steps);
+            print("    ");
+            print_i64(max_val);
+            print("    ");
+            print_f64(drift);
+            println("  <-- famously long trajectory");
+        }
+        if n == 97 {
+            print("  97   ");
+            print_i64(steps);
+            print("    ");
+            print_i64(max_val);
+            print("    ");
+            print_f64(drift);
+            println("");
+        }
+
+        n = n + 1;
+    }
+    println("");
+
+    // === Part 2: Derivative series of stopping times ===
+    println("--- Part 2: Derivative series of stopping times ---");
+    println("  Compute D(n), D'(n), D''(n), D'''(n)");
+    println("  where D(n) = stopping_time(n+1) - stopping_time(n)");
+    println("");
+    println("  n     D(n)   D'(n)  D''(n) D'''(n)");
+
+    n = 2;
+    var prev_st: i64 = collatz_stopping_time(2);
+    var prev_d: i64 = 0;
+    var prev_dd: i64 = 0;
+    var prev_ddd: i64 = 0;
+    var st: i64 = 0;
+    var d_val: i64 = 0;
+    var dd_val: i64 = 0;
+    var ddd_val: i64 = 0;
+    var dddd_val: i64 = 0;
+
+    // Track statistics
+    var sum_d: i64 = 0;
+    var sum_abs_d: i64 = 0;
+    var sum_dd: i64 = 0;
+    var count: i64 = 0;
+    var sign_changes_d: i64 = 0;
+    var sign_changes_dd: i64 = 0;
+
+    while n <= 200 {
+        st = collatz_stopping_time(n);
+        d_val = st - prev_st;
+
+        dd_val = d_val - prev_d;
+        ddd_val = dd_val - prev_dd;
+        dddd_val = ddd_val - prev_ddd;
+
+        if n >= 4 {
+            count = count + 1;
+            sum_d = sum_d + d_val;
+            if d_val >= 0 { sum_abs_d = sum_abs_d + d_val; } else { sum_abs_d = sum_abs_d - d_val; }
+            if d_val >= 0 { if prev_d < 0 { sign_changes_d = sign_changes_d + 1; } }
+            if d_val < 0 { if prev_d >= 0 { sign_changes_d = sign_changes_d + 1; } }
+            if dd_val >= 0 { if prev_dd < 0 { sign_changes_dd = sign_changes_dd + 1; } }
+            if dd_val < 0 { if prev_dd >= 0 { sign_changes_dd = sign_changes_dd + 1; } }
+        }
+
+        if n <= 15 {
+            print("  ");
+            print_i64(n);
+            print("     ");
+            print_i64(d_val);
+            print("     ");
+            print_i64(dd_val);
+            print("     ");
+            print_i64(ddd_val);
+            print("     ");
+            print_i64(dddd_val);
+            println("");
+        }
+
+        prev_st = st;
+        prev_d = d_val;
+        prev_dd = dd_val;
+        prev_ddd = ddd_val;
+        n = n + 1;
+    }
+
+    println("  ...");
+    println("");
+    print("  D(n) sign changes in n=4..200:  ");
+    print_i64(sign_changes_d);
+    println("");
+    print("  D'(n) sign changes in n=4..200: ");
+    print_i64(sign_changes_dd);
+    println("");
+    print("  Avg D(n): ");
+    print_f64((sum_d as f64) / (count as f64));
+    println("");
+    print("  Avg |D(n)|: ");
+    print_f64((sum_abs_d as f64) / (count as f64));
+    println("");
+
+    // === Part 3: Does drift converge to a constant? ===
+    println("");
+    println("--- Part 3: Average drift convergence ---");
+    println("  Average drift D(n) over windows of starting values");
+    println("  If drift converges to a negative constant, ALL trajectories shrink");
+    println("");
+
+    // Compute average drift in windows
+    println("  Window         Avg Drift    Interpretation");
+    var window_start: i64 = 2;
+    while window_start < 1000 {
+        var window_sum: f64 = 0.0;
+        var window_count: i64 = 0;
+        var wn: i64 = window_start;
+        while wn < window_start + 100 {
+            window_sum = window_sum + collatz_drift(wn);
+            window_count = window_count + 1;
+            wn = wn + 1;
+        }
+        let avg: f64 = window_sum / (window_count as f64);
+        print("  ");
+        print_i64(window_start);
+        print("-");
+        print_i64(window_start + 99);
+        print("    ");
+        print_f64(avg);
+        if avg < 0.0 {
+            println("   shrinking");
+        } else {
+            println("   GROWING");
+        }
+        window_start = window_start + 200;
+    }
+
+    println("");
+
+    // === Part 4: Skeptical desire applied ===
+    println("--- Part 4: Skeptical Desire Analysis ---");
+    println("  Apply adversarial thinking: what if we TRIED to find");
+    println("  a starting value that doesn't converge?");
+    println("");
+    println("  Strategy: look for values where drift is LEAST negative");
+    println("  (closest to growing). These are the hardest cases.");
+    println("");
+
+    var least_neg_drift: f64 = 0.0 - 999.0;
+    var least_neg_n: i64 = 0;
+    var most_neg_drift: f64 = 0.0;
+    var most_neg_n: i64 = 0;
+    var longest_stop: i64 = 0;
+    var longest_n: i64 = 0;
+
+    n = 2;
+    while n <= 1000 {
+        drift = collatz_drift(n);
+        steps = collatz_stopping_time(n);
+
+        if drift > least_neg_drift {
+            least_neg_drift = drift;
+            least_neg_n = n;
+        }
+        if drift < most_neg_drift {
+            most_neg_drift = drift;
+            most_neg_n = n;
+        }
+        if steps > longest_stop {
+            longest_stop = steps;
+            longest_n = n;
+        }
+        n = n + 1;
+    }
+
+    print("  Least shrinking: n=");
+    print_i64(least_neg_n);
+    print("  drift=");
+    print_f64(least_neg_drift);
+    println("");
+    print("  Most shrinking:  n=");
+    print_i64(most_neg_n);
+    print("  drift=");
+    print_f64(most_neg_drift);
+    println("");
+    print("  Longest path:    n=");
+    print_i64(longest_n);
+    print("  steps=");
+    print_i64(longest_stop);
+    println("");
+
+    println("");
+    println("--- Analysis ---");
+    println("  The derivative series D, D', D'', D''' of stopping");
+    println("  times oscillates chaotically -- no clean pattern like");
+    println("  Fibonacci or geometric decay.");
+    println("");
+    println("  HOWEVER: the AVERAGE drift is consistently negative");
+    println("  across all windows. This means the Collatz map is a");
+    println("  contraction ON AVERAGE -- exactly the condition our");
+    println("  theorem requires.");
+    println("");
+    println("  The skeptical desire approach (looking for non-converging");
+    println("  values) identifies the HARDEST cases but cannot find a");
+    println("  counterexample. The adversarial search narrows the space");
+    println("  where a counterexample COULD exist.");
+    println("");
+    println("  This does NOT prove the Collatz conjecture.");
+    println("  It demonstrates that the meta-gradient framework can");
+    println("  characterize convergence behavior of discrete dynamical");
+    println("  systems and identify adversarial cases.");
+
+    0
+}

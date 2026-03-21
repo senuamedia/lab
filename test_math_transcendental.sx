@@ -1,0 +1,775 @@
+// Comprehensive Transcendental Math Function Tests
+//
+// Tests all transcendental builtins: sqrt, sin, cos, exp, ln, pow, tanh
+// Each test function returns 0 = pass, 1 = fail.
+// Tolerance: 0.0001 for all transcendental comparisons.
+
+fn approx(a: f64, b: f64, tol: f64) -> i64 {
+    var diff: f64 = a - b;
+    if diff < 0.0 { diff = 0.0 - diff; }
+    if diff < tol { 1 } else { 0 }
+}
+
+// ---------------------------------------------------------------------------
+// 1. sqrt tests
+// ---------------------------------------------------------------------------
+
+fn test_sqrt_perfect_squares() -> i64 {
+    var r4: f64 = sqrt(4.0);
+    var r9: f64 = sqrt(9.0);
+    var r16: f64 = sqrt(16.0);
+    var r25: f64 = sqrt(25.0);
+    if approx(r4, 2.0, 0.0001) == 0 { return 1; }
+    if approx(r9, 3.0, 0.0001) == 0 { return 1; }
+    if approx(r16, 4.0, 0.0001) == 0 { return 1; }
+    if approx(r25, 5.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sqrt_irrational() -> i64 {
+    var r2: f64 = sqrt(2.0);
+    var r3: f64 = sqrt(3.0);
+    var r5: f64 = sqrt(5.0);
+    if approx(r2, 1.41421356, 0.0001) == 0 { return 1; }
+    if approx(r3, 1.73205080, 0.0001) == 0 { return 1; }
+    if approx(r5, 2.23606797, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sqrt_zero() -> i64 {
+    var r0: f64 = sqrt(0.0);
+    if approx(r0, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sqrt_one() -> i64 {
+    var r1: f64 = sqrt(1.0);
+    if approx(r1, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sqrt_large() -> i64 {
+    var r: f64 = sqrt(10000.0);
+    if approx(r, 100.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sqrt_small() -> i64 {
+    var r: f64 = sqrt(0.0001);
+    if approx(r, 0.01, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 2. sin tests
+// ---------------------------------------------------------------------------
+
+fn test_sin_zero() -> i64 {
+    var r: f64 = sin(0.0);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sin_pi_half() -> i64 {
+    var r: f64 = sin(1.5707963267);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sin_pi() -> i64 {
+    var r: f64 = sin(3.1415926535);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sin_neg_pi_half() -> i64 {
+    var r: f64 = sin(0.0 - 1.5707963267);
+    if approx(r, 0.0 - 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sin_three_pi_half() -> i64 {
+    var r: f64 = sin(4.7123889803);
+    if approx(r, 0.0 - 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sin_two_pi() -> i64 {
+    var r: f64 = sin(6.2831853071);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sin_pi_sixth() -> i64 {
+    var r: f64 = sin(0.5235987755);
+    if approx(r, 0.5, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 3. cos tests
+// ---------------------------------------------------------------------------
+
+fn test_cos_zero() -> i64 {
+    var r: f64 = cos(0.0);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_cos_pi_half() -> i64 {
+    var r: f64 = cos(1.5707963267);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_cos_pi() -> i64 {
+    var r: f64 = cos(3.1415926535);
+    if approx(r, 0.0 - 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_cos_two_pi() -> i64 {
+    var r: f64 = cos(6.2831853071);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_cos_pi_third() -> i64 {
+    var r: f64 = cos(1.0471975511);
+    if approx(r, 0.5, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_cos_neg() -> i64 {
+    var r: f64 = cos(0.0 - 1.0);
+    var expected: f64 = cos(1.0);
+    if approx(r, expected, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 4. tan tests (computed as sin/cos since no tan builtin)
+// ---------------------------------------------------------------------------
+
+fn tan_via_sincos(x: f64) -> f64 {
+    sin(x) / cos(x)
+}
+
+fn test_tan_zero() -> i64 {
+    var r: f64 = tan_via_sincos(0.0);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tan_pi_fourth() -> i64 {
+    var r: f64 = tan_via_sincos(0.7853981633);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tan_neg_pi_fourth() -> i64 {
+    var r: f64 = tan_via_sincos(0.0 - 0.7853981633);
+    if approx(r, 0.0 - 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tan_pi_sixth() -> i64 {
+    var r: f64 = tan_via_sincos(0.5235987755);
+    if approx(r, 0.5773502691, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 5. exp tests
+// ---------------------------------------------------------------------------
+
+fn test_exp_zero() -> i64 {
+    var r: f64 = exp(0.0);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_exp_one() -> i64 {
+    var r: f64 = exp(1.0);
+    if approx(r, 2.7182818284, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_exp_neg_one() -> i64 {
+    var r: f64 = exp(0.0 - 1.0);
+    if approx(r, 0.3678794411, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_exp_two() -> i64 {
+    var r: f64 = exp(2.0);
+    if approx(r, 7.3890560989, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_exp_neg_two() -> i64 {
+    var r: f64 = exp(0.0 - 2.0);
+    if approx(r, 0.1353352832, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_exp_half() -> i64 {
+    var r: f64 = exp(0.5);
+    if approx(r, 1.6487212707, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 6. ln (natural log) tests
+// ---------------------------------------------------------------------------
+
+fn test_ln_one() -> i64 {
+    var r: f64 = ln(1.0);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_e() -> i64 {
+    var r: f64 = ln(2.7182818284);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_ten() -> i64 {
+    var r: f64 = ln(10.0);
+    if approx(r, 2.3025850929, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_two() -> i64 {
+    var r: f64 = ln(2.0);
+    if approx(r, 0.6931471805, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_half() -> i64 {
+    var r: f64 = ln(0.5);
+    if approx(r, 0.0 - 0.6931471805, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_e_squared() -> i64 {
+    var r: f64 = ln(7.3890560989);
+    if approx(r, 2.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 7. pow tests
+// ---------------------------------------------------------------------------
+
+fn test_pow_square() -> i64 {
+    var r: f64 = pow(3.0, 2.0);
+    if approx(r, 9.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_cube() -> i64 {
+    var r: f64 = pow(2.0, 3.0);
+    if approx(r, 8.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_zero_exp() -> i64 {
+    var r: f64 = pow(5.0, 0.0);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_one_exp() -> i64 {
+    var r: f64 = pow(7.0, 1.0);
+    if approx(r, 7.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_fractional() -> i64 {
+    var r: f64 = pow(4.0, 0.5);
+    if approx(r, 2.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_negative_exp() -> i64 {
+    var r: f64 = pow(2.0, 0.0 - 1.0);
+    if approx(r, 0.5, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_via_exp_ln() -> i64 {
+    // Verify pow(x,n) matches exp(n*ln(x))
+    var r1: f64 = pow(3.0, 2.5);
+    var r2: f64 = exp(2.5 * ln(3.0));
+    if approx(r1, r2, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 8. tanh tests
+// ---------------------------------------------------------------------------
+
+fn test_tanh_zero() -> i64 {
+    var r: f64 = tanh(0.0);
+    if approx(r, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tanh_one() -> i64 {
+    var r: f64 = tanh(1.0);
+    if approx(r, 0.7615941559, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tanh_neg_one() -> i64 {
+    var r: f64 = tanh(0.0 - 1.0);
+    if approx(r, 0.0 - 0.7615941559, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tanh_large() -> i64 {
+    // tanh(10) is very close to 1.0
+    var r: f64 = tanh(10.0);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_tanh_symmetry() -> i64 {
+    // tanh(-x) = -tanh(x)
+    var a: f64 = tanh(2.0);
+    var b: f64 = tanh(0.0 - 2.0);
+    if approx(a + b, 0.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 9. Pythagorean identity: sin(x)^2 + cos(x)^2 = 1
+// ---------------------------------------------------------------------------
+
+fn test_pythagorean_at(x: f64) -> i64 {
+    var s: f64 = sin(x);
+    var c: f64 = cos(x);
+    var sum: f64 = s * s + c * c;
+    if approx(sum, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pythagorean_identity() -> i64 {
+    if test_pythagorean_at(0.5) == 1 { return 1; }
+    if test_pythagorean_at(1.0) == 1 { return 1; }
+    if test_pythagorean_at(2.0) == 1 { return 1; }
+    if test_pythagorean_at(3.0) == 1 { return 1; }
+    if test_pythagorean_at(0.0 - 1.5) == 1 { return 1; }
+    if test_pythagorean_at(4.7) == 1 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 10. exp/ln inverse: ln(exp(x)) = x and exp(ln(x)) = x
+// ---------------------------------------------------------------------------
+
+fn test_ln_of_exp() -> i64 {
+    var r1: f64 = ln(exp(0.5));
+    var r2: f64 = ln(exp(1.0));
+    var r3: f64 = ln(exp(2.0));
+    var r4: f64 = ln(exp(3.5));
+    if approx(r1, 0.5, 0.0001) == 0 { return 1; }
+    if approx(r2, 1.0, 0.0001) == 0 { return 1; }
+    if approx(r3, 2.0, 0.0001) == 0 { return 1; }
+    if approx(r4, 3.5, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_exp_of_ln() -> i64 {
+    var r1: f64 = exp(ln(0.5));
+    var r2: f64 = exp(ln(1.0));
+    var r3: f64 = exp(ln(2.0));
+    var r4: f64 = exp(ln(10.0));
+    if approx(r1, 0.5, 0.0001) == 0 { return 1; }
+    if approx(r2, 1.0, 0.0001) == 0 { return 1; }
+    if approx(r3, 2.0, 0.0001) == 0 { return 1; }
+    if approx(r4, 10.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 11. sqrt/square identity: sqrt(x*x) = x for positive x
+// ---------------------------------------------------------------------------
+
+fn test_sqrt_square_identity() -> i64 {
+    var r1: f64 = sqrt(3.0 * 3.0);
+    var r2: f64 = sqrt(7.5 * 7.5);
+    var r3: f64 = sqrt(0.1 * 0.1);
+    var r4: f64 = sqrt(100.0 * 100.0);
+    if approx(r1, 3.0, 0.0001) == 0 { return 1; }
+    if approx(r2, 7.5, 0.0001) == 0 { return 1; }
+    if approx(r3, 0.1, 0.0001) == 0 { return 1; }
+    if approx(r4, 100.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_square_sqrt_identity() -> i64 {
+    // (sqrt(x))^2 = x
+    var r1: f64 = sqrt(2.0);
+    var r2: f64 = sqrt(7.0);
+    var r3: f64 = sqrt(0.25);
+    if approx(r1 * r1, 2.0, 0.0001) == 0 { return 1; }
+    if approx(r2 * r2, 7.0, 0.0001) == 0 { return 1; }
+    if approx(r3 * r3, 0.25, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 12. Double-angle identities: sin(2x)=2*sin(x)*cos(x)
+// ---------------------------------------------------------------------------
+
+fn test_double_angle_sin() -> i64 {
+    var x: f64 = 0.7;
+    var lhs: f64 = sin(2.0 * x);
+    var rhs: f64 = 2.0 * sin(x) * cos(x);
+    if approx(lhs, rhs, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_double_angle_cos() -> i64 {
+    // cos(2x) = cos(x)^2 - sin(x)^2
+    var x: f64 = 1.2;
+    var lhs: f64 = cos(2.0 * x);
+    var cx: f64 = cos(x);
+    var sx: f64 = sin(x);
+    var rhs: f64 = cx * cx - sx * sx;
+    if approx(lhs, rhs, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 13. Euler's formula check: exp(ix) decomposition via series
+//     sin(x) = (exp(x) - exp(-x)) / 2 for SINH, but we test:
+//     tanh(x) = (exp(2x)-1)/(exp(2x)+1)
+// ---------------------------------------------------------------------------
+
+fn test_tanh_via_exp() -> i64 {
+    var x: f64 = 1.5;
+    var e2x: f64 = exp(2.0 * x);
+    var computed: f64 = (e2x - 1.0) / (e2x + 1.0);
+    var direct: f64 = tanh(x);
+    if approx(computed, direct, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 14. Log identities: ln(a*b)=ln(a)+ln(b), ln(a/b)=ln(a)-ln(b)
+// ---------------------------------------------------------------------------
+
+fn test_ln_product() -> i64 {
+    var a: f64 = 3.0;
+    var b: f64 = 5.0;
+    var lhs: f64 = ln(a * b);
+    var rhs: f64 = ln(a) + ln(b);
+    if approx(lhs, rhs, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_quotient() -> i64 {
+    var a: f64 = 7.0;
+    var b: f64 = 2.0;
+    var lhs: f64 = ln(a / b);
+    var rhs: f64 = ln(a) - ln(b);
+    if approx(lhs, rhs, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_ln_power() -> i64 {
+    // ln(x^n) = n*ln(x)
+    var x: f64 = 2.0;
+    var n: f64 = 3.0;
+    var lhs: f64 = ln(pow(x, n));
+    var rhs: f64 = n * ln(x);
+    if approx(lhs, rhs, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 15. Edge cases
+// ---------------------------------------------------------------------------
+
+fn test_exp_large_negative() -> i64 {
+    // exp(-20) should be very close to 0
+    var r: f64 = exp(0.0 - 20.0);
+    if r < 0.0001 { 0 } else { 1 }
+}
+
+fn test_sin_cos_boundary() -> i64 {
+    // At pi/4, sin and cos should be equal
+    var s: f64 = sin(0.7853981633);
+    var c: f64 = cos(0.7853981633);
+    if approx(s, c, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_pow_identity() -> i64 {
+    // x^1 = x, x^0 = 1 for several x values
+    var r1: f64 = pow(42.0, 1.0);
+    var r2: f64 = pow(42.0, 0.0);
+    var r3: f64 = pow(0.001, 0.0);
+    if approx(r1, 42.0, 0.0001) == 0 { return 1; }
+    if approx(r2, 1.0, 0.0001) == 0 { return 1; }
+    if approx(r3, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sqrt_pow_equivalence() -> i64 {
+    // sqrt(x) = pow(x, 0.5)
+    var x: f64 = 17.0;
+    var r1: f64 = sqrt(x);
+    var r2: f64 = pow(x, 0.5);
+    if approx(r1, r2, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// 16. Compound expressions
+// ---------------------------------------------------------------------------
+
+fn test_gaussian(x: f64, mu: f64, sigma: f64) -> f64 {
+    var diff: f64 = x - mu;
+    exp(0.0 - (diff * diff) / (2.0 * sigma * sigma))
+}
+
+fn test_gaussian_peak() -> i64 {
+    // Gaussian at mean should be 1.0 (unnormalized)
+    var r: f64 = test_gaussian(5.0, 5.0, 1.0);
+    if approx(r, 1.0, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_gaussian_symmetry() -> i64 {
+    var left: f64 = test_gaussian(3.0, 5.0, 1.0);
+    var right: f64 = test_gaussian(7.0, 5.0, 1.0);
+    if approx(left, right, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_sigmoid() -> i64 {
+    // sigmoid(0) = 0.5
+    var r: f64 = 1.0 / (1.0 + exp(0.0));
+    if approx(r, 0.5, 0.0001) == 0 { return 1; }
+    0
+}
+
+fn test_softplus() -> i64 {
+    // softplus(x) = ln(1 + exp(x))
+    // softplus(0) = ln(2) ≈ 0.6931
+    var r: f64 = ln(1.0 + exp(0.0));
+    if approx(r, 0.6931471805, 0.0001) == 0 { return 1; }
+    0
+}
+
+// ---------------------------------------------------------------------------
+// Main test runner
+// ---------------------------------------------------------------------------
+
+fn run_test(name_idx: i64, result: i64) -> i64 {
+    if result == 0 {
+        print("  PASS  test ");
+        print_i64(name_idx);
+        println("");
+    } else {
+        print("  FAIL  test ");
+        print_i64(name_idx);
+        println("");
+    }
+    result
+}
+
+fn main() -> i64 {
+    var failures: i64 = 0;
+    var test_num: i64 = 0;
+
+    println("========================================");
+    println("  Transcendental Math Function Tests");
+    println("========================================");
+    println("");
+
+    // sqrt tests
+    println("--- sqrt ---");
+    test_num = 1;
+    failures = failures + run_test(test_num, test_sqrt_perfect_squares());
+    test_num = 2;
+    failures = failures + run_test(test_num, test_sqrt_irrational());
+    test_num = 3;
+    failures = failures + run_test(test_num, test_sqrt_zero());
+    test_num = 4;
+    failures = failures + run_test(test_num, test_sqrt_one());
+    test_num = 5;
+    failures = failures + run_test(test_num, test_sqrt_large());
+    test_num = 6;
+    failures = failures + run_test(test_num, test_sqrt_small());
+
+    // sin tests
+    println("--- sin ---");
+    test_num = 7;
+    failures = failures + run_test(test_num, test_sin_zero());
+    test_num = 8;
+    failures = failures + run_test(test_num, test_sin_pi_half());
+    test_num = 9;
+    failures = failures + run_test(test_num, test_sin_pi());
+    test_num = 10;
+    failures = failures + run_test(test_num, test_sin_neg_pi_half());
+    test_num = 11;
+    failures = failures + run_test(test_num, test_sin_three_pi_half());
+    test_num = 12;
+    failures = failures + run_test(test_num, test_sin_two_pi());
+    test_num = 13;
+    failures = failures + run_test(test_num, test_sin_pi_sixth());
+
+    // cos tests
+    println("--- cos ---");
+    test_num = 14;
+    failures = failures + run_test(test_num, test_cos_zero());
+    test_num = 15;
+    failures = failures + run_test(test_num, test_cos_pi_half());
+    test_num = 16;
+    failures = failures + run_test(test_num, test_cos_pi());
+    test_num = 17;
+    failures = failures + run_test(test_num, test_cos_two_pi());
+    test_num = 18;
+    failures = failures + run_test(test_num, test_cos_pi_third());
+    test_num = 19;
+    failures = failures + run_test(test_num, test_cos_neg());
+
+    // tan tests (via sin/cos)
+    println("--- tan (sin/cos) ---");
+    test_num = 20;
+    failures = failures + run_test(test_num, test_tan_zero());
+    test_num = 21;
+    failures = failures + run_test(test_num, test_tan_pi_fourth());
+    test_num = 22;
+    failures = failures + run_test(test_num, test_tan_neg_pi_fourth());
+    test_num = 23;
+    failures = failures + run_test(test_num, test_tan_pi_sixth());
+
+    // exp tests
+    println("--- exp ---");
+    test_num = 24;
+    failures = failures + run_test(test_num, test_exp_zero());
+    test_num = 25;
+    failures = failures + run_test(test_num, test_exp_one());
+    test_num = 26;
+    failures = failures + run_test(test_num, test_exp_neg_one());
+    test_num = 27;
+    failures = failures + run_test(test_num, test_exp_two());
+    test_num = 28;
+    failures = failures + run_test(test_num, test_exp_neg_two());
+    test_num = 29;
+    failures = failures + run_test(test_num, test_exp_half());
+
+    // ln tests
+    println("--- ln ---");
+    test_num = 30;
+    failures = failures + run_test(test_num, test_ln_one());
+    test_num = 31;
+    failures = failures + run_test(test_num, test_ln_e());
+    test_num = 32;
+    failures = failures + run_test(test_num, test_ln_ten());
+    test_num = 33;
+    failures = failures + run_test(test_num, test_ln_two());
+    test_num = 34;
+    failures = failures + run_test(test_num, test_ln_half());
+    test_num = 35;
+    failures = failures + run_test(test_num, test_ln_e_squared());
+
+    // pow tests
+    println("--- pow ---");
+    test_num = 36;
+    failures = failures + run_test(test_num, test_pow_square());
+    test_num = 37;
+    failures = failures + run_test(test_num, test_pow_cube());
+    test_num = 38;
+    failures = failures + run_test(test_num, test_pow_zero_exp());
+    test_num = 39;
+    failures = failures + run_test(test_num, test_pow_one_exp());
+    test_num = 40;
+    failures = failures + run_test(test_num, test_pow_fractional());
+    test_num = 41;
+    failures = failures + run_test(test_num, test_pow_negative_exp());
+    test_num = 42;
+    failures = failures + run_test(test_num, test_pow_via_exp_ln());
+
+    // tanh tests
+    println("--- tanh ---");
+    test_num = 43;
+    failures = failures + run_test(test_num, test_tanh_zero());
+    test_num = 44;
+    failures = failures + run_test(test_num, test_tanh_one());
+    test_num = 45;
+    failures = failures + run_test(test_num, test_tanh_neg_one());
+    test_num = 46;
+    failures = failures + run_test(test_num, test_tanh_large());
+    test_num = 47;
+    failures = failures + run_test(test_num, test_tanh_symmetry());
+
+    // Identity tests
+    println("--- identities ---");
+    test_num = 48;
+    failures = failures + run_test(test_num, test_pythagorean_identity());
+    test_num = 49;
+    failures = failures + run_test(test_num, test_ln_of_exp());
+    test_num = 50;
+    failures = failures + run_test(test_num, test_exp_of_ln());
+    test_num = 51;
+    failures = failures + run_test(test_num, test_sqrt_square_identity());
+    test_num = 52;
+    failures = failures + run_test(test_num, test_square_sqrt_identity());
+    test_num = 53;
+    failures = failures + run_test(test_num, test_double_angle_sin());
+    test_num = 54;
+    failures = failures + run_test(test_num, test_double_angle_cos());
+    test_num = 55;
+    failures = failures + run_test(test_num, test_tanh_via_exp());
+    test_num = 56;
+    failures = failures + run_test(test_num, test_ln_product());
+    test_num = 57;
+    failures = failures + run_test(test_num, test_ln_quotient());
+    test_num = 58;
+    failures = failures + run_test(test_num, test_ln_power());
+
+    // Edge cases
+    println("--- edge cases ---");
+    test_num = 59;
+    failures = failures + run_test(test_num, test_exp_large_negative());
+    test_num = 60;
+    failures = failures + run_test(test_num, test_sin_cos_boundary());
+    test_num = 61;
+    failures = failures + run_test(test_num, test_pow_identity());
+    test_num = 62;
+    failures = failures + run_test(test_num, test_sqrt_pow_equivalence());
+
+    // Compound expressions
+    println("--- compound ---");
+    test_num = 63;
+    failures = failures + run_test(test_num, test_gaussian_peak());
+    test_num = 64;
+    failures = failures + run_test(test_num, test_gaussian_symmetry());
+    test_num = 65;
+    failures = failures + run_test(test_num, test_sigmoid());
+    test_num = 66;
+    failures = failures + run_test(test_num, test_softplus());
+
+    println("");
+    println("========================================");
+    print("  Total: 66  Failures: ");
+    print_i64(failures);
+    println("");
+    println("========================================");
+
+    if failures == 0 {
+        println("  ALL TESTS PASSED");
+    } else {
+        println("  SOME TESTS FAILED");
+    }
+
+    failures
+}

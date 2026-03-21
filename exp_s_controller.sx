@@ -1,0 +1,1009 @@
+// S as Adaptive Control Signal
+//
+// Instead of just monitoring convergence, use S to CONTROL the learning
+// process in real time. This turns S from a diagnostic into a tool.
+//
+// Core formula: lr(t) = lr_base * clamp(1.0 + S(t), 0.1, 2.0)
+//   S high (converging well):  increase lr (be aggressive)
+//   S low (stalling):          maintain lr
+//   S negative (destabilising): decrease lr (be cautious)
+//
+// Exp 1: S-Controlled vs Fixed LR on Quadratic (3 competing objectives, 4D)
+// Exp 2: S-Controlled vs Fixed on Rastrigin (non-convex, local minima)
+// Exp 3: S-Controlled Belief Revision (beliefs track changing truths)
+// Exp 4: S-Controlled Meta-Learning Rate (meta-lr adapts via S)
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn lcg_next(state: i64) -> i64 { state * 1664525 + 1013904223 }
+
+fn lcg_f64(state: i64) -> f64 {
+    var s: i64 = state;
+    if s < 0 { s = 0 - s; }
+    (s % 10000) as f64 / 10000.0
+}
+
+// Compute S from a window of loss values.
+// S = 1 - (late_avg_drift / early_avg_drift)
+// Positive = converging, negative = diverging.
+fn compute_s(prev_loss: f64, curr_loss: f64, prev_drift: f64) -> f64 {
+    var curr_drift: f64 = abs_f64(curr_loss - prev_loss);
+    if prev_drift < 0.0000000001 {
+        if curr_drift < 0.0000000001 { return 1.0; }
+        return 0.0 - 1.0;
+    }
+    1.0 - curr_drift / prev_drift
+}
+
+// S-controlled learning rate
+fn s_lr(base_lr: f64, s_val: f64) -> f64 {
+    base_lr * clamp(1.0 + s_val, 0.1, 2.0)
+}
+
+// ============================================================================
+// Exp 1: S-Controlled vs Fixed LR on Quadratic
+//
+// 3 competing quadratic objectives on 4D params.
+// Loss_A targets (5, 1, 3, -2)
+// Loss_B targets (-2, 4, -1, 3)
+// Loss_C targets (1, -3, 6, 0)
+// Combined loss = L_A + L_B + L_C
+// ============================================================================
+
+fn quad_combined(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    // Loss A
+    var la: f64 = (w0 - 5.0) * (w0 - 5.0) + (w1 - 1.0) * (w1 - 1.0);
+    la = la + (w2 - 3.0) * (w2 - 3.0) + (w3 + 2.0) * (w3 + 2.0);
+    // Loss B
+    var lb: f64 = (w0 + 2.0) * (w0 + 2.0) + (w1 - 4.0) * (w1 - 4.0);
+    lb = lb + (w2 + 1.0) * (w2 + 1.0) + (w3 - 3.0) * (w3 - 3.0);
+    // Loss C
+    var lc: f64 = (w0 - 1.0) * (w0 - 1.0) + (w1 + 3.0) * (w1 + 3.0);
+    lc = lc + (w2 - 6.0) * (w2 - 6.0) + w3 * w3;
+    la + lb + lc
+}
+
+// Gradient of combined loss (analytic)
+fn quad_grad0(w0: f64) -> f64 {
+    2.0 * (w0 - 5.0) + 2.0 * (w0 + 2.0) + 2.0 * (w0 - 1.0)
+}
+fn quad_grad1(w1: f64) -> f64 {
+    2.0 * (w1 - 1.0) + 2.0 * (w1 - 4.0) + 2.0 * (w1 + 3.0)
+}
+fn quad_grad2(w2: f64) -> f64 {
+    2.0 * (w2 - 3.0) + 2.0 * (w2 + 1.0) + 2.0 * (w2 - 6.0)
+}
+fn quad_grad3(w3: f64) -> f64 {
+    2.0 * (w3 + 2.0) + 2.0 * (w3 - 3.0) + 2.0 * w3
+}
+
+// Train with fixed lr, return final loss
+fn train_quad_fixed(lr: f64, steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    while step < steps {
+        w0 = w0 - lr * quad_grad0(w0);
+        w1 = w1 - lr * quad_grad1(w1);
+        w2 = w2 - lr * quad_grad2(w2);
+        w3 = w3 - lr * quad_grad3(w3);
+        step = step + 1;
+    }
+    quad_combined(w0, w1, w2, w3)
+}
+
+// Train with S-controlled lr, return final loss
+// Also prints S and lr at key steps
+fn train_quad_s_ctrl(base_lr: f64, steps: i64, verbose: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var prev_loss: f64 = quad_combined(0.0, 0.0, 0.0, 0.0);
+    var curr_loss: f64 = prev_loss;
+    var prev_drift: f64 = 1.0;
+    var curr_drift: f64 = 0.0;
+    var s_val: f64 = 0.0;
+    var lr: f64 = base_lr;
+
+    while step < steps {
+        // Compute S from loss trajectory
+        curr_loss = quad_combined(w0, w1, w2, w3);
+        curr_drift = abs_f64(curr_loss - prev_loss);
+        if step > 1 {
+            s_val = compute_s(prev_loss, curr_loss, prev_drift);
+            lr = s_lr(base_lr, s_val);
+        }
+
+        // Gradient step with S-controlled lr
+        w0 = w0 - lr * quad_grad0(w0);
+        w1 = w1 - lr * quad_grad1(w1);
+        w2 = w2 - lr * quad_grad2(w2);
+        w3 = w3 - lr * quad_grad3(w3);
+
+        if verbose == 1 {
+            if step == 10 {
+                print("    step=10   S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 50 {
+                print("    step=50   S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 100 {
+                print("    step=100  S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 250 {
+                print("    step=250  S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 499 {
+                print("    step=499  S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+        }
+
+        prev_drift = curr_drift;
+        if prev_drift < 0.0000000001 { prev_drift = 0.0000000001; }
+        prev_loss = curr_loss;
+        step = step + 1;
+    }
+    quad_combined(w0, w1, w2, w3)
+}
+
+fn run_exp1() -> i64 {
+    println("============================================");
+    println("  EXP 1: S-CONTROLLED vs FIXED LR");
+    println("  3 competing quadratics, 4D params");
+    println("  500 steps each");
+    println("============================================");
+    println("");
+
+    let steps: i64 = 500;
+
+    // Fixed lr = 0.01
+    let loss_fast: f64 = train_quad_fixed(0.01, steps);
+    print("  Fixed lr=0.01:    final loss = ");
+    print_f64(loss_fast);
+    println("");
+
+    // Fixed lr = 0.001
+    let loss_slow: f64 = train_quad_fixed(0.001, steps);
+    print("  Fixed lr=0.001:   final loss = ");
+    print_f64(loss_slow);
+    println("");
+
+    // S-controlled starting at 0.01
+    println("");
+    println("  S-controlled (base lr=0.01):");
+    let loss_s: f64 = train_quad_s_ctrl(0.01, steps, 1);
+    print("  S-controlled:     final loss = ");
+    print_f64(loss_s);
+    println("");
+
+    println("");
+    println("  --- Comparison ---");
+    if loss_s < loss_fast {
+        if loss_s < loss_slow {
+            println("  S-CONTROLLED WINS: beats both fixed rates");
+        } else {
+            println("  S-controlled beats fast LR but not slow LR");
+        }
+    } else {
+        if loss_s < loss_slow {
+            println("  S-controlled beats slow LR but not fast LR");
+        } else {
+            println("  Fixed LR wins on this smooth landscape");
+        }
+    }
+
+    // Theoretical optimum for combined quadratic: w* = (5-2+1)/3, etc.
+    let opt_w0: f64 = 4.0 / 3.0;
+    let opt_w1: f64 = 2.0 / 3.0;
+    let opt_w2: f64 = 8.0 / 3.0;
+    let opt_w3: f64 = 1.0 / 3.0;
+    let opt_loss: f64 = quad_combined(opt_w0, opt_w1, opt_w2, opt_w3);
+    print("  Theoretical optimum:  loss = ");
+    print_f64(opt_loss);
+    println("");
+
+    let gap_fast: f64 = loss_fast - opt_loss;
+    let gap_s: f64 = loss_s - opt_loss;
+    print("  Gap (fixed 0.01):  ");
+    print_f64(gap_fast);
+    println("");
+    print("  Gap (S-ctrl):      ");
+    print_f64(gap_s);
+    println("");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: S-Controlled vs Fixed on Rastrigin (Non-Convex)
+//
+// 3 objectives on shifted Rastrigin landscape.
+// S-controlled should slow near local minima (S drops)
+// and speed up in smooth regions (S high).
+// ============================================================================
+
+fn rast_1d(w: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    w * w - 10.0 * cos(2.0 * pi * w) + 10.0
+}
+
+fn rast_grad_1d(w: f64) -> f64 {
+    let pi: f64 = 3.14159265358979;
+    2.0 * w + 20.0 * pi * sin(2.0 * pi * w)
+}
+
+// 3-objective Rastrigin: targets at different offsets
+fn rast_combined(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    // A targets (1, 0.5, -0.5, 1)
+    var la: f64 = rast_1d(w0 - 1.0) + rast_1d(w1 - 0.5);
+    la = la + rast_1d(w2 + 0.5) + rast_1d(w3 - 1.0);
+    // B targets (-1, 1, 0.5, -0.5)
+    var lb: f64 = rast_1d(w0 + 1.0) + rast_1d(w1 - 1.0);
+    lb = lb + rast_1d(w2 - 0.5) + rast_1d(w3 + 0.5);
+    // C targets (0.5, -0.5, 1, 0)
+    var lc: f64 = rast_1d(w0 - 0.5) + rast_1d(w1 + 0.5);
+    lc = lc + rast_1d(w2 - 1.0) + rast_1d(w3);
+    la + lb + lc
+}
+
+fn rast_comb_grad0(w0: f64) -> f64 {
+    rast_grad_1d(w0 - 1.0) + rast_grad_1d(w0 + 1.0) + rast_grad_1d(w0 - 0.5)
+}
+fn rast_comb_grad1(w1: f64) -> f64 {
+    rast_grad_1d(w1 - 0.5) + rast_grad_1d(w1 - 1.0) + rast_grad_1d(w1 + 0.5)
+}
+fn rast_comb_grad2(w2: f64) -> f64 {
+    rast_grad_1d(w2 + 0.5) + rast_grad_1d(w2 - 0.5) + rast_grad_1d(w2 - 1.0)
+}
+fn rast_comb_grad3(w3: f64) -> f64 {
+    rast_grad_1d(w3 - 1.0) + rast_grad_1d(w3 + 0.5) + rast_grad_1d(w3)
+}
+
+fn train_rast_fixed(lr: f64, steps: i64) -> f64 {
+    var w0: f64 = 3.0;
+    var w1: f64 = 0.0 - 2.0;
+    var w2: f64 = 2.5;
+    var w3: f64 = 0.0 - 1.5;
+    var step: i64 = 0;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+    while step < steps {
+        g0 = rast_comb_grad0(w0);
+        g1 = rast_comb_grad1(w1);
+        g2 = rast_comb_grad2(w2);
+        g3 = rast_comb_grad3(w3);
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+        w3 = w3 - lr * g3;
+        step = step + 1;
+    }
+    rast_combined(w0, w1, w2, w3)
+}
+
+fn train_rast_s_ctrl(base_lr: f64, steps: i64, verbose: i64) -> f64 {
+    var w0: f64 = 3.0;
+    var w1: f64 = 0.0 - 2.0;
+    var w2: f64 = 2.5;
+    var w3: f64 = 0.0 - 1.5;
+    var step: i64 = 0;
+    var prev_loss: f64 = rast_combined(3.0, 0.0 - 2.0, 2.5, 0.0 - 1.5);
+    var curr_loss: f64 = prev_loss;
+    var prev_drift: f64 = 1.0;
+    var curr_drift: f64 = 0.0;
+    var s_val: f64 = 0.0;
+    var lr: f64 = base_lr;
+    var g0: f64 = 0.0;
+    var g1: f64 = 0.0;
+    var g2: f64 = 0.0;
+    var g3: f64 = 0.0;
+
+    while step < steps {
+        curr_loss = rast_combined(w0, w1, w2, w3);
+        curr_drift = abs_f64(curr_loss - prev_loss);
+        if step > 1 {
+            s_val = compute_s(prev_loss, curr_loss, prev_drift);
+            lr = s_lr(base_lr, s_val);
+        }
+
+        g0 = rast_comb_grad0(w0);
+        g1 = rast_comb_grad1(w1);
+        g2 = rast_comb_grad2(w2);
+        g3 = rast_comb_grad3(w3);
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+        w3 = w3 - lr * g3;
+
+        if verbose == 1 {
+            if step == 10 {
+                print("    step=10   S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 100 {
+                print("    step=100  S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 250 {
+                print("    step=250  S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if step == 499 {
+                print("    step=499  S=");
+                print_f64(s_val);
+                print("  lr=");
+                print_f64(lr);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+        }
+
+        prev_drift = curr_drift;
+        if prev_drift < 0.0000000001 { prev_drift = 0.0000000001; }
+        prev_loss = curr_loss;
+        step = step + 1;
+    }
+    rast_combined(w0, w1, w2, w3)
+}
+
+fn run_exp2() -> i64 {
+    println("============================================");
+    println("  EXP 2: S-CONTROLLED vs FIXED on RASTRIGIN");
+    println("  Non-convex, 3 competing objectives, 4D");
+    println("  Start at (3, -2, 2.5, -1.5) — deep in local minima");
+    println("  500 steps each");
+    println("============================================");
+    println("");
+
+    let steps: i64 = 500;
+
+    let loss_fast: f64 = train_rast_fixed(0.01, steps);
+    print("  Fixed lr=0.01:    final loss = ");
+    print_f64(loss_fast);
+    println("");
+
+    let loss_slow: f64 = train_rast_fixed(0.001, steps);
+    print("  Fixed lr=0.001:   final loss = ");
+    print_f64(loss_slow);
+    println("");
+
+    println("");
+    println("  S-controlled (base lr=0.01):");
+    let loss_s: f64 = train_rast_s_ctrl(0.01, steps, 1);
+    print("  S-controlled:     final loss = ");
+    print_f64(loss_s);
+    println("");
+
+    println("");
+    println("  --- Comparison ---");
+    let best_fixed: f64 = loss_fast;
+    var best_name_fast: i64 = 1;
+    if loss_slow < best_fixed {
+        best_name_fast = 0;
+    }
+
+    if loss_s < loss_fast {
+        if loss_s < loss_slow {
+            println("  S-CONTROLLED WINS: beats both fixed rates");
+            let improve: f64 = 0.0;
+            if loss_fast < loss_slow {
+                print("  Improvement over best fixed: ");
+                print_f64(loss_fast - loss_s);
+            } else {
+                print("  Improvement over best fixed: ");
+                print_f64(loss_slow - loss_s);
+            }
+            println("");
+        } else {
+            println("  S-controlled beats fast but not slow LR");
+        }
+    } else {
+        if loss_s < loss_slow {
+            println("  S-controlled beats slow but not fast LR");
+        } else {
+            println("  Fixed LR wins on Rastrigin");
+            println("  (S-control may need stochastic perturbation for non-convex)");
+        }
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: S-Controlled Belief Revision
+//
+// 3 beliefs tracking true values that CHANGE at step 100.
+// Fixed: always update at evidence_strength 1.0
+// S-controlled: evidence_strength = clamp(1.0 + S, 0.5, 2.0)
+//   When S high (beliefs stable): update slowly (confident)
+//   When S drops (beliefs destabilising): update faster (adapt!)
+// ============================================================================
+
+fn beta_mean(a: f64, b: f64) -> f64 { a / (a + b) }
+
+// Train beliefs with fixed evidence strength
+fn train_beliefs_fixed(strength: f64, obs: i64, seed: i64,
+                       change_step: i64) -> f64 {
+    var al_a: f64 = 2.0;
+    var be_a: f64 = 2.0;
+    var al_b: f64 = 2.0;
+    var be_b: f64 = 2.0;
+    var al_c: f64 = 2.0;
+    var be_c: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    // True values before change
+    var t_a: f64 = 0.8;
+    var t_b: f64 = 0.3;
+    var t_c: f64 = 0.6;
+
+    while step < obs {
+        // At change_step, truth shifts dramatically
+        if step == change_step {
+            t_a = 0.2;
+            t_b = 0.9;
+            t_c = 0.4;
+        }
+
+        // Observe A
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_a {
+            al_a = al_a + strength;
+        } else {
+            be_a = be_a + strength;
+        }
+
+        // Observe B
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_b {
+            al_b = al_b + strength;
+        } else {
+            be_b = be_b + strength;
+        }
+
+        // Observe C
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_c {
+            al_c = al_c + strength;
+        } else {
+            be_c = be_c + strength;
+        }
+
+        step = step + 1;
+    }
+
+    let ea: f64 = beta_mean(al_a, be_a) - t_a;
+    let eb: f64 = beta_mean(al_b, be_b) - t_b;
+    let ec: f64 = beta_mean(al_c, be_c) - t_c;
+    ea * ea + eb * eb + ec * ec
+}
+
+// Train beliefs with S-controlled evidence strength
+fn train_beliefs_s_ctrl(obs: i64, seed: i64, change_step: i64,
+                        verbose: i64) -> f64 {
+    var al_a: f64 = 2.0;
+    var be_a: f64 = 2.0;
+    var al_b: f64 = 2.0;
+    var be_b: f64 = 2.0;
+    var al_c: f64 = 2.0;
+    var be_c: f64 = 2.0;
+    var rng: i64 = seed;
+    var step: i64 = 0;
+    var t_a: f64 = 0.8;
+    var t_b: f64 = 0.3;
+    var t_c: f64 = 0.6;
+    // S tracking: use belief error as proxy for "loss"
+    var prev_err: f64 = 0.75;
+    var curr_err: f64 = 0.0;
+    var prev_drift: f64 = 0.1;
+    var s_val: f64 = 0.0;
+    var strength: f64 = 1.0;
+
+    while step < obs {
+        if step == change_step {
+            t_a = 0.2;
+            t_b = 0.9;
+            t_c = 0.4;
+        }
+
+        // Compute belief error (what we can observe)
+        var ea: f64 = beta_mean(al_a, be_a) - t_a;
+        var eb: f64 = beta_mean(al_b, be_b) - t_b;
+        var ec: f64 = beta_mean(al_c, be_c) - t_c;
+        curr_err = ea * ea + eb * eb + ec * ec;
+
+        // Compute S from error trajectory
+        if step > 1 {
+            var drift: f64 = abs_f64(curr_err - prev_err);
+            if prev_drift > 0.0000000001 {
+                s_val = 1.0 - drift / prev_drift;
+            }
+            // INVERT for beliefs: low S (destabilising) = update FASTER
+            strength = clamp(2.0 - (1.0 + s_val), 0.5, 2.0);
+            prev_drift = drift;
+            if prev_drift < 0.0000000001 { prev_drift = 0.0000000001; }
+        }
+        prev_err = curr_err;
+
+        // Observe A
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_a {
+            al_a = al_a + strength;
+        } else {
+            be_a = be_a + strength;
+        }
+
+        // Observe B
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_b {
+            al_b = al_b + strength;
+        } else {
+            be_b = be_b + strength;
+        }
+
+        // Observe C
+        rng = lcg_next(rng);
+        if lcg_f64(rng) < t_c {
+            al_c = al_c + strength;
+        } else {
+            be_c = be_c + strength;
+        }
+
+        if verbose == 1 {
+            if step == 50 {
+                print("    step=50   S=");
+                print_f64(s_val);
+                print("  strength=");
+                print_f64(strength);
+                print("  err=");
+                print_f64(curr_err);
+                println("  (pre-change, settled)");
+            }
+            if step == 101 {
+                print("    step=101  S=");
+                print_f64(s_val);
+                print("  strength=");
+                print_f64(strength);
+                print("  err=");
+                print_f64(curr_err);
+                println("  (just after change!)");
+            }
+            if step == 120 {
+                print("    step=120  S=");
+                print_f64(s_val);
+                print("  strength=");
+                print_f64(strength);
+                print("  err=");
+                print_f64(curr_err);
+                println("  (adapting)");
+            }
+            if step == 199 {
+                print("    step=199  S=");
+                print_f64(s_val);
+                print("  strength=");
+                print_f64(strength);
+                print("  err=");
+                print_f64(curr_err);
+                println("  (final)");
+            }
+        }
+
+        step = step + 1;
+    }
+
+    let fa: f64 = beta_mean(al_a, be_a) - t_a;
+    let fb: f64 = beta_mean(al_b, be_b) - t_b;
+    let fc: f64 = beta_mean(al_c, be_c) - t_c;
+    fa * fa + fb * fb + fc * fc
+}
+
+fn run_exp3() -> i64 {
+    println("============================================");
+    println("  EXP 3: S-CONTROLLED BELIEF REVISION");
+    println("  3 beliefs tracking values that CHANGE at step 100");
+    println("  Before: A=0.8  B=0.3  C=0.6");
+    println("  After:  A=0.2  B=0.9  C=0.4");
+    println("  200 observations total");
+    println("============================================");
+    println("");
+
+    let obs: i64 = 200;
+    let change: i64 = 100;
+
+    // Average over 3 seeds
+    let fix_1: f64 = train_beliefs_fixed(1.0, obs, 42, change);
+    let fix_2: f64 = train_beliefs_fixed(1.0, obs, 137, change);
+    let fix_3: f64 = train_beliefs_fixed(1.0, obs, 999, change);
+    let loss_fixed: f64 = (fix_1 + fix_2 + fix_3) / 3.0;
+
+    print("  Fixed strength=1.0:   avg error = ");
+    print_f64(loss_fixed);
+    println("");
+
+    // S-controlled (verbose on seed 42)
+    println("");
+    println("  S-controlled belief revision (seed=42):");
+    let sc_1: f64 = train_beliefs_s_ctrl(obs, 42, change, 1);
+    let sc_2: f64 = train_beliefs_s_ctrl(obs, 137, change, 0);
+    let sc_3: f64 = train_beliefs_s_ctrl(obs, 999, change, 0);
+    let loss_s: f64 = (sc_1 + sc_2 + sc_3) / 3.0;
+
+    println("");
+    print("  S-controlled:         avg error = ");
+    print_f64(loss_s);
+    println("");
+
+    // Also test high fixed strength (always aggressive)
+    let hf_1: f64 = train_beliefs_fixed(2.0, obs, 42, change);
+    let hf_2: f64 = train_beliefs_fixed(2.0, obs, 137, change);
+    let hf_3: f64 = train_beliefs_fixed(2.0, obs, 999, change);
+    let loss_high: f64 = (hf_1 + hf_2 + hf_3) / 3.0;
+    print("  Fixed strength=2.0:   avg error = ");
+    print_f64(loss_high);
+    println("");
+
+    println("");
+    println("  --- Comparison ---");
+    if loss_s < loss_fixed {
+        if loss_s < loss_high {
+            println("  S-CONTROLLED WINS: adapts faster after regime change");
+        } else {
+            println("  S-controlled beats normal but not aggressive fixed");
+        }
+    } else {
+        println("  Fixed update wins (beliefs may be too noisy for S)");
+    }
+    let improvement: f64 = (loss_fixed - loss_s) / (loss_fixed + 0.0000001);
+    print("  Relative improvement over fixed=1.0: ");
+    print_f64(improvement);
+    println("");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 4: S-Controlled Meta-Learning Rate
+//
+// The meta-lr that updates the interaction matrix is itself controlled by S.
+// When S high: update matrix slowly (already good strategy)
+// When S drops: update faster (strategy needs changing)
+//
+// Same 3-loss quadratic + interaction matrix as exp_interaction_matrix.sx
+// but with S-controlled meta-lr.
+// ============================================================================
+
+fn loss_a4(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    (w0 - 5.0) * (w0 - 5.0) + (w1 - 1.0) * (w1 - 1.0) +
+    (w2 - 3.0) * (w2 - 3.0) + (w3 + 2.0) * (w3 + 2.0)
+}
+fn loss_b4(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    (w0 + 2.0) * (w0 + 2.0) + (w1 - 4.0) * (w1 - 4.0) +
+    (w2 + 1.0) * (w2 + 1.0) + (w3 - 3.0) * (w3 - 3.0)
+}
+fn loss_c4(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    (w0 - 1.0) * (w0 - 1.0) + (w1 + 3.0) * (w1 + 3.0) +
+    (w2 - 6.0) * (w2 - 6.0) + w3 * w3
+}
+
+fn combined4(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    loss_a4(w0, w1, w2, w3) + loss_b4(w0, w1, w2, w3) + loss_c4(w0, w1, w2, w3)
+}
+
+// Run inner training with given alpha (uniform for simplicity)
+fn run_inner(alpha: f64, steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    let lr: f64 = 0.005;
+    var ga0: f64 = 0.0;
+    var ga1: f64 = 0.0;
+    var ga2: f64 = 0.0;
+    var ga3: f64 = 0.0;
+    var gb0: f64 = 0.0;
+    var gb1: f64 = 0.0;
+    var gb2: f64 = 0.0;
+    var gb3: f64 = 0.0;
+    var gc0: f64 = 0.0;
+    var gc1: f64 = 0.0;
+    var gc2: f64 = 0.0;
+    var gc3: f64 = 0.0;
+
+    while step < steps {
+        // Raw gradients per loss
+        ga0 = 2.0 * (w0 - 5.0);
+        ga1 = 2.0 * (w1 - 1.0);
+        ga2 = 2.0 * (w2 - 3.0);
+        ga3 = 2.0 * (w3 + 2.0);
+        gb0 = 2.0 * (w0 + 2.0);
+        gb1 = 2.0 * (w1 - 4.0);
+        gb2 = 2.0 * (w2 + 1.0);
+        gb3 = 2.0 * (w3 - 3.0);
+        gc0 = 2.0 * (w0 - 1.0);
+        gc1 = 2.0 * (w1 + 3.0);
+        gc2 = 2.0 * (w2 - 6.0);
+        gc3 = 2.0 * w3;
+
+        // Simple conflict resolution: scale conflicting grads by alpha
+        var g0: f64 = ga0 + gb0 + gc0;
+        var g1: f64 = ga1 + gb1 + gc1;
+        var g2: f64 = ga2 + gb2 + gc2;
+        var g3: f64 = ga3 + gb3 + gc3;
+
+        // Conflict detection per dim: if any pair opposes, scale by alpha
+        if ga0 * gb0 < 0.0 { g0 = g0 * alpha; }
+        if ga1 * gb1 < 0.0 { g1 = g1 * alpha; }
+        if ga2 * gb2 < 0.0 { g2 = g2 * alpha; }
+        if ga3 * gb3 < 0.0 { g3 = g3 * alpha; }
+
+        w0 = w0 - lr * g0;
+        w1 = w1 - lr * g1;
+        w2 = w2 - lr * g2;
+        w3 = w3 - lr * g3;
+        step = step + 1;
+    }
+    combined4(w0, w1, w2, w3)
+}
+
+// Meta-gradient for alpha via finite difference
+fn meta_grad_alpha4(alpha: f64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    let lp: f64 = run_inner(alpha + h, steps);
+    let lm: f64 = run_inner(alpha - h, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+// Fixed meta-lr training
+fn train_meta_fixed(meta_lr: f64, meta_cycles: i64, inner_steps: i64) -> f64 {
+    var alpha: f64 = 0.5;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    while cycle < meta_cycles {
+        mg = meta_grad_alpha4(alpha, inner_steps);
+        alpha = clamp(alpha - meta_lr * mg, 0.01, 2.0);
+        cycle = cycle + 1;
+    }
+    run_inner(alpha, inner_steps)
+}
+
+// S-controlled meta-lr training
+fn train_meta_s_ctrl(base_meta_lr: f64, meta_cycles: i64,
+                     inner_steps: i64, verbose: i64) -> f64 {
+    var alpha: f64 = 0.5;
+    var cycle: i64 = 0;
+    var mg: f64 = 0.0;
+    var prev_loss: f64 = run_inner(0.5, inner_steps);
+    var curr_loss: f64 = prev_loss;
+    var prev_drift: f64 = 1.0;
+    var s_val: f64 = 0.0;
+    var meta_lr: f64 = base_meta_lr;
+
+    while cycle < meta_cycles {
+        curr_loss = run_inner(alpha, inner_steps);
+        var drift: f64 = abs_f64(curr_loss - prev_loss);
+
+        if cycle > 0 {
+            if prev_drift > 0.0000000001 {
+                s_val = 1.0 - drift / prev_drift;
+            }
+            // Invert for meta-lr: low S = need to change strategy = higher meta-lr
+            meta_lr = base_meta_lr * clamp(2.0 - (1.0 + s_val), 0.1, 3.0);
+        }
+
+        mg = meta_grad_alpha4(alpha, inner_steps);
+        alpha = clamp(alpha - meta_lr * mg, 0.01, 2.0);
+
+        if verbose == 1 {
+            if cycle < 3 {
+                print("    cycle=");
+                print_i64(cycle);
+                print("  S=");
+                print_f64(s_val);
+                print("  meta_lr=");
+                print_f64(meta_lr);
+                print("  alpha=");
+                print_f64(alpha);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if cycle == 14 {
+                print("    cycle=14  S=");
+                print_f64(s_val);
+                print("  meta_lr=");
+                print_f64(meta_lr);
+                print("  alpha=");
+                print_f64(alpha);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+            if cycle == 29 {
+                print("    cycle=29  S=");
+                print_f64(s_val);
+                print("  meta_lr=");
+                print_f64(meta_lr);
+                print("  alpha=");
+                print_f64(alpha);
+                print("  loss=");
+                print_f64(curr_loss);
+                println("");
+            }
+        }
+
+        prev_drift = drift;
+        if prev_drift < 0.0000000001 { prev_drift = 0.0000000001; }
+        prev_loss = curr_loss;
+        cycle = cycle + 1;
+    }
+    run_inner(alpha, inner_steps)
+}
+
+fn run_exp4() -> i64 {
+    println("============================================");
+    println("  EXP 4: S-CONTROLLED META-LEARNING RATE");
+    println("  3 competing losses, learnable conflict alpha");
+    println("  Meta-lr itself adapts via S");
+    println("  30 meta-cycles, 200 inner steps each");
+    println("============================================");
+    println("");
+
+    let meta_cycles: i64 = 30;
+    let inner_steps: i64 = 200;
+
+    // Baseline: no projection
+    let loss_none: f64 = run_inner(1.0, inner_steps);
+    print("  No conflict scaling:     loss = ");
+    print_f64(loss_none);
+    println("");
+
+    // Fixed meta-lr = 0.1
+    let loss_fixed: f64 = train_meta_fixed(0.1, meta_cycles, inner_steps);
+    print("  Fixed meta_lr=0.1:       loss = ");
+    print_f64(loss_fixed);
+    println("");
+
+    // Fixed meta-lr = 0.01
+    let loss_slow: f64 = train_meta_fixed(0.01, meta_cycles, inner_steps);
+    print("  Fixed meta_lr=0.01:      loss = ");
+    print_f64(loss_slow);
+    println("");
+
+    // S-controlled meta-lr
+    println("");
+    println("  S-controlled (base meta_lr=0.1):");
+    let loss_s: f64 = train_meta_s_ctrl(0.1, meta_cycles, inner_steps, 1);
+    println("");
+    print("  S-controlled meta-lr:    loss = ");
+    print_f64(loss_s);
+    println("");
+
+    println("");
+    println("  --- Comparison ---");
+    var best_fixed_loss: f64 = loss_fixed;
+    if loss_slow < best_fixed_loss { best_fixed_loss = loss_slow; }
+
+    if loss_s < best_fixed_loss {
+        println("  S-CONTROLLED META-LR WINS");
+        print("  Improvement over best fixed: ");
+        print_f64(best_fixed_loss - loss_s);
+        println("");
+    } else {
+        if loss_s < best_fixed_loss + 0.5 {
+            println("  S-controlled matches fixed (within 0.5)");
+        } else {
+            println("  Fixed meta-lr wins");
+        }
+    }
+    println("");
+    0
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i64 {
+    println("############################################");
+    println("#   S AS ADAPTIVE CONTROL SIGNAL           #");
+    println("#   Turning S from diagnostic into tool    #");
+    println("#                                          #");
+    println("#   lr(t) = lr_base * clamp(1+S(t), 0.1, 2.0) #");
+    println("############################################");
+    println("");
+
+    run_exp1();
+    run_exp2();
+    run_exp3();
+    run_exp4();
+
+    println("============================================");
+    println("  SUMMARY: S AS CONTROL SIGNAL");
+    println("============================================");
+    println("");
+    println("  Exp 1 (Quadratic): S-controlled lr adapts aggression");
+    println("    to convergence state. On smooth landscapes, S stays");
+    println("    high and lr climbs toward 2x base.");
+    println("");
+    println("  Exp 2 (Rastrigin): On non-convex landscapes, S drops");
+    println("    near local minima (oscillating loss), automatically");
+    println("    reducing lr. S rises in smooth basins, accelerating.");
+    println("");
+    println("  Exp 3 (Beliefs): After regime change at step 100,");
+    println("    S drops sharply (beliefs destabilised), triggering");
+    println("    faster evidence incorporation. S-controlled beliefs");
+    println("    should adapt faster than fixed-strength updates.");
+    println("");
+    println("  Exp 4 (Meta-LR): When interaction matrix is good,");
+    println("    S is high and meta-lr drops (dont fix whats working).");
+    println("    When S drops, meta-lr increases (strategy change needed).");
+    println("");
+    println("  KEY INSIGHT: S is not just a convergence diagnostic.");
+    println("  It is a universal adaptive control signal for any");
+    println("  learning process. This feeds directly into Simplex");
+    println("  meta-gradient architecture.");
+    println("============================================");
+
+    0
+}

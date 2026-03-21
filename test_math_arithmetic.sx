@@ -1,0 +1,499 @@
+// test_math_arithmetic.sx — Comprehensive f64 and i64 arithmetic tests
+// Tests all arithmetic operations through the sxc compiler
+
+fn approx_eq(a: f64, b: f64, tol: f64) -> i64 {
+    var diff: f64 = a - b;
+    if diff < 0.0 {
+        diff = 0.0 - diff;
+    }
+    if diff < tol { 1 } else { 0 }
+}
+
+fn print_result(name: &str, passed: i64) -> i64 {
+    print("  ");
+    print(name);
+    if passed == 0 {
+        println(" PASS");
+    } else {
+        println(" FAIL");
+    }
+    passed
+}
+
+// === Test 1: f64 addition ===
+fn test_f64_addition() -> i64 {
+    var fails: i64 = 0;
+    let sum1: f64 = 3.0 + 4.0;
+    let sum2: f64 = 0.1 + 0.2;
+    let sum3: f64 = -5.0 + 3.0;
+    let sum4: f64 = 0.0 + 0.0;
+    let sum5: f64 = 1000000.5 + 0.5;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 addition]");
+
+    if approx_eq(sum1, 7.0, tol) == 0 {
+        fails = fails + 1;
+    }
+    fails = fails + print_result("3.0 + 4.0 = 7.0", if approx_eq(sum1, 7.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.1 + 0.2 ~ 0.3", if approx_eq(sum2, 0.3, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("-5.0 + 3.0 = -2.0", if approx_eq(sum3, -2.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.0 + 0.0 = 0.0", if approx_eq(sum4, 0.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("1000000.5 + 0.5 = 1000001.0", if approx_eq(sum5, 1000001.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 2: f64 subtraction ===
+fn test_f64_subtraction() -> i64 {
+    var fails: i64 = 0;
+    let d1: f64 = 10.0 - 3.0;
+    let d2: f64 = 0.0 - 5.0;
+    let d3: f64 = 3.14 - 3.14;
+    let d4: f64 = -2.0 - -3.0;
+    let d5: f64 = 100.5 - 0.5;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 subtraction]");
+
+    fails = fails + print_result("10.0 - 3.0 = 7.0", if approx_eq(d1, 7.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.0 - 5.0 = -5.0", if approx_eq(d2, -5.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("3.14 - 3.14 = 0.0", if approx_eq(d3, 0.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("-2.0 - -3.0 = 1.0", if approx_eq(d4, 1.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("100.5 - 0.5 = 100.0", if approx_eq(d5, 100.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 3: f64 multiplication ===
+fn test_f64_multiplication() -> i64 {
+    var fails: i64 = 0;
+    let m1: f64 = 3.0 * 4.0;
+    let m2: f64 = -2.0 * 3.0;
+    let m3: f64 = 0.5 * 0.5;
+    let m4: f64 = 0.0 * 999.0;
+    let m5: f64 = -4.0 * -5.0;
+    let m6: f64 = 1.5 * 2.0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 multiplication]");
+
+    fails = fails + print_result("3.0 * 4.0 = 12.0", if approx_eq(m1, 12.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("-2.0 * 3.0 = -6.0", if approx_eq(m2, -6.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.5 * 0.5 = 0.25", if approx_eq(m3, 0.25, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.0 * 999.0 = 0.0", if approx_eq(m4, 0.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("-4.0 * -5.0 = 20.0", if approx_eq(m5, 20.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("1.5 * 2.0 = 3.0", if approx_eq(m6, 3.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 4: f64 division ===
+fn test_f64_division() -> i64 {
+    var fails: i64 = 0;
+    let q1: f64 = 10.0 / 4.0;
+    let q2: f64 = 1.0 / 3.0;
+    let q3: f64 = -15.0 / 5.0;
+    let q4: f64 = 7.0 / 2.0;
+    let q5: f64 = 100.0 / 10.0;
+    let q6: f64 = 1.0 / 8.0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 division]");
+
+    fails = fails + print_result("10.0 / 4.0 = 2.5", if approx_eq(q1, 2.5, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("1.0 / 3.0 ~ 0.333333", if approx_eq(q2, 0.333333333, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("-15.0 / 5.0 = -3.0", if approx_eq(q3, -3.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("7.0 / 2.0 = 3.5", if approx_eq(q4, 3.5, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("100.0 / 10.0 = 10.0", if approx_eq(q5, 10.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("1.0 / 8.0 = 0.125", if approx_eq(q6, 0.125, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 5: f64 negation ===
+fn test_f64_negation() -> i64 {
+    var fails: i64 = 0;
+    let n1: f64 = 0.0 - 5.0;
+    let n2: f64 = 0.0 - -3.0;
+    let n3: f64 = 0.0 - 0.0;
+    let n4: f64 = 0.0 - 99.99;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 negation]");
+
+    fails = fails + print_result("0.0 - 5.0 = -5.0", if approx_eq(n1, -5.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.0 - (-3.0) = 3.0", if approx_eq(n2, 3.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.0 - 0.0 = 0.0", if approx_eq(n3, 0.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("0.0 - 99.99 = -99.99", if approx_eq(n4, -99.99, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 6: f64 mixed expressions ===
+fn test_f64_mixed_expr() -> i64 {
+    var fails: i64 = 0;
+    let e1: f64 = 2.0 * 3.0 + 4.0;
+    let a: f64 = 5.0;
+    let b: f64 = 3.0;
+    let e2: f64 = (a + b) * (a - b);
+    let e3: f64 = 2.0 + 3.0 * 4.0;
+    let e4: f64 = (2.0 + 3.0) * 4.0;
+    let e5: f64 = 10.0 / 2.0 + 3.0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 mixed expressions]");
+
+    fails = fails + print_result("2.0*3.0+4.0 = 10.0", if approx_eq(e1, 10.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("(5+3)*(5-3) = 16.0", if approx_eq(e2, 16.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("2.0+3.0*4.0 = 14.0", if approx_eq(e3, 14.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("(2.0+3.0)*4.0 = 20.0", if approx_eq(e4, 20.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("10.0/2.0+3.0 = 8.0", if approx_eq(e5, 8.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 7: f64 chained operations ===
+fn test_f64_chained() -> i64 {
+    var fails: i64 = 0;
+    let c1: f64 = 2.0 * 3.0 * 4.0;
+    let c2: f64 = 1.0 + 2.0 + 3.0 + 4.0;
+    let c3: f64 = 100.0 - 30.0 - 20.0 - 10.0;
+    let c4: f64 = 2.0 * 2.0 * 2.0 * 2.0;
+    let c5: f64 = 1000.0 / 10.0 / 10.0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 chained operations]");
+
+    fails = fails + print_result("2*3*4 = 24.0", if approx_eq(c1, 24.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("1+2+3+4 = 10.0", if approx_eq(c2, 10.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("100-30-20-10 = 40.0", if approx_eq(c3, 40.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("2*2*2*2 = 16.0", if approx_eq(c4, 16.0, tol) == 1 { 0 } else { 1 });
+
+    fails = fails + print_result("1000/10/10 = 10.0", if approx_eq(c5, 10.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 8: i64 arithmetic ===
+fn test_i64_add_sub() -> i64 {
+    var fails: i64 = 0;
+
+    println("[i64 addition and subtraction]");
+
+    let a1: i64 = 3 + 4;
+    fails = fails + print_result("3 + 4 = 7", if a1 == 7 { 0 } else { 1 });
+
+    let a2: i64 = -5 + 3;
+    fails = fails + print_result("-5 + 3 = -2", if a2 == -2 { 0 } else { 1 });
+
+    let a3: i64 = 0 + 0;
+    fails = fails + print_result("0 + 0 = 0", if a3 == 0 { 0 } else { 1 });
+
+    let s1: i64 = 10 - 3;
+    fails = fails + print_result("10 - 3 = 7", if s1 == 7 { 0 } else { 1 });
+
+    let s2: i64 = 0 - 5;
+    fails = fails + print_result("0 - 5 = -5", if s2 == -5 { 0 } else { 1 });
+
+    let s3: i64 = -10 - -3;
+    fails = fails + print_result("-10 - -3 = -7", if s3 == -7 { 0 } else { 1 });
+
+    fails
+}
+
+fn test_i64_mul_div() -> i64 {
+    var fails: i64 = 0;
+
+    println("[i64 multiplication and division]");
+
+    let m1: i64 = 3 * 4;
+    fails = fails + print_result("3 * 4 = 12", if m1 == 12 { 0 } else { 1 });
+
+    let m2: i64 = -2 * 3;
+    fails = fails + print_result("-2 * 3 = -6", if m2 == -6 { 0 } else { 1 });
+
+    let m3: i64 = 0 * 999;
+    fails = fails + print_result("0 * 999 = 0", if m3 == 0 { 0 } else { 1 });
+
+    let m4: i64 = -4 * -5;
+    fails = fails + print_result("-4 * -5 = 20", if m4 == 20 { 0 } else { 1 });
+
+    let d1: i64 = 10 / 3;
+    fails = fails + print_result("10 / 3 = 3", if d1 == 3 { 0 } else { 1 });
+
+    let d2: i64 = 15 / 5;
+    fails = fails + print_result("15 / 5 = 3", if d2 == 3 { 0 } else { 1 });
+
+    let d3: i64 = -7 / 2;
+    fails = fails + print_result("-7 / 2 = -3", if d3 == -3 { 0 } else { 1 });
+
+    fails
+}
+
+fn test_i64_modulo() -> i64 {
+    var fails: i64 = 0;
+
+    println("[i64 modulo]");
+
+    let r1: i64 = 10 % 3;
+    fails = fails + print_result("10 % 3 = 1", if r1 == 1 { 0 } else { 1 });
+
+    let r2: i64 = 15 % 5;
+    fails = fails + print_result("15 % 5 = 0", if r2 == 0 { 0 } else { 1 });
+
+    let r3: i64 = 7 % 4;
+    fails = fails + print_result("7 % 4 = 3", if r3 == 3 { 0 } else { 1 });
+
+    let r4: i64 = 100 % 7;
+    fails = fails + print_result("100 % 7 = 2", if r4 == 2 { 0 } else { 1 });
+
+    fails
+}
+
+fn test_i64_chained() -> i64 {
+    var fails: i64 = 0;
+
+    println("[i64 chained operations]");
+
+    let c1: i64 = 2 * 3 * 4;
+    fails = fails + print_result("2*3*4 = 24", if c1 == 24 { 0 } else { 1 });
+
+    let c2: i64 = 1 + 2 + 3 + 4;
+    fails = fails + print_result("1+2+3+4 = 10", if c2 == 10 { 0 } else { 1 });
+
+    let c3: i64 = 100 - 30 - 20 - 10;
+    fails = fails + print_result("100-30-20-10 = 40", if c3 == 40 { 0 } else { 1 });
+
+    let c4: i64 = (2 + 3) * (4 - 1);
+    fails = fails + print_result("(2+3)*(4-1) = 15", if c4 == 15 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 9: i64 to f64 cast ===
+fn test_i64_to_f64() -> i64 {
+    var fails: i64 = 0;
+    let tol: f64 = 0.0000001;
+
+    println("[i64 to f64 cast]");
+
+    let v1: f64 = 42 as f64;
+    fails = fails + print_result("42 as f64 = 42.0", if approx_eq(v1, 42.0, tol) == 1 { 0 } else { 1 });
+
+    let v2: f64 = 0 as f64;
+    fails = fails + print_result("0 as f64 = 0.0", if approx_eq(v2, 0.0, tol) == 1 { 0 } else { 1 });
+
+    let v3: f64 = -10 as f64;
+    fails = fails + print_result("-10 as f64 = -10.0", if approx_eq(v3, -10.0, tol) == 1 { 0 } else { 1 });
+
+    let v4: f64 = 1000000 as f64;
+    fails = fails + print_result("1000000 as f64 = 1000000.0", if approx_eq(v4, 1000000.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 10: f64 to i64 cast ===
+fn test_f64_to_i64() -> i64 {
+    var fails: i64 = 0;
+
+    println("[f64 to i64 cast]");
+
+    let v1: i64 = 42.0 as i64;
+    fails = fails + print_result("42.0 as i64 = 42", if v1 == 42 { 0 } else { 1 });
+
+    let v2: i64 = 3.9 as i64;
+    fails = fails + print_result("3.9 as i64 = 3 (trunc)", if v2 == 3 { 0 } else { 1 });
+
+    let v3: i64 = 0.0 as i64;
+    fails = fails + print_result("0.0 as i64 = 0", if v3 == 0 { 0 } else { 1 });
+
+    let v4: i64 = -7.5 as i64;
+    fails = fails + print_result("-7.5 as i64 = -7", if v4 == -7 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 11: f64 comparison operators ===
+fn test_f64_comparisons() -> i64 {
+    var fails: i64 = 0;
+
+    println("[f64 comparisons]");
+
+    fails = fails + print_result("3.0 < 4.0", if 3.0 < 4.0 { 0 } else { 1 });
+    fails = fails + print_result("4.0 > 3.0", if 4.0 > 3.0 { 0 } else { 1 });
+    fails = fails + print_result("3.0 <= 3.0", if 3.0 <= 3.0 { 0 } else { 1 });
+    fails = fails + print_result("3.0 >= 3.0", if 3.0 >= 3.0 { 0 } else { 1 });
+    fails = fails + print_result("-1.0 < 0.0", if -1.0 < 0.0 { 0 } else { 1 });
+    fails = fails + print_result("0.5 < 1.0", if 0.5 < 1.0 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 12: f64 variable operations ===
+fn test_f64_var_ops() -> i64 {
+    var fails: i64 = 0;
+    var accum: f64 = 0.0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 variable accumulation]");
+
+    accum = accum + 1.0;
+    accum = accum + 2.0;
+    accum = accum + 3.0;
+    fails = fails + print_result("0+1+2+3 = 6.0", if approx_eq(accum, 6.0, tol) == 1 { 0 } else { 1 });
+
+    accum = accum * 2.0;
+    fails = fails + print_result("6.0 * 2.0 = 12.0", if approx_eq(accum, 12.0, tol) == 1 { 0 } else { 1 });
+
+    accum = accum / 4.0;
+    fails = fails + print_result("12.0 / 4.0 = 3.0", if approx_eq(accum, 3.0, tol) == 1 { 0 } else { 1 });
+
+    accum = accum - 1.5;
+    fails = fails + print_result("3.0 - 1.5 = 1.5", if approx_eq(accum, 1.5, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 13: f64 builtin math functions ===
+fn test_f64_builtins() -> i64 {
+    var fails: i64 = 0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 builtin math functions]");
+
+    let s1: f64 = sqrt(4.0);
+    fails = fails + print_result("sqrt(4.0) = 2.0", if approx_eq(s1, 2.0, tol) == 1 { 0 } else { 1 });
+
+    let s2: f64 = sqrt(9.0);
+    fails = fails + print_result("sqrt(9.0) = 3.0", if approx_eq(s2, 3.0, tol) == 1 { 0 } else { 1 });
+
+    let s3: f64 = sqrt(2.0);
+    fails = fails + print_result("sqrt(2.0) ~ 1.41421", if approx_eq(s3, 1.41421356, tol) == 1 { 0 } else { 1 });
+
+    let sin0: f64 = sin(0.0);
+    fails = fails + print_result("sin(0.0) = 0.0", if approx_eq(sin0, 0.0, tol) == 1 { 0 } else { 1 });
+
+    let cos0: f64 = cos(0.0);
+    fails = fails + print_result("cos(0.0) = 1.0", if approx_eq(cos0, 1.0, tol) == 1 { 0 } else { 1 });
+
+    let exp1: f64 = exp(0.0);
+    fails = fails + print_result("exp(0.0) = 1.0", if approx_eq(exp1, 1.0, tol) == 1 { 0 } else { 1 });
+
+    let ln1: f64 = ln(1.0);
+    fails = fails + print_result("ln(1.0) = 0.0", if approx_eq(ln1, 0.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Test 14: f64 edge cases ===
+fn test_f64_edge_cases() -> i64 {
+    var fails: i64 = 0;
+    let tol: f64 = 0.0000001;
+
+    println("[f64 edge cases]");
+
+    let tiny: f64 = 0.000000000001;
+    let big: f64 = 999999999.0;
+
+    let e1: f64 = tiny + tiny;
+    fails = fails + print_result("tiny + tiny = 2*tiny", if approx_eq(e1, 0.000000000002, 0.0000000000001) == 1 { 0 } else { 1 });
+
+    let e2: f64 = big - big;
+    fails = fails + print_result("big - big = 0.0", if approx_eq(e2, 0.0, tol) == 1 { 0 } else { 1 });
+
+    let e3: f64 = 1.0 * 1.0;
+    fails = fails + print_result("1.0 * 1.0 = 1.0", if approx_eq(e3, 1.0, tol) == 1 { 0 } else { 1 });
+
+    let e4: f64 = 0.0 * 0.0;
+    fails = fails + print_result("0.0 * 0.0 = 0.0", if approx_eq(e4, 0.0, tol) == 1 { 0 } else { 1 });
+
+    let e5: f64 = 1.0 / 1.0;
+    fails = fails + print_result("1.0 / 1.0 = 1.0", if approx_eq(e5, 1.0, tol) == 1 { 0 } else { 1 });
+
+    fails
+}
+
+// === Main entry point ===
+fn main() -> i64 {
+    var total_fails: i64 = 0;
+
+    println("=== Simplex f64/i64 Arithmetic Test Suite ===");
+    println("");
+
+    total_fails = total_fails + test_f64_addition();
+    println("");
+    total_fails = total_fails + test_f64_subtraction();
+    println("");
+    total_fails = total_fails + test_f64_multiplication();
+    println("");
+    total_fails = total_fails + test_f64_division();
+    println("");
+    total_fails = total_fails + test_f64_negation();
+    println("");
+    total_fails = total_fails + test_f64_mixed_expr();
+    println("");
+    total_fails = total_fails + test_f64_chained();
+    println("");
+    total_fails = total_fails + test_i64_add_sub();
+    println("");
+    total_fails = total_fails + test_i64_mul_div();
+    println("");
+    total_fails = total_fails + test_i64_modulo();
+    println("");
+    total_fails = total_fails + test_i64_chained();
+    println("");
+    total_fails = total_fails + test_i64_to_f64();
+    println("");
+    total_fails = total_fails + test_f64_to_i64();
+    println("");
+    total_fails = total_fails + test_f64_comparisons();
+    println("");
+    total_fails = total_fails + test_f64_var_ops();
+    println("");
+    total_fails = total_fails + test_f64_builtins();
+    println("");
+    total_fails = total_fails + test_f64_edge_cases();
+
+    println("");
+    println("=== Summary ===");
+    print("Total failures: ");
+    print_i64(total_fails);
+    println("");
+
+    if total_fails == 0 {
+        println("ALL TESTS PASSED");
+    } else {
+        println("SOME TESTS FAILED");
+    }
+
+    total_fails
+}

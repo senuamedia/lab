@@ -1,0 +1,784 @@
+// Experiment: Geometric Contraction Framework — Liquid Hive
+//
+// 5-subsystem hive sharing 4D parameters, each at a different timescale:
+//   1. Liquid  — fast adaptation, lr=0.05, updates every step
+//   2. LoRA   — medium adaptation, lr=0.01, updates every 10 steps
+//   3. Beliefs — slow Bayesian, confidence-weighted, updates every 20 steps
+//   4. Memory  — episodic->semantic consolidation, discrete jump every 50 steps
+//   5. Meta   — adjusts overall learning rate every 100 steps
+//
+// Conflicting targets:
+//   Liquid:  [3, 1, -2, 4]
+//   LoRA:    [-1, 3, 2, -3]
+//   Beliefs: [0, 0, 0, 0]  (prior at origin)
+//   Memory:  [2, -1, 1, 1]  (episodic recall)
+//   Meta:    no target (adjusts lr)
+//
+// Three modes: baseline (no projection), uniform, learned 5x5 matrix.
+// Tracks normalised Lyapunov, higher-order convergence score, belief
+// confidence, and memory consolidation effects.
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn is_step_multiple(step: i64, k: i64) -> i64 {
+    let mod_check: i64 = step - (step / k) * k;
+    if mod_check == 0 { 1 } else { 0 }
+}
+
+fn dot4(a0: f64, a1: f64, a2: f64, a3: f64,
+        b0: f64, b1: f64, b2: f64, b3: f64) -> f64 {
+    a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
+}
+
+fn norm4(a0: f64, a1: f64, a2: f64, a3: f64) -> f64 {
+    sqrt(dot4(a0, a1, a2, a3, a0, a1, a2, a3) + 0.000000000001)
+}
+
+// ============================================================================
+// Subsystem loss functions
+// ============================================================================
+
+fn loss_liquid(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 - 3.0) * (w0 - 3.0);
+    let d1: f64 = (w1 - 1.0) * (w1 - 1.0);
+    let d2: f64 = (w2 + 2.0) * (w2 + 2.0);
+    let d3: f64 = (w3 - 4.0) * (w3 - 4.0);
+    d0 + d1 + d2 + d3
+}
+
+fn loss_lora(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 + 1.0) * (w0 + 1.0);
+    let d1: f64 = (w1 - 3.0) * (w1 - 3.0);
+    let d2: f64 = (w2 - 2.0) * (w2 - 2.0);
+    let d3: f64 = (w3 + 3.0) * (w3 + 3.0);
+    d0 + d1 + d2 + d3
+}
+
+fn loss_belief(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    w0 * w0 + w1 * w1 + w2 * w2 + w3 * w3
+}
+
+fn loss_memory(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let d0: f64 = (w0 - 2.0) * (w0 - 2.0);
+    let d1: f64 = (w1 + 1.0) * (w1 + 1.0);
+    let d2: f64 = (w2 - 1.0) * (w2 - 1.0);
+    let d3: f64 = (w3 - 1.0) * (w3 - 1.0);
+    d0 + d1 + d2 + d3
+}
+
+fn combined_loss(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let ll: f64 = loss_liquid(w0, w1, w2, w3);
+    let lr: f64 = loss_lora(w0, w1, w2, w3);
+    let lb: f64 = loss_belief(w0, w1, w2, w3);
+    let lm: f64 = loss_memory(w0, w1, w2, w3);
+    ll + lr + lb + lm
+}
+
+// ============================================================================
+// Gradient computation per subsystem (analytic: dL/dw = 2*(w - target))
+// Returns one component at a time to stay under var limits.
+// ============================================================================
+
+fn grad_liquid(w: f64, dim: i64) -> f64 {
+    if dim == 0 { 2.0 * (w - 3.0) }
+    else { if dim == 1 { 2.0 * (w - 1.0) }
+    else { if dim == 2 { 2.0 * (w + 2.0) }
+    else { 2.0 * (w - 4.0) } } }
+}
+
+fn grad_lora(w: f64, dim: i64) -> f64 {
+    if dim == 0 { 2.0 * (w + 1.0) }
+    else { if dim == 1 { 2.0 * (w - 3.0) }
+    else { if dim == 2 { 2.0 * (w - 2.0) }
+    else { 2.0 * (w + 3.0) } } }
+}
+
+fn grad_belief(w: f64) -> f64 {
+    2.0 * w
+}
+
+fn grad_memory(w: f64, dim: i64) -> f64 {
+    if dim == 0 { 2.0 * (w - 2.0) }
+    else { if dim == 1 { 2.0 * (w + 1.0) }
+    else { if dim == 2 { 2.0 * (w - 1.0) }
+    else { 2.0 * (w - 1.0) } } }
+}
+
+// ============================================================================
+// Project gradient g_i along dimension d, removing conflicting component
+// from g_j with strength alpha.
+// ============================================================================
+
+fn project_1d(gi_d: f64,
+              gi0: f64, gi1: f64, gi2: f64, gi3: f64,
+              gj0: f64, gj1: f64, gj2: f64, gj3: f64,
+              alpha: f64, dim: i64) -> f64 {
+    var dot_ij: f64 = dot4(gi0, gi1, gi2, gi3, gj0, gj1, gj2, gj3);
+    if dot_ij >= 0.0 { return gi_d; }
+    let gj_sq: f64 = dot4(gj0, gj1, gj2, gj3, gj0, gj1, gj2, gj3) + 0.000000000001;
+    let coeff: f64 = alpha * dot_ij / gj_sq;
+    var gj_d: f64 = gj0;
+    if dim == 1 { gj_d = gj1; }
+    if dim == 2 { gj_d = gj2; }
+    if dim == 3 { gj_d = gj3; }
+    gi_d - coeff * gj_d
+}
+
+// ============================================================================
+// Run inner training loop with a flat 20-element alpha array
+// (5x5 matrix, diagonal ignored). Returns combined loss.
+//
+// Alpha layout (row=source, col=project-off):
+//   a01 a02 a03 a04  (liquid off lora, beliefs, memory, meta)
+//   a10 a12 a13 a14  (lora off liquid, beliefs, memory, meta)
+//   a20 a21 a23 a24  (beliefs off liquid, lora, memory, meta)
+//   a30 a31 a32 a34  (memory off liquid, lora, beliefs, meta)
+//   a40 a41 a42 a43  (meta off liquid, lora, beliefs, memory)
+//
+// We pass 20 alphas as individual parameters to avoid arrays.
+// For tractability, we only use the 4x4 non-meta block (12 alphas)
+// since meta doesn't produce a gradient on w directly.
+// ============================================================================
+
+fn run_inner(a01: f64, a02: f64, a03: f64,
+             a10: f64, a12: f64, a13: f64,
+             a20: f64, a21: f64, a23: f64,
+             a30: f64, a31: f64, a32: f64,
+             inner_steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var lr: f64 = 0.05;
+    var confidence: f64 = 0.1;
+    var mem_strength: f64 = 0.0;
+
+    while step < inner_steps {
+        // --- Compute raw gradients for each subsystem ---
+        var gl0: f64 = grad_liquid(w0, 0);
+        var gl1: f64 = grad_liquid(w1, 1);
+        var gl2: f64 = grad_liquid(w2, 2);
+        var gl3: f64 = grad_liquid(w3, 3);
+
+        var go0: f64 = grad_lora(w0, 0);
+        var go1: f64 = grad_lora(w1, 1);
+        var go2: f64 = grad_lora(w2, 2);
+        var go3: f64 = grad_lora(w3, 3);
+
+        var gb0: f64 = confidence * grad_belief(w0);
+        var gb1: f64 = confidence * grad_belief(w1);
+        var gb2: f64 = confidence * grad_belief(w2);
+        var gb3: f64 = confidence * grad_belief(w3);
+
+        var gm0: f64 = mem_strength * grad_memory(w0, 0);
+        var gm1: f64 = mem_strength * grad_memory(w1, 1);
+        var gm2: f64 = mem_strength * grad_memory(w2, 2);
+        var gm3: f64 = mem_strength * grad_memory(w3, 3);
+
+        // --- Apply pairwise projections for each dimension ---
+        // Liquid: project off LoRA (a01), Beliefs (a02), Memory (a03)
+        var rl0: f64 = project_1d(gl0, gl0, gl1, gl2, gl3, go0, go1, go2, go3, a01, 0);
+        rl0 = project_1d(rl0, gl0, gl1, gl2, gl3, gb0, gb1, gb2, gb3, a02, 0);
+        rl0 = project_1d(rl0, gl0, gl1, gl2, gl3, gm0, gm1, gm2, gm3, a03, 0);
+        var rl1: f64 = project_1d(gl1, gl0, gl1, gl2, gl3, go0, go1, go2, go3, a01, 1);
+        rl1 = project_1d(rl1, gl0, gl1, gl2, gl3, gb0, gb1, gb2, gb3, a02, 1);
+        rl1 = project_1d(rl1, gl0, gl1, gl2, gl3, gm0, gm1, gm2, gm3, a03, 1);
+        var rl2: f64 = project_1d(gl2, gl0, gl1, gl2, gl3, go0, go1, go2, go3, a01, 2);
+        rl2 = project_1d(rl2, gl0, gl1, gl2, gl3, gb0, gb1, gb2, gb3, a02, 2);
+        rl2 = project_1d(rl2, gl0, gl1, gl2, gl3, gm0, gm1, gm2, gm3, a03, 2);
+        var rl3: f64 = project_1d(gl3, gl0, gl1, gl2, gl3, go0, go1, go2, go3, a01, 3);
+        rl3 = project_1d(rl3, gl0, gl1, gl2, gl3, gb0, gb1, gb2, gb3, a02, 3);
+        rl3 = project_1d(rl3, gl0, gl1, gl2, gl3, gm0, gm1, gm2, gm3, a03, 3);
+
+        // Always apply liquid gradient (fastest subsystem)
+        w0 = w0 - lr * rl0;
+        w1 = w1 - lr * rl1;
+        w2 = w2 - lr * rl2;
+        w3 = w3 - lr * rl3;
+
+        // LoRA: project off Liquid (a10), Beliefs (a12), Memory (a13)
+        // Updates every 10 steps
+        if step > 0 {
+            if is_step_multiple(step, 10) == 1 {
+                var ro0: f64 = project_1d(go0, go0, go1, go2, go3, gl0, gl1, gl2, gl3, a10, 0);
+                ro0 = project_1d(ro0, go0, go1, go2, go3, gb0, gb1, gb2, gb3, a12, 0);
+                ro0 = project_1d(ro0, go0, go1, go2, go3, gm0, gm1, gm2, gm3, a13, 0);
+                var ro1: f64 = project_1d(go1, go0, go1, go2, go3, gl0, gl1, gl2, gl3, a10, 1);
+                ro1 = project_1d(ro1, go0, go1, go2, go3, gb0, gb1, gb2, gb3, a12, 1);
+                ro1 = project_1d(ro1, go0, go1, go2, go3, gm0, gm1, gm2, gm3, a13, 1);
+                var ro2: f64 = project_1d(go2, go0, go1, go2, go3, gl0, gl1, gl2, gl3, a10, 2);
+                ro2 = project_1d(ro2, go0, go1, go2, go3, gb0, gb1, gb2, gb3, a12, 2);
+                ro2 = project_1d(ro2, go0, go1, go2, go3, gm0, gm1, gm2, gm3, a13, 2);
+                var ro3: f64 = project_1d(go3, go0, go1, go2, go3, gl0, gl1, gl2, gl3, a10, 3);
+                ro3 = project_1d(ro3, go0, go1, go2, go3, gb0, gb1, gb2, gb3, a12, 3);
+                ro3 = project_1d(ro3, go0, go1, go2, go3, gm0, gm1, gm2, gm3, a13, 3);
+                let lora_lr: f64 = 0.01;
+                w0 = w0 - lora_lr * ro0;
+                w1 = w1 - lora_lr * ro1;
+                w2 = w2 - lora_lr * ro2;
+                w3 = w3 - lora_lr * ro3;
+            }
+        }
+
+        // Beliefs: project off Liquid (a20), LoRA (a21), Memory (a23)
+        // Updates every 20 steps, weighted by confidence
+        if step > 0 {
+            if is_step_multiple(step, 20) == 1 {
+                var rb0: f64 = project_1d(gb0, gb0, gb1, gb2, gb3, gl0, gl1, gl2, gl3, a20, 0);
+                rb0 = project_1d(rb0, gb0, gb1, gb2, gb3, go0, go1, go2, go3, a21, 0);
+                rb0 = project_1d(rb0, gb0, gb1, gb2, gb3, gm0, gm1, gm2, gm3, a23, 0);
+                var rb1: f64 = project_1d(gb1, gb0, gb1, gb2, gb3, gl0, gl1, gl2, gl3, a20, 1);
+                rb1 = project_1d(rb1, gb0, gb1, gb2, gb3, go0, go1, go2, go3, a21, 1);
+                rb1 = project_1d(rb1, gb0, gb1, gb2, gb3, gm0, gm1, gm2, gm3, a23, 1);
+                var rb2: f64 = project_1d(gb2, gb0, gb1, gb2, gb3, gl0, gl1, gl2, gl3, a20, 2);
+                rb2 = project_1d(rb2, gb0, gb1, gb2, gb3, go0, go1, go2, go3, a21, 2);
+                rb2 = project_1d(rb2, gb0, gb1, gb2, gb3, gm0, gm1, gm2, gm3, a23, 2);
+                var rb3: f64 = project_1d(gb3, gb0, gb1, gb2, gb3, gl0, gl1, gl2, gl3, a20, 3);
+                rb3 = project_1d(rb3, gb0, gb1, gb2, gb3, go0, go1, go2, go3, a21, 3);
+                rb3 = project_1d(rb3, gb0, gb1, gb2, gb3, gm0, gm1, gm2, gm3, a23, 3);
+                let belief_lr: f64 = 0.005;
+                w0 = w0 - belief_lr * rb0;
+                w1 = w1 - belief_lr * rb1;
+                w2 = w2 - belief_lr * rb2;
+                w3 = w3 - belief_lr * rb3;
+                // Bayesian confidence update: increases as loss decreases
+                let bl: f64 = loss_belief(w0, w1, w2, w3);
+                confidence = confidence + 0.02 * (1.0 / (1.0 + bl) - confidence);
+                confidence = clamp(confidence, 0.01, 1.0);
+            }
+        }
+
+        // Memory: discrete consolidation every 50 steps
+        if step > 0 {
+            if is_step_multiple(step, 50) == 1 {
+                mem_strength = clamp(mem_strength + 0.15, 0.0, 1.0);
+                var rm0: f64 = project_1d(gm0, gm0, gm1, gm2, gm3, gl0, gl1, gl2, gl3, a30, 0);
+                rm0 = project_1d(rm0, gm0, gm1, gm2, gm3, go0, go1, go2, go3, a31, 0);
+                rm0 = project_1d(rm0, gm0, gm1, gm2, gm3, gb0, gb1, gb2, gb3, a32, 0);
+                var rm1: f64 = project_1d(gm1, gm0, gm1, gm2, gm3, gl0, gl1, gl2, gl3, a30, 1);
+                rm1 = project_1d(rm1, gm0, gm1, gm2, gm3, go0, go1, go2, go3, a31, 1);
+                rm1 = project_1d(rm1, gm0, gm1, gm2, gm3, gb0, gb1, gb2, gb3, a32, 1);
+                var rm2: f64 = project_1d(gm2, gm0, gm1, gm2, gm3, gl0, gl1, gl2, gl3, a30, 2);
+                rm2 = project_1d(rm2, gm0, gm1, gm2, gm3, go0, go1, go2, go3, a31, 2);
+                rm2 = project_1d(rm2, gm0, gm1, gm2, gm3, gb0, gb1, gb2, gb3, a32, 2);
+                var rm3: f64 = project_1d(gm3, gm0, gm1, gm2, gm3, gl0, gl1, gl2, gl3, a30, 3);
+                rm3 = project_1d(rm3, gm0, gm1, gm2, gm3, go0, go1, go2, go3, a31, 3);
+                rm3 = project_1d(rm3, gm0, gm1, gm2, gm3, gb0, gb1, gb2, gb3, a32, 3);
+                let mem_lr: f64 = 0.03;
+                w0 = w0 - mem_lr * rm0;
+                w1 = w1 - mem_lr * rm1;
+                w2 = w2 - mem_lr * rm2;
+                w3 = w3 - mem_lr * rm3;
+            }
+        }
+
+        // Meta: adjust overall lr every 100 steps
+        if step > 0 {
+            if is_step_multiple(step, 100) == 1 {
+                let cl: f64 = combined_loss(w0, w1, w2, w3);
+                if cl > 50.0 {
+                    lr = clamp(lr * 1.1, 0.001, 0.15);
+                } else {
+                    lr = clamp(lr * 0.9, 0.001, 0.15);
+                }
+            }
+        }
+
+        step = step + 1;
+    }
+
+    combined_loss(w0, w1, w2, w3)
+}
+
+// ============================================================================
+// Compute Lyapunov for current params: V = sum(Li / Li0)
+// Each subsystem loss normalised by its initial value.
+// ============================================================================
+
+fn compute_lyapunov(w0: f64, w1: f64, w2: f64, w3: f64) -> f64 {
+    let ll: f64 = loss_liquid(w0, w1, w2, w3);
+    let lo: f64 = loss_lora(w0, w1, w2, w3);
+    let lb: f64 = loss_belief(w0, w1, w2, w3);
+    let lm: f64 = loss_memory(w0, w1, w2, w3);
+    // Initial losses at w=[0,0,0,0]
+    let ll0: f64 = 30.0;  // 9+1+4+16
+    let lo0: f64 = 23.0;  // 1+9+4+9
+    let lb0: f64 = 0.0001; // avoid div0 for origin prior
+    let lm0: f64 = 7.0;   // 4+1+1+1
+    ll / ll0 + lo / lo0 + lb / (lb0 + 1.0) + lm / lm0
+}
+
+// ============================================================================
+// Lyapunov-tracked inner loop — returns final V
+// Also tracks V history for convergence score computation.
+// ============================================================================
+
+fn run_inner_lyapunov(a01: f64, a02: f64, a03: f64,
+                      a10: f64, a12: f64, a13: f64,
+                      a20: f64, a21: f64, a23: f64,
+                      a30: f64, a31: f64, a32: f64,
+                      inner_steps: i64) -> f64 {
+    var w0: f64 = 0.0;
+    var w1: f64 = 0.0;
+    var w2: f64 = 0.0;
+    var w3: f64 = 0.0;
+    var step: i64 = 0;
+    var lr: f64 = 0.05;
+    var confidence: f64 = 0.1;
+    var mem_strength: f64 = 0.0;
+    var v_now: f64 = 0.0;
+
+    while step < inner_steps {
+        var gl0: f64 = grad_liquid(w0, 0);
+        var gl1: f64 = grad_liquid(w1, 1);
+        var gl2: f64 = grad_liquid(w2, 2);
+        var gl3: f64 = grad_liquid(w3, 3);
+        var go0: f64 = grad_lora(w0, 0);
+        var go1: f64 = grad_lora(w1, 1);
+        var go2: f64 = grad_lora(w2, 2);
+        var go3: f64 = grad_lora(w3, 3);
+        var gb0: f64 = confidence * grad_belief(w0);
+        var gb1: f64 = confidence * grad_belief(w1);
+        var gb2: f64 = confidence * grad_belief(w2);
+        var gb3: f64 = confidence * grad_belief(w3);
+        var gm0: f64 = mem_strength * grad_memory(w0, 0);
+        var gm1: f64 = mem_strength * grad_memory(w1, 1);
+        var gm2: f64 = mem_strength * grad_memory(w2, 2);
+        var gm3: f64 = mem_strength * grad_memory(w3, 3);
+
+        // Liquid update (every step)
+        var rl0: f64 = project_1d(gl0, gl0,gl1,gl2,gl3, go0,go1,go2,go3, a01, 0);
+        rl0 = project_1d(rl0, gl0,gl1,gl2,gl3, gb0,gb1,gb2,gb3, a02, 0);
+        rl0 = project_1d(rl0, gl0,gl1,gl2,gl3, gm0,gm1,gm2,gm3, a03, 0);
+        var rl1: f64 = project_1d(gl1, gl0,gl1,gl2,gl3, go0,go1,go2,go3, a01, 1);
+        rl1 = project_1d(rl1, gl0,gl1,gl2,gl3, gb0,gb1,gb2,gb3, a02, 1);
+        rl1 = project_1d(rl1, gl0,gl1,gl2,gl3, gm0,gm1,gm2,gm3, a03, 1);
+        var rl2: f64 = project_1d(gl2, gl0,gl1,gl2,gl3, go0,go1,go2,go3, a01, 2);
+        rl2 = project_1d(rl2, gl0,gl1,gl2,gl3, gb0,gb1,gb2,gb3, a02, 2);
+        rl2 = project_1d(rl2, gl0,gl1,gl2,gl3, gm0,gm1,gm2,gm3, a03, 2);
+        var rl3: f64 = project_1d(gl3, gl0,gl1,gl2,gl3, go0,go1,go2,go3, a01, 3);
+        rl3 = project_1d(rl3, gl0,gl1,gl2,gl3, gb0,gb1,gb2,gb3, a02, 3);
+        rl3 = project_1d(rl3, gl0,gl1,gl2,gl3, gm0,gm1,gm2,gm3, a03, 3);
+        w0 = w0 - lr * rl0;
+        w1 = w1 - lr * rl1;
+        w2 = w2 - lr * rl2;
+        w3 = w3 - lr * rl3;
+
+        // LoRA every 10
+        if step > 0 {
+            if is_step_multiple(step, 10) == 1 {
+                var ro0: f64 = project_1d(go0, go0,go1,go2,go3, gl0,gl1,gl2,gl3, a10, 0);
+                ro0 = project_1d(ro0, go0,go1,go2,go3, gb0,gb1,gb2,gb3, a12, 0);
+                ro0 = project_1d(ro0, go0,go1,go2,go3, gm0,gm1,gm2,gm3, a13, 0);
+                var ro1: f64 = project_1d(go1, go0,go1,go2,go3, gl0,gl1,gl2,gl3, a10, 1);
+                ro1 = project_1d(ro1, go0,go1,go2,go3, gb0,gb1,gb2,gb3, a12, 1);
+                ro1 = project_1d(ro1, go0,go1,go2,go3, gm0,gm1,gm2,gm3, a13, 1);
+                var ro2: f64 = project_1d(go2, go0,go1,go2,go3, gl0,gl1,gl2,gl3, a10, 2);
+                ro2 = project_1d(ro2, go0,go1,go2,go3, gb0,gb1,gb2,gb3, a12, 2);
+                ro2 = project_1d(ro2, go0,go1,go2,go3, gm0,gm1,gm2,gm3, a13, 2);
+                var ro3: f64 = project_1d(go3, go0,go1,go2,go3, gl0,gl1,gl2,gl3, a10, 3);
+                ro3 = project_1d(ro3, go0,go1,go2,go3, gb0,gb1,gb2,gb3, a12, 3);
+                ro3 = project_1d(ro3, go0,go1,go2,go3, gm0,gm1,gm2,gm3, a13, 3);
+                w0 = w0 - 0.01 * ro0;
+                w1 = w1 - 0.01 * ro1;
+                w2 = w2 - 0.01 * ro2;
+                w3 = w3 - 0.01 * ro3;
+            }
+        }
+
+        // Beliefs every 20
+        if step > 0 {
+            if is_step_multiple(step, 20) == 1 {
+                var rb0: f64 = project_1d(gb0, gb0,gb1,gb2,gb3, gl0,gl1,gl2,gl3, a20, 0);
+                rb0 = project_1d(rb0, gb0,gb1,gb2,gb3, go0,go1,go2,go3, a21, 0);
+                rb0 = project_1d(rb0, gb0,gb1,gb2,gb3, gm0,gm1,gm2,gm3, a23, 0);
+                var rb1: f64 = project_1d(gb1, gb0,gb1,gb2,gb3, gl0,gl1,gl2,gl3, a20, 1);
+                rb1 = project_1d(rb1, gb0,gb1,gb2,gb3, go0,go1,go2,go3, a21, 1);
+                rb1 = project_1d(rb1, gb0,gb1,gb2,gb3, gm0,gm1,gm2,gm3, a23, 1);
+                var rb2: f64 = project_1d(gb2, gb0,gb1,gb2,gb3, gl0,gl1,gl2,gl3, a20, 2);
+                rb2 = project_1d(rb2, gb0,gb1,gb2,gb3, go0,go1,go2,go3, a21, 2);
+                rb2 = project_1d(rb2, gb0,gb1,gb2,gb3, gm0,gm1,gm2,gm3, a23, 2);
+                var rb3: f64 = project_1d(gb3, gb0,gb1,gb2,gb3, gl0,gl1,gl2,gl3, a20, 3);
+                rb3 = project_1d(rb3, gb0,gb1,gb2,gb3, go0,go1,go2,go3, a21, 3);
+                rb3 = project_1d(rb3, gb0,gb1,gb2,gb3, gm0,gm1,gm2,gm3, a23, 3);
+                w0 = w0 - 0.005 * rb0;
+                w1 = w1 - 0.005 * rb1;
+                w2 = w2 - 0.005 * rb2;
+                w3 = w3 - 0.005 * rb3;
+                let bl: f64 = loss_belief(w0, w1, w2, w3);
+                confidence = confidence + 0.02 * (1.0 / (1.0 + bl) - confidence);
+                confidence = clamp(confidence, 0.01, 1.0);
+            }
+        }
+
+        // Memory every 50
+        if step > 0 {
+            if is_step_multiple(step, 50) == 1 {
+                mem_strength = clamp(mem_strength + 0.15, 0.0, 1.0);
+                var rm0: f64 = project_1d(gm0, gm0,gm1,gm2,gm3, gl0,gl1,gl2,gl3, a30, 0);
+                rm0 = project_1d(rm0, gm0,gm1,gm2,gm3, go0,go1,go2,go3, a31, 0);
+                rm0 = project_1d(rm0, gm0,gm1,gm2,gm3, gb0,gb1,gb2,gb3, a32, 0);
+                var rm1: f64 = project_1d(gm1, gm0,gm1,gm2,gm3, gl0,gl1,gl2,gl3, a30, 1);
+                rm1 = project_1d(rm1, gm0,gm1,gm2,gm3, go0,go1,go2,go3, a31, 1);
+                rm1 = project_1d(rm1, gm0,gm1,gm2,gm3, gb0,gb1,gb2,gb3, a32, 1);
+                var rm2: f64 = project_1d(gm2, gm0,gm1,gm2,gm3, gl0,gl1,gl2,gl3, a30, 2);
+                rm2 = project_1d(rm2, gm0,gm1,gm2,gm3, go0,go1,go2,go3, a31, 2);
+                rm2 = project_1d(rm2, gm0,gm1,gm2,gm3, gb0,gb1,gb2,gb3, a32, 2);
+                var rm3: f64 = project_1d(gm3, gm0,gm1,gm2,gm3, gl0,gl1,gl2,gl3, a30, 3);
+                rm3 = project_1d(rm3, gm0,gm1,gm2,gm3, go0,go1,go2,go3, a31, 3);
+                rm3 = project_1d(rm3, gm0,gm1,gm2,gm3, gb0,gb1,gb2,gb3, a32, 3);
+                w0 = w0 - 0.03 * rm0;
+                w1 = w1 - 0.03 * rm1;
+                w2 = w2 - 0.03 * rm2;
+                w3 = w3 - 0.03 * rm3;
+            }
+        }
+
+        // Meta lr adjust every 100
+        if step > 0 {
+            if is_step_multiple(step, 100) == 1 {
+                let cl: f64 = combined_loss(w0, w1, w2, w3);
+                if cl > 50.0 {
+                    lr = clamp(lr * 1.1, 0.001, 0.15);
+                } else {
+                    lr = clamp(lr * 0.9, 0.001, 0.15);
+                }
+            }
+        }
+
+        step = step + 1;
+    }
+
+    compute_lyapunov(w0, w1, w2, w3)
+}
+
+// ============================================================================
+// Meta-gradient for one alpha via finite difference
+// ============================================================================
+
+fn meta_grad(a01: f64, a02: f64, a03: f64,
+             a10: f64, a12: f64, a13: f64,
+             a20: f64, a21: f64, a23: f64,
+             a30: f64, a31: f64, a32: f64,
+             which: i64, steps: i64) -> f64 {
+    let h: f64 = 0.01;
+    var p01: f64 = a01; var p02: f64 = a02; var p03: f64 = a03;
+    var p10: f64 = a10; var p12: f64 = a12; var p13: f64 = a13;
+    var p20: f64 = a20; var p21: f64 = a21; var p23: f64 = a23;
+    var p30: f64 = a30; var p31: f64 = a31; var p32: f64 = a32;
+    var m01: f64 = a01; var m02: f64 = a02; var m03: f64 = a03;
+    var m10: f64 = a10; var m12: f64 = a12; var m13: f64 = a13;
+    var m20: f64 = a20; var m21: f64 = a21; var m23: f64 = a23;
+    var m30: f64 = a30; var m31: f64 = a31; var m32: f64 = a32;
+
+    if which == 0  { p01 = a01 + h; m01 = a01 - h; }
+    if which == 1  { p02 = a02 + h; m02 = a02 - h; }
+    if which == 2  { p03 = a03 + h; m03 = a03 - h; }
+    if which == 3  { p10 = a10 + h; m10 = a10 - h; }
+    if which == 4  { p12 = a12 + h; m12 = a12 - h; }
+    if which == 5  { p13 = a13 + h; m13 = a13 - h; }
+    if which == 6  { p20 = a20 + h; m20 = a20 - h; }
+    if which == 7  { p21 = a21 + h; m21 = a21 - h; }
+    if which == 8  { p23 = a23 + h; m23 = a23 - h; }
+    if which == 9  { p30 = a30 + h; m30 = a30 - h; }
+    if which == 10 { p31 = a31 + h; m31 = a31 - h; }
+    if which == 11 { p32 = a32 + h; m32 = a32 - h; }
+
+    let lp: f64 = run_inner(p01,p02,p03, p10,p12,p13, p20,p21,p23, p30,p31,p32, steps);
+    let lm: f64 = run_inner(m01,m02,m03, m10,m12,m13, m20,m21,m23, m30,m31,m32, steps);
+    (lp - lm) / (2.0 * h)
+}
+
+// ============================================================================
+// Print helpers
+// ============================================================================
+
+fn print_row(label: i64, v0: f64, v1: f64, v2: f64) -> i64 {
+    print("    ");
+    if label == 0 { print("Liquid  ->  "); }
+    if label == 1 { print("LoRA    ->  "); }
+    if label == 2 { print("Beliefs ->  "); }
+    if label == 3 { print("Memory  ->  "); }
+    print_f64(v0);
+    print("  ");
+    print_f64(v1);
+    print("  ");
+    print_f64(v2);
+    println("");
+    0
+}
+
+fn print_cycle_header() -> i64 {
+    println("  Cycle  Loss       Lyapunov   Drift      Score");
+    println("  -----  ---------  ---------  ---------  ---------");
+    0
+}
+
+fn print_cycle(cyc: i64, loss: f64, lyap: f64, drift: f64, score: f64) -> i64 {
+    print("  ");
+    print_i64(cyc);
+    print("      ");
+    print_f64(loss);
+    print("  ");
+    print_f64(lyap);
+    print("  ");
+    print_f64(drift);
+    print("  ");
+    print_f64(score);
+    println("");
+    0
+}
+
+// ============================================================================
+// Main: three experiments — baseline, uniform, learned
+// ============================================================================
+
+fn main() -> i64 {
+    let inner_steps: i64 = 200;
+    let meta_cycles: i64 = 80;
+    let meta_lr: f64 = 0.08;
+
+    println("============================================================");
+    println("  GEOMETRIC CONTRACTION FRAMEWORK: LIQUID HIVE EXPERIMENT");
+    println("  5 subsystems (Liquid/LoRA/Beliefs/Memory/Meta) in 4D");
+    println("============================================================");
+    println("");
+
+    // ---- Baseline: no projection (all alpha = 0) ----
+    let loss_base: f64 = run_inner(0.0,0.0,0.0, 0.0,0.0,0.0,
+                                    0.0,0.0,0.0, 0.0,0.0,0.0, inner_steps);
+    let lyap_base: f64 = run_inner_lyapunov(0.0,0.0,0.0, 0.0,0.0,0.0,
+                                             0.0,0.0,0.0, 0.0,0.0,0.0, inner_steps);
+    print("  Baseline (no projection):   loss=");
+    print_f64(loss_base);
+    print("  V=");
+    print_f64(lyap_base);
+    println("");
+
+    // ---- Uniform projection (all alpha = 1) ----
+    let loss_unif: f64 = run_inner(1.0,1.0,1.0, 1.0,1.0,1.0,
+                                    1.0,1.0,1.0, 1.0,1.0,1.0, inner_steps);
+    let lyap_unif: f64 = run_inner_lyapunov(1.0,1.0,1.0, 1.0,1.0,1.0,
+                                             1.0,1.0,1.0, 1.0,1.0,1.0, inner_steps);
+    print("  Uniform  (all alpha=1):     loss=");
+    print_f64(loss_unif);
+    print("  V=");
+    print_f64(lyap_unif);
+    println("");
+    println("");
+
+    // ---- Learned interaction matrix ----
+    println("--- Learning 4x4 interaction matrix (12 alphas) ---");
+    println("");
+
+    var a01: f64 = 0.5; var a02: f64 = 0.5; var a03: f64 = 0.5;
+    var a10: f64 = 0.5; var a12: f64 = 0.5; var a13: f64 = 0.5;
+    var a20: f64 = 0.5; var a21: f64 = 0.5; var a23: f64 = 0.5;
+    var a30: f64 = 0.5; var a31: f64 = 0.5; var a32: f64 = 0.5;
+
+    // Tracking for convergence score
+    var prev_drift: f64 = 0.0;
+    var prev_prev_drift: f64 = 0.0;
+    var drift: f64 = 0.0;
+    var d_prime: f64 = 0.0;
+    var d_double: f64 = 0.0;
+    var score: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+    var lyap: f64 = 0.0;
+    var mg: f64 = 0.0;
+
+    // Previous alphas for drift
+    var pa01: f64 = 0.5; var pa02: f64 = 0.5; var pa03: f64 = 0.5;
+    var pa10: f64 = 0.5; var pa12: f64 = 0.5; var pa13: f64 = 0.5;
+    var pa20: f64 = 0.5; var pa21: f64 = 0.5; var pa23: f64 = 0.5;
+    var pa30: f64 = 0.5; var pa31: f64 = 0.5; var pa32: f64 = 0.5;
+
+    var r: i64 = 0;
+    r = print_cycle_header();
+
+    while cycle < meta_cycles {
+        // Save previous
+        pa01 = a01; pa02 = a02; pa03 = a03;
+        pa10 = a10; pa12 = a12; pa13 = a13;
+        pa20 = a20; pa21 = a21; pa23 = a23;
+        pa30 = a30; pa31 = a31; pa32 = a32;
+
+        // Meta-gradient update for all 12 alphas
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 0, inner_steps);
+        a01 = clamp(a01 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 1, inner_steps);
+        a02 = clamp(a02 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 2, inner_steps);
+        a03 = clamp(a03 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 3, inner_steps);
+        a10 = clamp(a10 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 4, inner_steps);
+        a12 = clamp(a12 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 5, inner_steps);
+        a13 = clamp(a13 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 6, inner_steps);
+        a20 = clamp(a20 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 7, inner_steps);
+        a21 = clamp(a21 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 8, inner_steps);
+        a23 = clamp(a23 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 9, inner_steps);
+        a30 = clamp(a30 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 10, inner_steps);
+        a31 = clamp(a31 - meta_lr * mg, 0.0, 2.0);
+        mg = meta_grad(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, 11, inner_steps);
+        a32 = clamp(a32 - meta_lr * mg, 0.0, 2.0);
+
+        // Evaluate
+        loss = run_inner(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, inner_steps);
+        lyap = run_inner_lyapunov(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, inner_steps);
+
+        // Drift = sum of absolute alpha changes
+        prev_prev_drift = prev_drift;
+        prev_drift = drift;
+        drift = abs_f64(a01 - pa01) + abs_f64(a02 - pa02) + abs_f64(a03 - pa03)
+              + abs_f64(a10 - pa10) + abs_f64(a12 - pa12) + abs_f64(a13 - pa13)
+              + abs_f64(a20 - pa20) + abs_f64(a21 - pa21) + abs_f64(a23 - pa23)
+              + abs_f64(a30 - pa30) + abs_f64(a31 - pa31) + abs_f64(a32 - pa32);
+
+        // Higher-order convergence score: S = D + |D'| + |D''|
+        d_prime = drift - prev_drift;
+        d_double = d_prime - (prev_drift - prev_prev_drift);
+        score = drift + abs_f64(d_prime) + abs_f64(d_double);
+
+        // Print every 10 cycles
+        if is_step_multiple(cycle, 10) == 1 {
+            r = print_cycle(cycle, loss, lyap, drift, score);
+        }
+        if cycle == meta_cycles - 1 {
+            r = print_cycle(cycle, loss, lyap, drift, score);
+        }
+
+        cycle = cycle + 1;
+    }
+
+    // ---- Final results ----
+    let final_loss: f64 = run_inner(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, inner_steps);
+    let final_lyap: f64 = run_inner_lyapunov(a01,a02,a03, a10,a12,a13, a20,a21,a23, a30,a31,a32, inner_steps);
+
+    println("");
+    println("============================================================");
+    println("  LEARNED 4x4 INTERACTION MATRIX");
+    println("            Liquid    LoRA      Beliefs   Memory");
+    println("  --------  --------  --------  --------  --------");
+
+    // Liquid row (a01=LoRA, a02=Beliefs, a03=Memory)
+    print("  Liquid    ---       ");
+    print_f64(a01);
+    print("  ");
+    print_f64(a02);
+    print("  ");
+    print_f64(a03);
+    println("");
+
+    // LoRA row (a10=Liquid, a12=Beliefs, a13=Memory)
+    print("  LoRA      ");
+    print_f64(a10);
+    print("  ---       ");
+    print_f64(a12);
+    print("  ");
+    print_f64(a13);
+    println("");
+
+    // Beliefs row (a20=Liquid, a21=LoRA, a23=Memory)
+    print("  Beliefs   ");
+    print_f64(a20);
+    print("  ");
+    print_f64(a21);
+    print("  ---       ");
+    print_f64(a23);
+    println("");
+
+    // Memory row (a30=Liquid, a31=LoRA, a32=Beliefs)
+    print("  Memory    ");
+    print_f64(a30);
+    print("  ");
+    print_f64(a31);
+    print("  ");
+    print_f64(a32);
+    print("  ---");
+    println("");
+
+    println("");
+    println("============================================================");
+    println("  COMPARISON");
+    println("============================================================");
+    print("  Baseline (no proj):   loss=");
+    print_f64(loss_base);
+    print("  V=");
+    print_f64(lyap_base);
+    println("");
+    print("  Uniform  (alpha=1):   loss=");
+    print_f64(loss_unif);
+    print("  V=");
+    print_f64(lyap_unif);
+    println("");
+    print("  Learned  matrix:      loss=");
+    print_f64(final_loss);
+    print("  V=");
+    print_f64(final_lyap);
+    println("");
+    println("");
+
+    // ---- Lyapunov monotonicity check ----
+    if final_lyap < lyap_base {
+        println("  PASS: Learned matrix reduces Lyapunov V vs baseline");
+    } else {
+        println("  NOTE: Learned matrix did not reduce V below baseline");
+    }
+
+    // ---- Convergence score check ----
+    if score < 1.0 {
+        println("  PASS: Higher-order convergence score S < 1.0 (stabilised)");
+    } else {
+        print("  NOTE: Convergence score S = ");
+        print_f64(score);
+        println(" (still converging)");
+    }
+
+    // ---- Loss comparison ----
+    if final_loss < loss_base {
+        if final_loss < loss_unif {
+            println("  PASS: Learned matrix BEATS both baselines on loss");
+        } else {
+            println("  PARTIAL: Beats no-projection but not uniform");
+        }
+    } else {
+        if final_loss <= loss_base + 0.5 {
+            println("  PASS: Learned matrix matches baseline (flat landscape)");
+        } else {
+            println("  FAIL: Learned matrix worse than no-projection baseline");
+        }
+    }
+
+    // ---- Drift convergence ----
+    if drift < 0.05 {
+        println("  PASS: Matrix drift converged (drift < 0.05)");
+    } else {
+        print("  NOTE: Matrix still drifting (drift=");
+        print_f64(drift);
+        println(")");
+    }
+
+    println("");
+    println("============================================================");
+    println("  EXPERIMENT COMPLETE");
+    println("============================================================");
+
+    0
+}

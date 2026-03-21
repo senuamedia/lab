@@ -1,0 +1,688 @@
+// Higher-Order Derivative Analysis of PRIME NUMBER GAPS
+//
+// NOT claiming to solve any conjectures.
+// ASKING: does the derivative series D, D', D'', D''' reveal
+// structure in prime distribution that isn't visible from raw gaps?
+//
+// The prime number theorem says average gap near p ~ ln(p).
+// Twin prime conjecture: infinitely many gaps of 2.
+// We apply the meta-gradient derivative framework to explore:
+//   G(i)   = p(i+1) - p(i)           (the gaps)
+//   G'(i)  = G(i+1) - G(i)           (change in gaps)
+//   G''(i) = G'(i+1) - G'(i)         (acceleration)
+//   G'''(i)= G''(i+1) - G''(i)       (jerk)
+//
+// Does G' have mean near 0? How many sign changes per order?
+// Does running-average gap converge to ln(p)?
+// Is there autocorrelation in gaps?
+// Does the twin prime density have derivative structure?
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+// Simple primality test by trial division up to sqrt(n)
+// Returns 1 if prime, 0 if not
+fn is_prime(n: i64) -> i64 {
+    if n < 2 { return 0; }
+    if n == 2 { return 1; }
+    if n % 2 == 0 { return 0; }
+    var d: i64 = 3;
+    while d * d <= n {
+        if n % d == 0 { return 0; }
+        d = d + 2;
+    }
+    1
+}
+
+// Find the next prime strictly greater than n
+fn next_prime(n: i64) -> i64 {
+    var c: i64 = n + 1;
+    while is_prime(c) == 0 {
+        c = c + 1;
+    }
+    c
+}
+
+fn main() -> i64 {
+    println("============================================================");
+    println("  PRIME NUMBER GAPS: HIGHER-ORDER DERIVATIVE ANALYSIS");
+    println("  Exploring structure in prime distribution via D, D', D''");
+    println("============================================================");
+    println("");
+
+    // ============================================================
+    // Generate first 200 primes and their gaps
+    // ============================================================
+    // We store up to 200 primes in a flat iteration approach.
+    // Since we can't use arrays, we process in streaming fashion,
+    // keeping a sliding window for derivative computation.
+
+    println("=== Exp 1: Prime Gap Derivative Series ===");
+    println("  Computing first 200 primes and their gaps.");
+    println("  Then computing G, G', G'', G''' and statistics.");
+    println("");
+
+    // First pass: print the first 30 values of each derivative order
+    // We need 4 consecutive gaps to compute one value of G'''
+    // so we keep a sliding window of gap values.
+    println("  First 30 values of each derivative order:");
+    println("  i     G(i)   G'(i)  G''(i) G'''(i)");
+
+    var p_prev: i64 = 2;
+    var p_curr: i64 = 3;
+    var prime_idx: i64 = 2;
+    var gap_0: i64 = 0;
+    var gap_1: i64 = 0;
+    var gap_2: i64 = 0;
+    var gap_3: i64 = 0;
+    var gp_0: i64 = 0;
+    var gp_1: i64 = 0;
+    var gp_2: i64 = 0;
+    var gpp_0: i64 = 0;
+    var gpp_1: i64 = 0;
+    var gppp: i64 = 0;
+    var gap_count: i64 = 0;
+
+    // Statistics accumulators
+    var sum_g: i64 = 0;
+    var sum_gp: i64 = 0;
+    var sum_abs_gp: i64 = 0;
+    var sign_g: i64 = 0;
+    var sign_gp: i64 = 0;
+    var sign_gpp: i64 = 0;
+    var sign_gppp: i64 = 0;
+    var prev_sign_gp: i64 = 0;
+    var prev_sign_gpp: i64 = 0;
+    var prev_sign_gppp: i64 = 0;
+
+    // We need 200 primes => 199 gaps => 198 G' => 197 G'' => 196 G'''
+    // Process primes one by one, keeping sliding window of 4 gaps
+    var total_gaps: i64 = 0;
+    var total_gp: i64 = 0;
+    var total_gpp: i64 = 0;
+    var total_gppp: i64 = 0;
+
+    p_curr = 2;
+    var p_next: i64 = 0;
+    prime_idx = 1;
+
+    // Iterate to build up 200 primes worth of gaps
+    // gap_3 is oldest, gap_0 is newest
+    while prime_idx < 200 {
+        p_next = next_prime(p_curr);
+        let new_gap: i64 = p_next - p_curr;
+
+        // Shift window
+        gap_3 = gap_2;
+        gap_2 = gap_1;
+        gap_1 = gap_0;
+        gap_0 = new_gap;
+        total_gaps = total_gaps + 1;
+        sum_g = sum_g + new_gap;
+
+        // Compute derivatives when we have enough data
+        if total_gaps >= 2 {
+            // G' = gap_0 - gap_1
+            gp_2 = gp_1;
+            gp_1 = gp_0;
+            gp_0 = gap_0 - gap_1;
+            total_gp = total_gp + 1;
+            sum_gp = sum_gp + gp_0;
+            if gp_0 >= 0 { sum_abs_gp = sum_abs_gp + gp_0; }
+            else { sum_abs_gp = sum_abs_gp - gp_0; }
+
+            // Sign changes for G'
+            let cur_sign_gp: i64 = if gp_0 >= 0 { 1 } else { 0 };
+            if total_gp > 1 {
+                if cur_sign_gp != prev_sign_gp { sign_gp = sign_gp + 1; }
+            }
+            prev_sign_gp = cur_sign_gp;
+        }
+
+        if total_gaps >= 3 {
+            // G'' = gp_0 - gp_1
+            gpp_1 = gpp_0;
+            gpp_0 = gp_0 - gp_1;
+            total_gpp = total_gpp + 1;
+
+            let cur_sign_gpp: i64 = if gpp_0 >= 0 { 1 } else { 0 };
+            if total_gpp > 1 {
+                if cur_sign_gpp != prev_sign_gpp { sign_gpp = sign_gpp + 1; }
+            }
+            prev_sign_gpp = cur_sign_gpp;
+        }
+
+        if total_gaps >= 4 {
+            // G''' = gpp_0 - gpp_1
+            gppp = gpp_0 - gpp_1;
+            total_gppp = total_gppp + 1;
+
+            let cur_sign_gppp: i64 = if gppp >= 0 { 1 } else { 0 };
+            if total_gppp > 1 {
+                if cur_sign_gppp != prev_sign_gppp { sign_gppp = sign_gppp + 1; }
+            }
+            prev_sign_gppp = cur_sign_gppp;
+        }
+
+        // Print first 30 rows (where all 4 derivatives are available)
+        if total_gaps >= 4 {
+            if total_gaps <= 33 {
+                print("  ");
+                print_i64(total_gaps - 3);
+                print("     ");
+                print_i64(gap_3);
+                print("     ");
+                print_i64(gp_1);
+                print("     ");
+                print_i64(gpp_1);
+                print("     ");
+                print_i64(gppp);
+                println("");
+            }
+        }
+
+        p_curr = p_next;
+        prime_idx = prime_idx + 1;
+    }
+
+    println("  ...");
+    println("");
+
+    // Print statistics
+    println("  --- Derivative Statistics (199 gaps) ---");
+    print("  Mean gap G:     ");
+    print_f64((sum_g as f64) / (total_gaps as f64));
+    println("");
+    print("  Mean G':        ");
+    print_f64((sum_gp as f64) / (total_gp as f64));
+    println("");
+    print("  Mean |G'|:      ");
+    print_f64((sum_abs_gp as f64) / (total_gp as f64));
+    println("");
+    println("");
+    print("  Sign changes G':    ");
+    print_i64(sign_gp);
+    print(" / ");
+    print_i64(total_gp);
+    println("");
+    print("  Sign changes G'':   ");
+    print_i64(sign_gpp);
+    print(" / ");
+    print_i64(total_gpp);
+    println("");
+    print("  Sign changes G''':  ");
+    print_i64(sign_gppp);
+    print(" / ");
+    print_i64(total_gppp);
+    println("");
+
+    // Ratios of sign changes
+    if total_gp > 0 {
+        let ratio_gp: f64 = (sign_gp as f64) / (total_gp as f64);
+        let ratio_gpp: f64 = (sign_gpp as f64) / (total_gpp as f64);
+        let ratio_gppp: f64 = (sign_gppp as f64) / (total_gppp as f64);
+        println("");
+        print("  Sign change rate G':   ");
+        print_f64(ratio_gp);
+        println("");
+        print("  Sign change rate G'':  ");
+        print_f64(ratio_gpp);
+        println("");
+        print("  Sign change rate G''': ");
+        print_f64(ratio_gppp);
+        println("");
+        println("  (Higher rate = more oscillatory. Expect increase with order.)");
+    }
+
+    println("");
+    println("");
+
+    // ============================================================
+    // Exp 2: Running Average of Gaps
+    // ============================================================
+    println("=== Exp 2: Running Average of Gaps ===");
+    println("  Does running average converge to ln(p)?");
+    println("  Windows of 10, 20, 50 primes.");
+    println("");
+
+    exp2_running_avg();
+
+    println("");
+    println("");
+
+    // ============================================================
+    // Exp 3: Gap Autocorrelation
+    // ============================================================
+    println("=== Exp 3: Gap Autocorrelation ===");
+    println("  R(k) = mean((g(i)-mean_g)*(g(i+k)-mean_g)) / var_g");
+    println("  Known: slight negative correlation at lag 1.");
+    println("");
+
+    exp3_autocorrelation();
+
+    println("");
+    println("");
+
+    // ============================================================
+    // Exp 4: Twin Prime Signal
+    // ============================================================
+    println("=== Exp 4: Twin Prime Signal ===");
+    println("  T(i)=1 if g(i)=2 (twin prime gap), else 0");
+    println("  Running density in windows of 50, then D, D', D''");
+    println("");
+
+    exp4_twin_prime();
+
+    println("");
+    println("============================================================");
+    println("  ANALYSIS COMPLETE");
+    println("  No conjectures claimed -- only structure characterised.");
+    println("============================================================");
+
+    0
+}
+
+// ============================================================
+// Exp 2: Running average of gaps in windows
+// ============================================================
+fn exp2_running_avg() -> i64 {
+    // We generate primes and gaps, compute running averages
+    // over windows of 10, 20, 50
+    // Also track the derivative of the running average
+
+    println("  Checkpoint  AvgGap(10)  AvgGap(20)  AvgGap(50)  ln(p)");
+
+    var p_cur: i64 = 2;
+    var p_nxt: i64 = 0;
+    var idx: i64 = 1;
+    var gap: i64 = 0;
+
+    // Running sums for windows (approximate with sliding totals)
+    var sum10: i64 = 0;
+    var sum20: i64 = 0;
+    var sum50: i64 = 0;
+    var count10: i64 = 0;
+    var count20: i64 = 0;
+    var count50: i64 = 0;
+
+    // Store last 50 gaps in a rotating manner
+    // We approximate by resetting windows at checkpoints
+    var window_gaps_sum: i64 = 0;
+    var window_count: i64 = 0;
+
+    // For derivative of running average
+    var prev_avg10: f64 = 0.0;
+    var prev_avg20: f64 = 0.0;
+    var prev_avg50: f64 = 0.0;
+
+    // Print at checkpoints: every 25 primes
+    var acc10: i64 = 0;
+    var n10: i64 = 0;
+    var acc20: i64 = 0;
+    var n20: i64 = 0;
+    var acc50: i64 = 0;
+    var n50: i64 = 0;
+
+    while idx < 200 {
+        p_nxt = next_prime(p_cur);
+        gap = p_nxt - p_cur;
+
+        // Accumulate for window-10 (reset every 10)
+        acc10 = acc10 + gap;
+        n10 = n10 + 1;
+        if n10 >= 10 { n10 = 0; sum10 = acc10; acc10 = 0; }
+
+        // Accumulate for window-20 (reset every 20)
+        acc20 = acc20 + gap;
+        n20 = n20 + 1;
+        if n20 >= 20 { n20 = 0; sum20 = acc20; acc20 = 0; }
+
+        // Accumulate for window-50 (reset every 50)
+        acc50 = acc50 + gap;
+        n50 = n50 + 1;
+        if n50 >= 50 { n50 = 0; sum50 = acc50; acc50 = 0; }
+
+        // Print at selected checkpoints
+        if idx == 50 {
+            print_running_row(50, sum10, 10, sum20, 20, sum50, 50, p_cur);
+        }
+        if idx == 100 {
+            print_running_row(100, sum10, 10, sum20, 20, sum50, 50, p_cur);
+        }
+        if idx == 150 {
+            print_running_row(150, sum10, 10, sum20, 20, sum50, 50, p_cur);
+        }
+        if idx == 199 {
+            print_running_row(199, sum10, 10, sum20, 20, sum50, 50, p_cur);
+        }
+
+        p_cur = p_nxt;
+        idx = idx + 1;
+    }
+
+    println("");
+    println("  By prime number theorem, avg gap near p ~ ln(p).");
+    println("  Convergence should be visible as window size increases.");
+
+    0
+}
+
+fn print_running_row(checkpoint: i64, s10: i64, w10: i64,
+                     s20: i64, w20: i64, s50: i64, w50: i64,
+                     p: i64) -> i64 {
+    var avg10: f64 = (s10 as f64) / (w10 as f64);
+    var avg20: f64 = (s20 as f64) / (w20 as f64);
+    var avg50: f64 = (s50 as f64) / (w50 as f64);
+    var ln_p: f64 = ln(p as f64);
+
+    print("  p(");
+    print_i64(checkpoint);
+    print(")=");
+    print_i64(p);
+    print("  ");
+    print_f64(avg10);
+    print("     ");
+    print_f64(avg20);
+    print("     ");
+    print_f64(avg50);
+    print("     ");
+    print_f64(ln_p);
+    println("");
+    0
+}
+
+// ============================================================
+// Exp 3: Gap Autocorrelation
+// ============================================================
+fn exp3_autocorrelation() -> i64 {
+    // Two-pass approach:
+    // Pass 1: compute mean and variance of gaps
+    // Pass 2: compute autocorrelation at various lags
+
+    // Pass 1: mean of gaps
+    var p_cur: i64 = 2;
+    var p_nxt: i64 = 0;
+    var idx: i64 = 1;
+    var sum_gap: i64 = 0;
+    var total: i64 = 0;
+
+    while idx < 200 {
+        p_nxt = next_prime(p_cur);
+        sum_gap = sum_gap + (p_nxt - p_cur);
+        total = total + 1;
+        p_cur = p_nxt;
+        idx = idx + 1;
+    }
+    let mean_gap: f64 = (sum_gap as f64) / (total as f64);
+    print("  Mean gap: ");
+    print_f64(mean_gap);
+    println("");
+
+    // Pass 2: variance
+    p_cur = 2;
+    idx = 1;
+    var var_sum: f64 = 0.0;
+    while idx < 200 {
+        p_nxt = next_prime(p_cur);
+        let g: f64 = ((p_nxt - p_cur) as f64) - mean_gap;
+        var_sum = var_sum + g * g;
+        p_cur = p_nxt;
+        idx = idx + 1;
+    }
+    let var_gap: f64 = var_sum / (total as f64);
+    print("  Variance: ");
+    print_f64(var_gap);
+    println("");
+    println("");
+
+    // Compute autocorrelation at lags 1, 2, 3, 5, 10
+    // For each lag k, we need pairs (g_i, g_{i+k})
+    // We iterate and keep a small buffer using nested loops
+    println("  Lag    R(k)       Interpretation");
+    autocorr_at_lag(1, mean_gap, var_gap);
+    autocorr_at_lag(2, mean_gap, var_gap);
+    autocorr_at_lag(3, mean_gap, var_gap);
+    autocorr_at_lag(5, mean_gap, var_gap);
+    autocorr_at_lag(10, mean_gap, var_gap);
+    0
+}
+
+fn autocorr_at_lag(lag: i64, mean_gap: f64, var_gap: f64) -> i64 {
+    // Compute R(lag) by generating gaps twice with offset
+    // We keep a buffer of `lag` recent gaps using chained vars
+    // For simplicity, generate all gaps, then cross-correlate
+    // using two iterators offset by `lag`
+
+    var p_cur: i64 = 2;
+    var p_nxt: i64 = 0;
+    var idx: i64 = 1;
+    var sum_corr: f64 = 0.0;
+    var count: i64 = 0;
+
+    // First, skip `lag` gaps for the lagged series
+    // We run two pointers: one at gap i, one at gap i+lag
+    // Both iterate through primes; the leader is `lag` steps ahead.
+    var p_lead: i64 = 2;
+    var p_lead_nxt: i64 = 0;
+    var lead_idx: i64 = 1;
+
+    // Advance leader by `lag` gaps
+    var skip: i64 = 0;
+    while skip < lag {
+        p_lead_nxt = next_prime(p_lead);
+        p_lead = p_lead_nxt;
+        lead_idx = lead_idx + 1;
+        skip = skip + 1;
+    }
+
+    // Now iterate both together
+    while idx < 200 - lag {
+        p_nxt = next_prime(p_cur);
+        p_lead_nxt = next_prime(p_lead);
+
+        let g_i: f64 = ((p_nxt - p_cur) as f64) - mean_gap;
+        let g_ik: f64 = ((p_lead_nxt - p_lead) as f64) - mean_gap;
+        sum_corr = sum_corr + g_i * g_ik;
+        count = count + 1;
+
+        p_cur = p_nxt;
+        p_lead = p_lead_nxt;
+        idx = idx + 1;
+    }
+
+    var r_k: f64 = 0.0;
+    if var_gap > 0.0 {
+        r_k = (sum_corr / (count as f64)) / var_gap;
+    }
+
+    print("  ");
+    print_i64(lag);
+    print("      ");
+    print_f64(r_k);
+    if r_k < 0.0 - 0.05 {
+        println("   negative (anti-correlated)");
+    } else {
+        if r_k > 0.05 {
+            println("   positive (correlated)");
+        } else {
+            println("   near zero (uncorrelated)");
+        }
+    }
+    0
+}
+
+// ============================================================
+// Exp 4: Twin Prime Signal
+// ============================================================
+fn exp4_twin_prime() -> i64 {
+    // Generate gaps, track T(i) = 1 if gap=2 else 0
+    // Compute running density over windows of 50
+    // Apply D, D', D'' to the density series
+
+    println("  Twin prime locations (gap=2) among first 200 primes:");
+    print("  ");
+
+    var p_cur: i64 = 2;
+    var p_nxt: i64 = 0;
+    var idx: i64 = 1;
+    var twin_count: i64 = 0;
+    var gap: i64 = 0;
+
+    // Running density: count twins in last 50 gaps
+    // We reset every 50 for simplicity
+    var window_twins: i64 = 0;
+    var window_n: i64 = 0;
+    var window_id: i64 = 0;
+
+    // Derivative of density
+    var prev_density: f64 = 0.0;
+    var prev_d_density: f64 = 0.0;
+    var density: f64 = 0.0;
+    var d_density: f64 = 0.0;
+    var dd_density: f64 = 0.0;
+    var density_count: i64 = 0;
+
+    println("");
+    println("  Twin primes found at indices:");
+    print("  ");
+
+    while idx < 200 {
+        p_nxt = next_prime(p_cur);
+        gap = p_nxt - p_cur;
+
+        if gap == 2 {
+            twin_count = twin_count + 1;
+            window_twins = window_twins + 1;
+            print_i64(idx);
+            print("(");
+            print_i64(p_cur);
+            print(",");
+            print_i64(p_nxt);
+            print(") ");
+            if twin_count % 5 == 0 { println(""); print("  "); }
+        }
+
+        window_n = window_n + 1;
+
+        // At each window boundary (50 gaps), compute density
+        if window_n >= 50 {
+            density = (window_twins as f64) / 50.0;
+            density_count = density_count + 1;
+
+            if density_count >= 2 {
+                d_density = density - prev_density;
+                if density_count >= 3 {
+                    dd_density = d_density - prev_d_density;
+                }
+                prev_d_density = d_density;
+            }
+            prev_density = density;
+            window_twins = 0;
+            window_n = 0;
+            window_id = window_id + 1;
+        }
+
+        p_cur = p_nxt;
+        idx = idx + 1;
+    }
+
+    println("");
+    println("");
+    print("  Total twin prime gaps in first 199 gaps: ");
+    print_i64(twin_count);
+    println("");
+    print("  Twin prime fraction: ");
+    print_f64((twin_count as f64) / 199.0);
+    println("");
+    println("");
+
+    // Now do a more detailed density analysis with overlapping windows
+    // Regenerate and compute density every 10 primes using trailing 50
+    println("  --- Twin Prime Density (trailing 50-gap window, every 10) ---");
+    println("  Index   Density   D(density)  D'(density)");
+
+    exp4_density_detail();
+
+    0
+}
+
+fn exp4_density_detail() -> i64 {
+    // Generate all 199 gaps, compute density in a trailing window of 50
+    // Print every 10 steps, with derivatives of density
+
+    var p_cur: i64 = 2;
+    var p_nxt: i64 = 0;
+    var idx: i64 = 1;
+    var gap: i64 = 0;
+
+    // We keep a running count of twins in last 50 gaps
+    // Approximate: accumulate and adjust
+    var twin_buf_sum: i64 = 0;
+    var buf_count: i64 = 0;
+    var density: f64 = 0.0;
+    var prev_density: f64 = 0.0;
+    var prev_d: f64 = 0.0;
+    var d_val: f64 = 0.0;
+    var dd_val: f64 = 0.0;
+    var checkpoint: i64 = 0;
+
+    // Since we can't store 50 old values, we reset every 50
+    // and report density at 50, 100, 150, 199
+    var block_twins: i64 = 0;
+    var block_n: i64 = 0;
+    var block_id: i64 = 0;
+    var reported: i64 = 0;
+
+    while idx < 200 {
+        p_nxt = next_prime(p_cur);
+        gap = p_nxt - p_cur;
+
+        if gap == 2 { block_twins = block_twins + 1; }
+        block_n = block_n + 1;
+
+        // Report at intervals of 10
+        if idx % 10 == 0 {
+            if block_n > 0 {
+                density = (block_twins as f64) / (block_n as f64);
+            }
+            d_val = density - prev_density;
+            dd_val = d_val - prev_d;
+
+            if idx >= 20 {
+                print("  ");
+                print_i64(idx);
+                print("      ");
+                print_f64(density);
+                print("    ");
+                print_f64(d_val);
+                print("    ");
+                print_f64(dd_val);
+                println("");
+            }
+
+            prev_d = d_val;
+            prev_density = density;
+            reported = reported + 1;
+        }
+
+        // Reset block every 50
+        if block_n >= 50 {
+            block_twins = 0;
+            block_n = 0;
+            block_id = block_id + 1;
+        }
+
+        p_cur = p_nxt;
+        idx = idx + 1;
+    }
+
+    println("");
+    println("  Observations:");
+    println("  - Twin prime density should decrease slowly");
+    println("  - D(density) shows rate of decline");
+    println("  - D'(density) shows whether decline is accelerating");
+    println("  - Sign changes in D' indicate oscillation in twin frequency");
+
+    0
+}

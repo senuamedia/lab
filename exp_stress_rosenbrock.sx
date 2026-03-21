@@ -1,0 +1,341 @@
+// Deep Dive: Rosenbrock Stress Test
+//
+// The Rosenbrock banana valley BROKE the interaction matrix at 6D.
+// Hypothesis: the matrix needs to learn α ≈ 0 (no projection) because
+// projecting pushes gradients OUT of the narrow valley.
+//
+// This experiment:
+// 1. Gives the matrix more cycles (200) to converge
+// 2. Uses adaptive meta-lr that slows when stuck
+// 3. Tracks whether alphas drift toward zero
+// 4. Tests 4D, 6D, 8D, 10D to find the dimensionality threshold
+// 5. Compares: no projection, uniform, learned, and forced-zero-alpha
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn dot_n(a: i64, b: i64, n: i64) -> f64 {
+    var sum: f64 = 0.0;
+    var i: i64 = 0;
+    while i < n {
+        sum = sum + bits_to_f64(vec_get(a, i)) * bits_to_f64(vec_get(b, i));
+        i = i + 1;
+    }
+    sum
+}
+
+fn norm_n(a: i64, n: i64) -> f64 { sqrt(dot_n(a, a, n)) }
+
+fn cosine_n(a: i64, b: i64, n: i64) -> f64 {
+    let d: f64 = dot_n(a, b, n);
+    let na: f64 = norm_n(a, n);
+    let nb: f64 = norm_n(b, n);
+    d / (na * nb + 0.000000000001)
+}
+
+fn vec_fill(n: i64, val: f64) -> i64 {
+    let v: i64 = vec_new();
+    var i: i64 = 0;
+    while i < n { vec_push(v, f64_to_bits(val)); i = i + 1; }
+    v
+}
+
+fn vset(v: i64, i: i64, val: f64) -> i64 { vec_set(v, i, f64_to_bits(val)); 0 }
+fn vget(v: i64, i: i64) -> f64 { bits_to_f64(vec_get(v, i)) }
+
+fn rosenbrock(w: i64, n: i64) -> f64 {
+    var sum: f64 = 0.0;
+    var i: i64 = 0;
+    while i < n - 1 {
+        let xi: f64 = vget(w, i);
+        let xi1: f64 = vget(w, i + 1);
+        let t1: f64 = xi1 - xi * xi;
+        let t2: f64 = 1.0 - xi;
+        sum = sum + 100.0 * t1 * t1 + t2 * t2;
+        i = i + 1;
+    }
+    sum
+}
+
+fn rosenbrock_grad_d(w: i64, n: i64, d: i64) -> f64 {
+    let xd: f64 = vget(w, d);
+    var grad: f64 = 0.0;
+    if d < n - 1 {
+        let xd1: f64 = vget(w, d + 1);
+        grad = grad - 400.0 * xd * (xd1 - xd * xd) + 2.0 * (xd - 1.0);
+    }
+    if d > 0 {
+        let xdm1: f64 = vget(w, d - 1);
+        grad = grad + 200.0 * (xd - xdm1 * xdm1);
+    }
+    grad
+}
+
+fn shifted_rosen_loss(w: i64, target: i64, n: i64) -> f64 {
+    let s: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n { vset(s, i, vget(w, i) - vget(target, i) + 1.0); i = i + 1; }
+    rosenbrock(s, n)
+}
+
+fn shifted_rosen_grad(w: i64, target: i64, n: i64) -> i64 {
+    let s: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n { vset(s, i, vget(w, i) - vget(target, i) + 1.0); i = i + 1; }
+    let g: i64 = vec_fill(n, 0.0);
+    i = 0;
+    while i < n { vset(g, i, rosenbrock_grad_d(s, n, i)); i = i + 1; }
+    g
+}
+
+fn clip_grad(g: i64, n: i64, max_n: f64) -> i64 {
+    let gn: f64 = norm_n(g, n);
+    if gn <= max_n { return g; }
+    let sc: f64 = max_n / gn;
+    let r: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n { vset(r, i, vget(g, i) * sc); i = i + 1; }
+    r
+}
+
+fn project_grad(gi: i64, gj: i64, alpha: f64, n: i64) -> i64 {
+    let cv: f64 = cosine_n(gi, gj, n);
+    if cv >= 0.0 {
+        let r: i64 = vec_fill(n, 0.0);
+        var k: i64 = 0;
+        while k < n { vset(r, k, vget(gi, k)); k = k + 1; }
+        return r;
+    }
+    let scale: f64 = alpha * (0.0 - cv);
+    let gsq: f64 = dot_n(gj, gj, n) + 0.000000000001;
+    let coeff: f64 = scale * dot_n(gi, gj, n) / gsq;
+    let r: i64 = vec_fill(n, 0.0);
+    var k: i64 = 0;
+    while k < n { vset(r, k, vget(gi, k) - coeff * vget(gj, k)); k = k + 1; }
+    r
+}
+
+fn train_rosen(ta: i64, tb: i64, tc: i64,
+               ab: f64, ac: f64, ba: f64, bc: f64, ca: f64, cb: f64,
+               n: i64, steps: i64, lr: f64) -> f64 {
+    let w: i64 = vec_fill(n, 0.0);
+    var step: i64 = 0;
+    while step < steps {
+        var ga: i64 = clip_grad(shifted_rosen_grad(w, ta, n), n, 50.0);
+        var gb: i64 = clip_grad(shifted_rosen_grad(w, tb, n), n, 50.0);
+        var gc: i64 = clip_grad(shifted_rosen_grad(w, tc, n), n, 50.0);
+
+        let ra: i64 = project_grad(project_grad(ga, gb, ab, n), gc, ac, n);
+        let rb: i64 = project_grad(project_grad(gb, ga, ba, n), gc, bc, n);
+        let rc: i64 = project_grad(project_grad(gc, ga, ca, n), gb, cb, n);
+
+        var i: i64 = 0;
+        while i < n {
+            vset(w, i, vget(w, i) - lr * (vget(ra, i) + vget(rb, i) + vget(rc, i)));
+            i = i + 1;
+        }
+        step = step + 1;
+    }
+    let la: f64 = shifted_rosen_loss(w, ta, n);
+    let lb: f64 = shifted_rosen_loss(w, tb, n);
+    let lc: f64 = shifted_rosen_loss(w, tc, n);
+    la + lb + lc
+}
+
+fn mg_one(ta: i64, tb: i64, tc: i64,
+          ab: f64, ac: f64, ba: f64, bc: f64, ca: f64, cb: f64,
+          which: i64, n: i64, steps: i64, lr: f64) -> f64 {
+    let h: f64 = 0.005;
+    var abp: f64 = ab; var acp: f64 = ac; var bap: f64 = ba;
+    var bcp: f64 = bc; var cap: f64 = ca; var cbp: f64 = cb;
+    var abm: f64 = ab; var acm: f64 = ac; var bam: f64 = ba;
+    var bcm: f64 = bc; var cam: f64 = ca; var cbm: f64 = cb;
+    if which == 0 { abp = ab + h; abm = ab - h; }
+    if which == 1 { acp = ac + h; acm = ac - h; }
+    if which == 2 { bap = ba + h; bam = ba - h; }
+    if which == 3 { bcp = bc + h; bcm = bc - h; }
+    if which == 4 { cap = ca + h; cam = ca - h; }
+    if which == 5 { cbp = cb + h; cbm = cb - h; }
+    let lp: f64 = train_rosen(ta, tb, tc, abp, acp, bap, bcp, cap, cbp, n, steps, lr);
+    let lm: f64 = train_rosen(ta, tb, tc, abm, acm, bam, bcm, cam, cbm, n, steps, lr);
+    (lp - lm) / (2.0 * h)
+}
+
+fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    x
+}
+
+fn run_rosenbrock_test(n: i64, meta_cycles: i64) -> i64 {
+    let ta: i64 = vec_fill(n, 0.0);
+    let tb: i64 = vec_fill(n, 0.0);
+    let tc: i64 = vec_fill(n, 0.0);
+    var i: i64 = 0;
+    while i < n {
+        let fi: f64 = i as f64;
+        vset(ta, i, 1.5 + fi * 0.2);
+        vset(tb, i, 0.0 - 0.5 - fi * 0.15);
+        if i % 2 == 0 { vset(tc, i, 2.0); } else { vset(tc, i, 0.0 - 1.0); }
+        i = i + 1;
+    }
+
+    var ab: f64 = 0.5;
+    var ac: f64 = 0.5;
+    var ba: f64 = 0.5;
+    var bc: f64 = 0.5;
+    var ca: f64 = 0.5;
+    var cb: f64 = 0.5;
+    var mg: f64 = 0.0;
+    var cycle: i64 = 0;
+    var loss: f64 = 0.0;
+    var prev_loss: f64 = 999999999.0;
+    var mlr: f64 = 0.05;
+    var stall_count: i64 = 0;
+
+    let inner_steps: i64 = 200;
+    let lr: f64 = 0.000005;
+
+    let loss_none: f64 = train_rosen(ta, tb, tc, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, n, inner_steps, lr);
+    let loss_uniform: f64 = train_rosen(ta, tb, tc, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, n, inner_steps, lr);
+
+    print("  n=");
+    print_i64(n);
+    print("  no_proj=");
+    print_f64(loss_none);
+    print("  uniform=");
+    print_f64(loss_uniform);
+    println("");
+
+    while cycle < meta_cycles {
+        mg = mg_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 0, n, inner_steps, lr);
+        ab = clamp(ab - mlr * mg, 0.0, 2.0);
+        mg = mg_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 1, n, inner_steps, lr);
+        ac = clamp(ac - mlr * mg, 0.0, 2.0);
+        mg = mg_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 2, n, inner_steps, lr);
+        ba = clamp(ba - mlr * mg, 0.0, 2.0);
+        mg = mg_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 3, n, inner_steps, lr);
+        bc = clamp(bc - mlr * mg, 0.0, 2.0);
+        mg = mg_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 4, n, inner_steps, lr);
+        ca = clamp(ca - mlr * mg, 0.0, 2.0);
+        mg = mg_one(ta, tb, tc, ab, ac, ba, bc, ca, cb, 5, n, inner_steps, lr);
+        cb = clamp(cb - mlr * mg, 0.0, 2.0);
+
+        loss = train_rosen(ta, tb, tc, ab, ac, ba, bc, ca, cb, n, inner_steps, lr);
+
+        // Adaptive meta-lr: slow down if loss isn't improving
+        if loss >= prev_loss - 0.1 {
+            stall_count = stall_count + 1;
+            if stall_count > 5 { mlr = mlr * 0.8; stall_count = 0; }
+        } else {
+            stall_count = 0;
+        }
+        prev_loss = loss;
+
+        if cycle < 3 {
+            print("    cycle ");
+            print_i64(cycle);
+            print(": loss=");
+            print_f64(loss);
+            print(" alphas=[");
+            print_f64(ab);
+            print(",");
+            print_f64(ac);
+            print(",");
+            print_f64(ba);
+            print(",");
+            print_f64(bc);
+            print(",");
+            print_f64(ca);
+            print(",");
+            print_f64(cb);
+            println("]");
+        }
+        if cycle == meta_cycles / 2 {
+            print("    cycle ");
+            print_i64(cycle);
+            print(": loss=");
+            print_f64(loss);
+            print(" mlr=");
+            print_f64(mlr);
+            println("");
+        }
+        if cycle == meta_cycles - 1 {
+            print("    cycle ");
+            print_i64(cycle);
+            print(": loss=");
+            print_f64(loss);
+            print(" alphas=[");
+            print_f64(ab);
+            print(",");
+            print_f64(ac);
+            print(",");
+            print_f64(ba);
+            print(",");
+            print_f64(bc);
+            print(",");
+            print_f64(ca);
+            print(",");
+            print_f64(cb);
+            println("]");
+        }
+
+        cycle = cycle + 1;
+    }
+
+    // Average alpha — did it learn to project less?
+    let avg_alpha: f64 = (ab + ac + ba + bc + ca + cb) / 6.0;
+    print("  avg_alpha=");
+    print_f64(avg_alpha);
+
+    if loss <= loss_none + 1.0 {
+        print("  PASS (beats or matches no-projection)");
+    } else {
+        if loss < loss_uniform {
+            print("  PARTIAL (better than uniform, worse than no-proj)");
+        } else {
+            print("  FAIL");
+        }
+    }
+    println("");
+    println("");
+
+    if loss <= loss_none + 1.0 { 0 } else { 1 }
+}
+
+fn main() -> i64 {
+    var failures: i64 = 0;
+
+    println("============================================");
+    println("  ROSENBROCK DEEP DIVE");
+    println("  Can the matrix learn alpha -> 0?");
+    println("============================================");
+    println("");
+
+    println("--- 4D Rosenbrock, 80 meta-cycles ---");
+    failures = failures + run_rosenbrock_test(4, 80);
+
+    println("--- 6D Rosenbrock, 100 meta-cycles ---");
+    failures = failures + run_rosenbrock_test(6, 100);
+
+    println("--- 8D Rosenbrock, 100 meta-cycles ---");
+    failures = failures + run_rosenbrock_test(8, 100);
+
+    println("--- 10D Rosenbrock, 120 meta-cycles ---");
+    failures = failures + run_rosenbrock_test(10, 120);
+
+    println("============================================");
+    if failures == 0 {
+        println("  ALL ROSENBROCK TESTS PASSED");
+        println("  The matrix learns the right cooperation");
+        println("  strategy for narrow-valley landscapes.");
+    } else {
+        print("  ");
+        print_i64(failures);
+        println(" ROSENBROCK TEST(S) NEED MORE CYCLES");
+    }
+    println("============================================");
+
+    failures
+}

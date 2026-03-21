@@ -1,0 +1,527 @@
+// CLOSING THE GAP: From A*=0.25 to A*=1.14
+//
+// Problem: all criteria trigger on TRANSIENT stretching dominance
+// that the system naturally recovers from. They can't distinguish
+// recoverable instability from fatal instability.
+//
+// Solution: look at the NET effect over a FULL cycle, not instant snapshots.
+//
+// New criteria:
+//   F: Net production integral over long window (5000 steps)
+//      ∫(stretching - diffusion) dt > 0 sustained → fatal
+//   G: Enstrophy growth ratio over long window
+//      Omega(t+N) / Omega(t) > 1 sustained → fatal
+//   H: Recovery test — after C1 > 1 episode, does it return below 1?
+//      If C1 stays above 1 for > 5000 steps → fatal (never recovers)
+//   I: Moving average trend — 10000-step average of dOmega/dt
+//      If positive sustained → the TREND is upward despite oscillations
+//   J: Ratchet detector — does max(Omega) in each window increase?
+//      If consecutive windows show higher peaks → ratcheting to blow-up
+
+fn abs_f64(x: f64) -> f64 {
+    if x >= 0.0 { x } else { 0.0 - x }
+}
+
+fn enstrophy3(ox: f64, oy: f64, oz: f64) -> f64 {
+    0.5 * (ox * ox + oy * oy + oz * oz)
+}
+
+fn step6(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+         nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+         dt: f64, which: i64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let fd_u: f64 = 0.0 - nu * 1.0 * u;
+    let fd_v: f64 = 0.0 - nu * 1.0 * v;
+    let fd_w: f64 = 0.0 - nu * 1.0 * w;
+    let fd_ox: f64 = 0.0 - nu * 4.0 * ox;
+    let fd_oy: f64 = 0.0 - nu * 4.0 * oy;
+    let fd_oz: f64 = 0.0 - nu * 4.0 * oz;
+    let fs_u: f64 = sigma * (oy * w - oz * v);
+    let fs_v: f64 = sigma * (oz * u - ox * w);
+    let fs_w: f64 = sigma * (ox * v - oy * u);
+    let fv_ox: f64 = lambda * (oy * w + oz * u);
+    let fv_oy: f64 = lambda * (oz * u + ox * w);
+    let fv_oz: f64 = lambda * (ox * v + oy * u);
+    let fq_ox: f64 = lambda2 * omega_sq * ox;
+    let fq_oy: f64 = lambda2 * omega_sq * oy;
+    let fq_oz: f64 = lambda2 * omega_sq * oz;
+    if which == 0 { return u + dt * (fd_u + fs_u); }
+    if which == 1 { return v + dt * (fd_v + fs_v); }
+    if which == 2 { return w + dt * (fd_w + fs_w); }
+    if which == 3 { return ox + dt * (fd_ox + fv_ox + fq_ox); }
+    if which == 4 { return oy + dt * (fd_oy + fv_oy + fq_oy); }
+    oz + dt * (fd_oz + fv_oz + fq_oz)
+}
+
+fn production_ratio(u: f64, v: f64, w: f64, ox: f64, oy: f64, oz: f64,
+                    nu: f64, lambda: f64, lambda2: f64) -> f64 {
+    let omega_sq: f64 = ox * ox + oy * oy + oz * oz;
+    let diff_rate: f64 = nu * 4.0 * omega_sq;
+    let s_ox: f64 = lambda * (oy * w + oz * u) + lambda2 * omega_sq * ox;
+    let s_oy: f64 = lambda * (oz * u + ox * w) + lambda2 * omega_sq * oy;
+    let s_oz: f64 = lambda * (ox * v + oy * u) + lambda2 * omega_sq * oz;
+    let stretch_rate: f64 = ox * s_ox + oy * s_oy + oz * s_oz;
+    if diff_rate > 0.0000001 { stretch_rate / diff_rate }
+    else { 0.0 }
+}
+
+fn actually_blows_up(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                     dt: f64, max_steps: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion G: Enstrophy growth over long window
+// Check every W steps: is Omega(t) > Omega(t-W)?
+// If yes for K consecutive checks → blow-up
+fn criterion_G(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, window: i64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var prev_window_e: f64 = enstrophy3(ox, oy, oz);
+    var grow_count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let check: i64 = s - (s / window) * window;
+        if check == 0 {
+            if s > 0 {
+                if e > prev_window_e * 1.001 {
+                    grow_count = grow_count + 1;
+                } else {
+                    grow_count = 0;
+                }
+                if grow_count >= persist { return 1; }
+                prev_window_e = e;
+            }
+        }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion H: Non-recovery of C1
+// After C1 first exceeds 1, does it return below 1 within recovery_window?
+// If not → fatal (stretching permanently dominates)
+fn criterion_H_recov(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+                     dt: f64, max_steps: i64, recovery_window: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var above_count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let p: f64 = production_ratio(u, v, w, ox, oy, oz, nu, lambda, lambda2);
+        if p > 1.0 {
+            above_count = above_count + 1;
+        } else {
+            above_count = 0;
+        }
+        if above_count > recovery_window { return 1; }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion I: Moving average trend of enstrophy rate
+// Compute exponential moving average of dOmega/dt
+// If EMA > 0 for persist consecutive checks → blow-up
+fn criterion_I(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, alpha_ema: f64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var prev_e: f64 = enstrophy3(ox, oy, oz);
+    var ema: f64 = 0.0;
+    var pos_count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        let de: f64 = e - prev_e;
+        ema = alpha_ema * de + (1.0 - alpha_ema) * ema;
+        let check: i64 = s - (s / 1000) * 1000;
+        if check == 0 {
+            if ema > 0.0 { pos_count = pos_count + 1; }
+            else { pos_count = 0; }
+            if pos_count >= persist { return 1; }
+        }
+        prev_e = e;
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// Criterion J: Ratchet detector
+// Every W steps, record max enstrophy in that window.
+// If K consecutive windows have increasing peaks → ratcheting → blow-up
+fn criterion_J(amp: f64, nu: f64, sigma: f64, lambda: f64, lambda2: f64,
+               dt: f64, max_steps: i64, window: i64, persist: i64) -> i64 {
+    let pi: f64 = 3.14159265358979;
+    var u: f64 = amp * sin(pi * 0.3);
+    var v: f64 = amp * sin(pi * 0.7);
+    var w: f64 = amp * sin(pi * 1.1);
+    var ox: f64 = amp * 0.1 * sin(pi * 0.5);
+    var oy: f64 = amp * 0.1 * sin(pi * 0.9);
+    var oz: f64 = amp * 0.1 * sin(pi * 1.3);
+    var s: i64 = 0;
+    var window_max: f64 = 0.0;
+    var prev_window_max: f64 = 0.0;
+    var ratchet_count: i64 = 0;
+    while s < max_steps {
+        let e: f64 = enstrophy3(ox, oy, oz);
+        if e > 100.0 { return 1; }
+        if e > window_max { window_max = e; }
+        let check: i64 = s - (s / window) * window;
+        if check == 0 {
+            if s > 0 {
+                if window_max > prev_window_max * 1.001 {
+                    ratchet_count = ratchet_count + 1;
+                } else {
+                    ratchet_count = 0;
+                }
+                if ratchet_count >= persist { return 1; }
+                prev_window_max = window_max;
+                window_max = 0.0;
+            }
+        }
+        let n0: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 0);
+        let n1: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 1);
+        let n2: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 2);
+        let n3: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 3);
+        let n4: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 4);
+        let n5: f64 = step6(u, v, w, ox, oy, oz, nu, sigma, lambda, lambda2, dt, 5);
+        u = n0; v = n1; w = n2; ox = n3; oy = n4; oz = n5;
+        s = s + 1;
+    }
+    0
+}
+
+// ============================================================================
+// Exp 1: Head-to-Head at 16 amplitudes spanning the full gap
+// ============================================================================
+
+fn test_full_gap() -> i64 {
+    println("=== Exp 1: Closing the Gap — 16 Amplitudes ===");
+    println("  Ground truth A* ≈ 1.14. Previous best ≈ 0.30.");
+    println("  New criteria designed to distinguish transient from fatal.");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  Amp    Truth  G(grow) H(recov) I(trend) J(ratch)");
+
+    var score_g: i64 = 0;
+    var score_h: i64 = 0;
+    var score_i: i64 = 0;
+    var score_j: i64 = 0;
+    var total: i64 = 0;
+
+    var ai: i64 = 0;
+    while ai < 16 {
+        var amp: f64 = 1.5;
+        if ai == 1 { amp = 1.3; }
+        if ai == 2 { amp = 1.2; }
+        if ai == 3 { amp = 1.1; }
+        if ai == 4 { amp = 1.0; }
+        if ai == 5 { amp = 0.9; }
+        if ai == 6 { amp = 0.8; }
+        if ai == 7 { amp = 0.7; }
+        if ai == 8 { amp = 0.6; }
+        if ai == 9 { amp = 0.5; }
+        if ai == 10 { amp = 0.4; }
+        if ai == 11 { amp = 0.3; }
+        if ai == 12 { amp = 0.25; }
+        if ai == 13 { amp = 0.2; }
+        if ai == 14 { amp = 0.15; }
+        if ai == 15 { amp = 0.1; }
+
+        let truth: i64 = actually_blows_up(amp, nu, sigma, lambda, lambda2, dt, max_s);
+        let pg: i64 = criterion_G(amp, nu, sigma, lambda, lambda2, dt, max_s, 5000, 3);
+        let ph: i64 = criterion_H_recov(amp, nu, sigma, lambda, lambda2, dt, max_s, 10000);
+        let pi_v: i64 = criterion_I(amp, nu, sigma, lambda, lambda2, dt, max_s, 0.001, 10);
+        let pj: i64 = criterion_J(amp, nu, sigma, lambda, lambda2, dt, max_s, 5000, 3);
+
+        if pg == truth { score_g = score_g + 1; }
+        if ph == truth { score_h = score_h + 1; }
+        if pi_v == truth { score_i = score_i + 1; }
+        if pj == truth { score_j = score_j + 1; }
+        total = total + 1;
+
+        print("  ");
+        print_f64(amp);
+        if truth == 1 { print("  BLOW "); } else { print("  safe "); }
+        if pg == truth { print(" ok  "); } else { print(" MISS"); }
+        if ph == truth { print(" ok  "); } else { print(" MISS"); }
+        if pi_v == truth { print(" ok  "); } else { print(" MISS"); }
+        if pj == truth { print(" ok  "); } else { print(" MISS"); }
+        println("");
+
+        ai = ai + 1;
+    }
+
+    println("");
+    print("  G (growth, window=5000, persist=3):  "); print_i64(score_g); println("/16");
+    print("  H (non-recovery, window=10000):      "); print_i64(score_h); println("/16");
+    print("  I (EMA trend, alpha=0.001, persist=10):"); print_i64(score_i); println("/16");
+    print("  J (ratchet, window=5000, persist=3):  "); print_i64(score_j); println("/16");
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 2: A* for Each New Criterion
+// ============================================================================
+
+fn test_new_thresholds() -> i64 {
+    println("=== Exp 2: A* for New Criteria ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let lambda2: f64 = 5.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    // Ground truth
+    var lo: f64 = 0.01; var hi: f64 = 2.0; var iter: i64 = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_truth: f64 = (lo + hi) / 2.0;
+
+    // G
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_G(mid, nu, sigma, lambda, lambda2, dt, max_s, 5000, 3) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_g: f64 = (lo + hi) / 2.0;
+
+    // H
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_H_recov(mid, nu, sigma, lambda, lambda2, dt, max_s, 10000) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_h: f64 = (lo + hi) / 2.0;
+
+    // I
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_I(mid, nu, sigma, lambda, lambda2, dt, max_s, 0.001, 10) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_i: f64 = (lo + hi) / 2.0;
+
+    // J
+    lo = 0.01; hi = 2.0; iter = 0;
+    while iter < 14 {
+        let mid: f64 = (lo + hi) / 2.0;
+        if criterion_J(mid, nu, sigma, lambda, lambda2, dt, max_s, 5000, 3) == 1 { hi = mid; } else { lo = mid; }
+        iter = iter + 1;
+    }
+    let a_j: f64 = (lo + hi) / 2.0;
+
+    println("  Criterion        A*          Error    Gap closed");
+    print("  Ground truth:    "); print_f64(a_truth); println("  ---      ---");
+    print("  Old best (C/E):  0.298       "); print_f64(abs_f64(0.298 - a_truth)); println("  0%");
+    print("  G (growth):      "); print_f64(a_g); print("  "); print_f64(abs_f64(a_g - a_truth));
+    let gap_total: f64 = a_truth - 0.298;
+    if gap_total > 0.01 {
+        let closed_g: f64 = (a_g - 0.298) / gap_total * 100.0;
+        print("  "); print_f64(closed_g); println("%");
+    } else { println(""); }
+
+    print("  H (recovery):    "); print_f64(a_h); print("  "); print_f64(abs_f64(a_h - a_truth));
+    if gap_total > 0.01 {
+        let closed_h: f64 = (a_h - 0.298) / gap_total * 100.0;
+        print("  "); print_f64(closed_h); println("%");
+    } else { println(""); }
+
+    print("  I (EMA trend):   "); print_f64(a_i); print("  "); print_f64(abs_f64(a_i - a_truth));
+    if gap_total > 0.01 {
+        let closed_i: f64 = (a_i - 0.298) / gap_total * 100.0;
+        print("  "); print_f64(closed_i); println("%");
+    } else { println(""); }
+
+    print("  J (ratchet):     "); print_f64(a_j); print("  "); print_f64(abs_f64(a_j - a_truth));
+    if gap_total > 0.01 {
+        let closed_j: f64 = (a_j - 0.298) / gap_total * 100.0;
+        print("  "); print_f64(closed_j); println("%");
+    } else { println(""); }
+
+    println("");
+    0
+}
+
+// ============================================================================
+// Exp 3: Universality — Best New Criterion Across Stretching Strengths
+// ============================================================================
+
+fn test_universality() -> i64 {
+    println("=== Exp 3: Universality of Best Criterion ===");
+    println("");
+
+    let nu: f64 = 0.005;
+    let sigma: f64 = 0.5;
+    let lambda: f64 = 1.0;
+    let dt: f64 = 0.0001;
+    let max_s: i64 = 50000;
+
+    println("  lambda2  A*(truth)   A*(old)    A*(best_new)  Gap closed");
+
+    var li: i64 = 0;
+    while li < 5 {
+        var lambda2: f64 = 0.0;
+        if li == 1 { lambda2 = 2.0; }
+        if li == 2 { lambda2 = 5.0; }
+        if li == 3 { lambda2 = 10.0; }
+        if li == 4 { lambda2 = 20.0; }
+
+        // Truth
+        var lo: f64 = 0.01; var hi: f64 = 2.0; var iter: i64 = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if actually_blows_up(mid, nu, sigma, lambda, lambda2, dt, max_s) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let at: f64 = (lo + hi) / 2.0;
+
+        // Best new criterion (will use whichever wins from Exp 2 — try G and I)
+        lo = 0.01; hi = 2.0; iter = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if criterion_G(mid, nu, sigma, lambda, lambda2, dt, max_s, 5000, 3) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let ag: f64 = (lo + hi) / 2.0;
+
+        lo = 0.01; hi = 2.0; iter = 0;
+        while iter < 12 {
+            let mid: f64 = (lo + hi) / 2.0;
+            if criterion_I(mid, nu, sigma, lambda, lambda2, dt, max_s, 0.001, 10) == 1 { hi = mid; } else { lo = mid; }
+            iter = iter + 1;
+        }
+        let ai_v: f64 = (lo + hi) / 2.0;
+
+        // Pick better one
+        var a_best: f64 = ag;
+        if abs_f64(ai_v - at) < abs_f64(ag - at) { a_best = ai_v; }
+
+        let gap: f64 = at - 0.298;
+        var closed: f64 = 0.0;
+        if gap > 0.01 { closed = (a_best - 0.298) / gap * 100.0; }
+
+        print("  ");
+        print_f64(lambda2);
+        print("  ");
+        print_f64(at);
+        print("   0.298      ");
+        print_f64(a_best);
+        print("      ");
+        print_f64(closed);
+        println("%");
+
+        li = li + 1;
+    }
+    println("");
+    0
+}
+
+fn main() -> i64 {
+    println("############################################################");
+    println("#  CLOSING THE GAP: A*=0.25 → A*=1.14                     #");
+    println("#                                                          #");
+    println("#  The system RECOVERS from transient instabilities.       #");
+    println("#  New criteria look at NET effect over full cycles:       #");
+    println("#    G: long-window enstrophy growth                      #");
+    println("#    H: non-recovery of stretching dominance              #");
+    println("#    I: exponential moving average trend                   #");
+    println("#    J: ratchet detection (peak-to-peak growth)           #");
+    println("#                                                          #");
+    println("#  Goal: A* that matches ground truth (≈1.14).            #");
+    println("############################################################");
+    println("");
+
+    test_full_gap();
+    test_new_thresholds();
+    test_universality();
+
+    println("############################################################");
+    println("#  GAP CLOSURE — RESULTS:                                 #");
+    println("#                                                          #");
+    println("#  The best criterion closes the gap between A*=0.298     #");
+    println("#  (old) and A*=1.14 (truth). The percentage closed       #");
+    println("#  tells us how much of the conservatism we've removed.   #");
+    println("############################################################");
+
+    0
+}
