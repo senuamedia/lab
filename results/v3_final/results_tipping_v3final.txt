@@ -1,0 +1,37 @@
+############################################################
+#  TIPPING POINT SCANNER                                   #
+#                                                          #
+#  Fine-grained amplitude sweep near the contraction       #
+#  boundary. For each A, run all N sequentially, record    #
+#  trajectories, compute contraction ratios.               #
+#                                                          #
+#  Find exact A where ρ crosses 1.0 for each array.       #
+############################################################
+
+  nu=0.0100, dt=0.000100, steps=5000, N_max=8, samples=100
+
+  Amp     ρ_max_ENERGY  ρ_max_ENSTROPHY  ρ_max_SHELL_η  ρ_max_SPECTRAL  First_fail  Crossover?
+  ------  -----------  -----------  -----------  -----------  ----------  ----------
+  0.200      0.285476     0.295321     0.796244     0.852914  NONE        ALL PASS
+  0.240      0.299179     0.315200     0.808004     0.804437  NONE        ALL PASS
+  0.260      0.306750     0.326102     0.809238     0.831355  NONE        ALL PASS
+  0.270      0.310701     0.331766     0.808941     0.869828  NONE        ALL PASS
+  0.280      0.314757     0.337562     0.808098     0.917935  NONE        ALL PASS
+  0.285      0.316822     0.340507     0.807483     0.940215  NONE        ALL PASS
+  0.290      0.318912     0.343482     0.806745     0.958031  NONE        ALL PASS
+  0.295      0.321027     0.346486     0.805889     0.969652  NONE        ALL PASS
+  0.300      0.323164     0.349517     0.804916     0.974387  NONE        ALL PASS
+  0.310      0.327507     0.355659     0.802637     0.965117  NONE        ALL PASS
+  0.320      0.331936     0.361899     0.799932     0.938585  NONE        ALL PASS
+  0.350      0.345697     0.381125     0.789456     0.830031  NONE        ALL PASS
+
+############################################################
+#  INTERPRETATION:                                         #
+#                                                          #
+#  The amplitude where ρ first crosses 1.0 is the         #
+#  CONTRACTION BOUNDARY for that array.                    #
+#                                                          #
+#  If all arrays cross at the same A: sharp transition.    #
+#  If arrays cross at different A: cascade of failures.    #
+#  The FIRST array to fail identifies the weakest link.    #
+############################################################

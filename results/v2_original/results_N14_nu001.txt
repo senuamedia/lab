@@ -1,0 +1,47 @@
+############################################################
+#  WEIGHTED ENSTROPHY: Finding the right norm              #
+#                                                          #
+#  Ω_std     = Σ |k|² |û|²              (standard)        #
+#  Ω_inv_η  = Σ (1/η_k) |k|² |û|²      (inverse cascade)#
+#  Ω_cap_η  = Σ min(1,1/η_k) |k|² |û|² (capped)         #
+#  Ω_frac   = Σ D/(D+|T|) |k|² |û|²    (diffusion frac) #
+#  Ω_exp    = Σ exp(-max(0,η-1)) |k|²|û|² (exp suppress) #
+#                                                          #
+#  If ANY weighted norm converges at ALL amplitudes:       #
+#    We've found the function space for the uniform bound  #
+############################################################
+
+  nu=0.0100, dt=0.000020, steps=25000, N_max=14
+
+  Amp    ρ_Ω_std   ρ_Ω_inv_η ρ_Ω_cap_η ρ_Ω_frac  ρ_Ω_exp   
+  -----  ---------- ---------- ---------- ---------- ---------- 
+  0.10     0.176321   0.012162   0.012162   0.018231   0.014211  ← all pass
+  0.20     0.179117   0.382604   0.382604   0.386516   0.381901  ← all pass
+  0.30     0.183788   0.361238   0.361238   0.221847   0.360190  ← all pass
+  0.35     0.186859   0.154450   0.154450   0.117246   0.376689  ← all pass
+  0.40     0.190442   0.142157   0.142157   0.103695   0.283261  ← all pass
+  0.50     0.199212   0.132653   0.132653   0.118993   0.135889  ← all pass
+  0.70     0.223769   0.246784   0.246784   0.208458   0.218129  ← all pass
+  1.00     0.333121   0.391064   0.391064   0.387794   0.283592  ← all pass
+  1.50   * 1.140942 * 1.239224 * 1.239224 * 1.238057   0.139503  ← WEIGHTING RESCUES
+  2.00   * 3.313400 * 3.680005 * 3.680005 * 3.677945   0.592372  ← WEIGHTING RESCUES
+
+  === Detail at A=0.50 ===
+
+  N=2: Ω_std=    6.2818  Ω_inv=    0.7337  Ω_cap=    0.7337  Ω_frac=    0.6569  Ω_exp=    0.0033
+  N=3: Ω_std=    6.4205  Ω_inv=    0.7230  Ω_cap=    0.7230  Ω_frac=    0.6437  Ω_exp=    0.0061
+  N=4: Ω_std=    6.4493  Ω_inv=    0.7209  Ω_cap=    0.7209  Ω_frac=    0.6421  Ω_exp=    0.0059
+  N=5: Ω_std=    6.4506  Ω_inv=    0.7209  Ω_cap=    0.7209  Ω_frac=    0.6421  Ω_exp=    0.0059
+  N=6: Ω_std=    6.4507  Ω_inv=    0.7209  Ω_cap=    0.7209  Ω_frac=    0.6421  Ω_exp=    0.0059
+  N=7: Ω_std=    6.4507  Ω_inv=    0.7209  Ω_cap=    0.7209  Ω_frac=    0.6421  Ω_exp=    0.0059
+  N=8: Ω_std=    6.4507  Ω_inv=    0.7209  Ω_cap=    0.7209  Ω_frac=    0.6421  Ω_exp=    0.0059
+  N=9: Ω_std=    6.4507  Ω_inv=    0.7209  Ω_cap=    0.7209  Ω_frac=    0.6421  Ω_exp=    0.0059
+
+############################################################
+#  If Ω_w converges at A=0.50, A=0.70, A=1.00:            #
+#    The weighted norm provides a UNIFORM BOUND            #
+#    for ALL amplitudes of smooth projected data.          #
+#                                                          #
+#  This would mean: NS regularity in the weighted space.  #
+#  The challenge: prove the weighted space embeds into H¹. #
+############################################################

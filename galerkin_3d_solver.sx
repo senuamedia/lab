@@ -1,0 +1,729 @@
+// GALERKIN_3D_SOLVER: Complete 3D Navier-Stokes Galerkin solver
+//
+// CRITICAL COMPILER CONSTRAINT: The Simplex compiler corrupts f64 values
+// when passed as parameters to user-defined functions. ALL user-defined
+// functions use ONLY i64 parameters. f64 values are stored as their
+// IEEE 754 bit representation via f64_to_bits/bits_to_f64.
+// Arithmetic is done locally using bits_to_f64 for conversion.
+
+// ============================================================
+// Section 1: Constants and helpers
+// ============================================================
+
+// Store commonly used constants as their bit representations
+// 0.0 -> 0 bits, computed at use site via f64_to_bits(0.0)
+
+fn abs_f64(x: i64) -> i64 {
+    let v: f64 = bits_to_f64(x);
+    if v >= 0.0 { x } else { f64_to_bits(0.0 - v) }
+}
+
+fn my_sqrt(x_bits: i64) -> i64 {
+    let x: f64 = bits_to_f64(x_bits);
+    if x <= 0.0 { return f64_to_bits(0.0); }
+    var g: f64 = x;
+    var i: i64 = 0;
+    while i < 30 {
+        g = 0.5 * (g + x / g);
+        i = i + 1;
+    }
+    f64_to_bits(g)
+}
+
+// Vector helpers: all values stored as i64 (bit-punned f64)
+fn vzeros(n: i64) -> i64 {
+    let v: i64 = vec_new();
+    let zero_bits: i64 = f64_to_bits(0.0);
+    var i: i64 = 0;
+    while i < n {
+        vec_push(v, zero_bits);
+        i = i + 1;
+    }
+    v
+}
+
+fn vget(v: i64, i: i64) -> f64 {
+    bits_to_f64(vec_get(v, i))
+}
+
+fn vget_bits(v: i64, i: i64) -> i64 {
+    vec_get(v, i)
+}
+
+// vset: ONLY safe to call from main or with literal f64 values.
+// In user-defined functions, use vset_b instead.
+fn vset_b(v: i64, i: i64, val_bits: i64) -> i64 {
+    vec_set(v, i, val_bits);
+    0
+}
+
+// ============================================================
+// Section 2: 3D mode enumeration
+// ============================================================
+
+fn count_modes(n_max: i64) -> i64 {
+    var count: i64 = 0;
+    let n2: i64 = n_max * n_max;
+    var kx: i64 = 0 - n_max;
+    while kx <= n_max {
+        var ky: i64 = 0 - n_max;
+        while ky <= n_max {
+            var kz: i64 = 0 - n_max;
+            while kz <= n_max {
+                let r2: i64 = kx * kx + ky * ky + kz * kz;
+                if r2 > 0 {
+                    if r2 <= n2 {
+                        count = count + 1;
+                    }
+                }
+                kz = kz + 1;
+            }
+            ky = ky + 1;
+        }
+        kx = kx + 1;
+    }
+    count
+}
+
+// Modes stored as i64 triples (not f64)
+fn enumerate_modes(n_max: i64) -> i64 {
+    let v: i64 = vec_new();
+    let n2: i64 = n_max * n_max;
+    var kx: i64 = 0 - n_max;
+    while kx <= n_max {
+        var ky: i64 = 0 - n_max;
+        while ky <= n_max {
+            var kz: i64 = 0 - n_max;
+            while kz <= n_max {
+                let r2: i64 = kx * kx + ky * ky + kz * kz;
+                if r2 > 0 {
+                    if r2 <= n2 {
+                        vec_push(v, kx);
+                        vec_push(v, ky);
+                        vec_push(v, kz);
+                    }
+                }
+                kz = kz + 1;
+            }
+            ky = ky + 1;
+        }
+        kx = kx + 1;
+    }
+    v
+}
+
+fn get_kx(modes: i64, idx: i64) -> i64 { vec_get(modes, 3 * idx) }
+fn get_ky(modes: i64, idx: i64) -> i64 { vec_get(modes, 3 * idx + 1) }
+fn get_kz(modes: i64, idx: i64) -> i64 { vec_get(modes, 3 * idx + 2) }
+
+fn ksq_i(kx: i64, ky: i64, kz: i64) -> i64 {
+    kx * kx + ky * ky + kz * kz
+}
+
+fn find_mode_index(modes: i64, num_modes: i64, kx: i64, ky: i64, kz: i64) -> i64 {
+    var i: i64 = 0;
+    while i < num_modes {
+        if get_kx(modes, i) == kx {
+            if get_ky(modes, i) == ky {
+                if get_kz(modes, i) == kz {
+                    return i;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    0 - 1
+}
+
+// ============================================================
+// Section 3: Leray projector
+// ============================================================
+
+// All inputs/outputs as i64 (bit-punned f64).
+// leray_scale: compute (k . v) / |k|^2
+// Params packed in a 6-element i64 vector: [vx, vy, vz, kx_f, ky_f, kz_f]
+fn leray_scale(params: i64) -> i64 {
+    let vx: f64 = bits_to_f64(vec_get(params, 0));
+    let vy: f64 = bits_to_f64(vec_get(params, 1));
+    let vz: f64 = bits_to_f64(vec_get(params, 2));
+    let kxf: f64 = bits_to_f64(vec_get(params, 3));
+    let kyf: f64 = bits_to_f64(vec_get(params, 4));
+    let kzf: f64 = bits_to_f64(vec_get(params, 5));
+
+    let k_sq: f64 = kxf * kxf + kyf * kyf + kzf * kzf;
+    if k_sq < 0.0001 { return f64_to_bits(0.0); }
+    let k_dot_v: f64 = kxf * vx + kyf * vy + kzf * vz;
+    f64_to_bits(k_dot_v / k_sq)
+}
+
+// ============================================================
+// Section 4: Triad precomputation
+// ============================================================
+
+fn precompute_triads(modes: i64, num_modes: i64, n_max: i64) -> i64 {
+    let triad_p: i64 = vec_new();
+    let triad_q: i64 = vec_new();
+    let triad_offset: i64 = vec_new();
+    let n_max_sq: i64 = n_max * n_max;
+
+    var k_idx: i64 = 0;
+    while k_idx < num_modes {
+        vec_push(triad_offset, vec_len(triad_p));
+
+        let kx: i64 = get_kx(modes, k_idx);
+        let ky: i64 = get_ky(modes, k_idx);
+        let kz: i64 = get_kz(modes, k_idx);
+
+        var p_idx: i64 = 0;
+        while p_idx < num_modes {
+            let px: i64 = get_kx(modes, p_idx);
+            let py: i64 = get_ky(modes, p_idx);
+            let pz: i64 = get_kz(modes, p_idx);
+
+            let qx: i64 = kx - px;
+            let qy: i64 = ky - py;
+            let qz: i64 = kz - pz;
+            let q2: i64 = qx * qx + qy * qy + qz * qz;
+
+            if q2 > 0 {
+                if q2 <= n_max_sq {
+                    let q_idx: i64 = find_mode_index(modes, num_modes, qx, qy, qz);
+                    if q_idx >= 0 {
+                        vec_push(triad_p, p_idx);
+                        vec_push(triad_q, q_idx);
+                    }
+                }
+            }
+            p_idx = p_idx + 1;
+        }
+        k_idx = k_idx + 1;
+    }
+
+    vec_push(triad_offset, vec_len(triad_p));
+
+    let pack: i64 = vec_new();
+    vec_push(pack, triad_p);
+    vec_push(pack, triad_q);
+    vec_push(pack, triad_offset);
+    pack
+}
+
+// ============================================================
+// Section 5: State vector (f64 values stored as bits)
+// ============================================================
+
+// State layout: [ux0, uy0, uz0, ux1, uy1, uz1, ...]
+// All stored as f64_to_bits values.
+
+fn state_get_ux(state: i64, idx: i64) -> f64 { bits_to_f64(vec_get(state, 3 * idx)) }
+fn state_get_uy(state: i64, idx: i64) -> f64 { bits_to_f64(vec_get(state, 3 * idx + 1)) }
+fn state_get_uz(state: i64, idx: i64) -> f64 { bits_to_f64(vec_get(state, 3 * idx + 2)) }
+
+// ============================================================
+// Section 6: IC setup
+// ============================================================
+
+// Precompute the 8 diagonal mode indices for Taylor-Green IC
+fn precompute_ic_indices(modes: i64, num_modes: i64) -> i64 {
+    let ic: i64 = vec_new();
+    vec_push(ic, find_mode_index(modes, num_modes, 1, 1, 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 1, 1, 0 - 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 1, 0 - 1, 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 1, 0 - 1, 0 - 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 0 - 1, 1, 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 0 - 1, 1, 0 - 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 0 - 1, 0 - 1, 1));
+    vec_push(ic, find_mode_index(modes, num_modes, 0 - 1, 0 - 1, 0 - 1));
+    ic
+}
+
+// Apply IC: state and ic_idx are i64 handles.
+// ux_vals and uy_vals are 8-element bit-punned f64 vectors.
+fn apply_ic(state: i64, ic_idx: i64, ux_vals: i64, uy_vals: i64) -> i64 {
+    let zero_bits: i64 = f64_to_bits(0.0);
+    var m: i64 = 0;
+    while m < 8 {
+        let idx: i64 = vec_get(ic_idx, m);
+        if idx >= 0 {
+            vec_set(state, 3 * idx, vec_get(ux_vals, m));
+            vec_set(state, 3 * idx + 1, vec_get(uy_vals, m));
+            vec_set(state, 3 * idx + 2, zero_bits);
+        }
+        m = m + 1;
+    }
+    0
+}
+
+// Build IC value vectors from amplitude (a8 bits and na8 bits).
+// Returns pack: [ux_vals, uy_vals]
+fn build_ic_vals(a8_bits: i64, na8_bits: i64) -> i64 {
+    let ux: i64 = vec_new();
+    vec_push(ux, a8_bits);   vec_push(ux, a8_bits);
+    vec_push(ux, a8_bits);   vec_push(ux, a8_bits);
+    vec_push(ux, na8_bits);  vec_push(ux, na8_bits);
+    vec_push(ux, na8_bits);  vec_push(ux, na8_bits);
+
+    let uy: i64 = vec_new();
+    vec_push(uy, na8_bits);  vec_push(uy, na8_bits);
+    vec_push(uy, a8_bits);   vec_push(uy, a8_bits);
+    vec_push(uy, na8_bits);  vec_push(uy, na8_bits);
+    vec_push(uy, a8_bits);   vec_push(uy, a8_bits);
+
+    let pack: i64 = vec_new();
+    vec_push(pack, ux);
+    vec_push(pack, uy);
+    pack
+}
+
+// ============================================================
+// Section 7: Diagnostics
+// ============================================================
+
+fn compute_energy(state: i64, num_modes: i64) -> f64 {
+    var e: f64 = 0.0;
+    var i: i64 = 0;
+    while i < num_modes {
+        let ux: f64 = state_get_ux(state, i);
+        let uy: f64 = state_get_uy(state, i);
+        let uz: f64 = state_get_uz(state, i);
+        e = e + ux * ux + uy * uy + uz * uz;
+        i = i + 1;
+    }
+    0.5 * e
+}
+
+fn compute_enstrophy(state: i64, modes: i64, num_modes: i64) -> f64 {
+    var omega: f64 = 0.0;
+    var i: i64 = 0;
+    while i < num_modes {
+        let k2: f64 = ksq_i(get_kx(modes, i), get_ky(modes, i), get_kz(modes, i)) as f64;
+        let ux: f64 = state_get_ux(state, i);
+        let uy: f64 = state_get_uy(state, i);
+        let uz: f64 = state_get_uz(state, i);
+        omega = omega + k2 * (ux * ux + uy * uy + uz * uz);
+        i = i + 1;
+    }
+    0.5 * omega
+}
+
+// ============================================================
+// Section 8: Time stepper
+// ============================================================
+
+// config: [nu_bits, dt_bits, threshold_bits, n_steps_bits]
+fn make_config(nu_bits: i64, dt_bits: i64, thr_bits: i64, nsteps_bits: i64) -> i64 {
+    let cfg: i64 = vec_new();
+    vec_push(cfg, nu_bits);
+    vec_push(cfg, dt_bits);
+    vec_push(cfg, thr_bits);
+    vec_push(cfg, nsteps_bits);
+    cfg
+}
+
+fn step_3d(state: i64, modes: i64, num_modes: i64, triad_pack: i64, config: i64) -> i64 {
+    let nu: f64 = bits_to_f64(vec_get(config, 0));
+    let dt: f64 = bits_to_f64(vec_get(config, 1));
+
+    let triad_p: i64 = vec_get(triad_pack, 0);
+    let triad_q: i64 = vec_get(triad_pack, 1);
+    let triad_offset: i64 = vec_get(triad_pack, 2);
+
+    let rhs: i64 = vzeros(3 * num_modes);
+
+    var k_idx: i64 = 0;
+    while k_idx < num_modes {
+        let kx: i64 = get_kx(modes, k_idx);
+        let ky: i64 = get_ky(modes, k_idx);
+        let kz: i64 = get_kz(modes, k_idx);
+        let k2: f64 = ksq_i(kx, ky, kz) as f64;
+        let kx_f: f64 = kx as f64;
+        let ky_f: f64 = ky as f64;
+        let kz_f: f64 = kz as f64;
+
+        let ux_k: f64 = state_get_ux(state, k_idx);
+        let uy_k: f64 = state_get_uy(state, k_idx);
+        let uz_k: f64 = state_get_uz(state, k_idx);
+
+        // Diffusion
+        var rhs_ux: f64 = 0.0 - nu * k2 * ux_k;
+        var rhs_uy: f64 = 0.0 - nu * k2 * uy_k;
+        var rhs_uz: f64 = 0.0 - nu * k2 * uz_k;
+
+        // Nonlinear term
+        let t_start: i64 = vec_get(triad_offset, k_idx);
+        let t_end: i64 = vec_get(triad_offset, k_idx + 1);
+
+        var t: i64 = t_start;
+        while t < t_end {
+            let p_idx: i64 = vec_get(triad_p, t);
+            let q_idx: i64 = vec_get(triad_q, t);
+
+            let up_x: f64 = state_get_ux(state, p_idx);
+            let up_y: f64 = state_get_uy(state, p_idx);
+            let up_z: f64 = state_get_uz(state, p_idx);
+
+            let uq_x: f64 = state_get_ux(state, q_idx);
+            let uq_y: f64 = state_get_uy(state, q_idx);
+            let uq_z: f64 = state_get_uz(state, q_idx);
+
+            // q wavevector (the mode at q_idx)
+            let qx_f: f64 = get_kx(modes, q_idx) as f64;
+            let qy_f: f64 = get_ky(modes, q_idx) as f64;
+            let qz_f: f64 = get_kz(modes, q_idx) as f64;
+
+            // Advection dot product: u_p . q_vec
+            let up_dot_q: f64 = up_x * qx_f + up_y * qy_f + up_z * qz_f;
+
+            // Leray projection of u_q onto k-perpendicular plane
+            let k_sq: f64 = kx_f * kx_f + ky_f * ky_f + kz_f * kz_f;
+            var scale: f64 = 0.0;
+            if k_sq > 0.0001 {
+                let k_dot_uq: f64 = kx_f * uq_x + ky_f * uq_y + kz_f * uq_z;
+                scale = k_dot_uq / k_sq;
+            }
+            let proj_x: f64 = uq_x - scale * kx_f;
+            let proj_y: f64 = uq_y - scale * ky_f;
+            let proj_z: f64 = uq_z - scale * kz_f;
+
+            // B(k,p,q) = -(u_p . q) * P_k(u_q)
+            rhs_ux = rhs_ux - up_dot_q * proj_x;
+            rhs_uy = rhs_uy - up_dot_q * proj_y;
+            rhs_uz = rhs_uz - up_dot_q * proj_z;
+
+            t = t + 1;
+        }
+
+        vec_set(rhs, 3 * k_idx, f64_to_bits(rhs_ux));
+        vec_set(rhs, 3 * k_idx + 1, f64_to_bits(rhs_uy));
+        vec_set(rhs, 3 * k_idx + 2, f64_to_bits(rhs_uz));
+
+        k_idx = k_idx + 1;
+    }
+
+    // Euler update: state += dt * rhs
+    var j: i64 = 0;
+    while j < 3 * num_modes {
+        let old_val: f64 = bits_to_f64(vec_get(state, j));
+        let rhs_val: f64 = bits_to_f64(vec_get(rhs, j));
+        vec_set(state, j, f64_to_bits(old_val + dt * rhs_val));
+        j = j + 1;
+    }
+
+    0
+}
+
+// ============================================================
+// Section 9: Blow-up detection and A* binary search
+// ============================================================
+
+// solver_pack: [modes, num_modes, triad_pack, ic_idx]
+// config: [nu_bits, dt_bits, threshold_bits, n_steps_bits]
+// a8_bits, na8_bits: pre-computed IC amplitude bits
+fn check_blowup(solver_pack: i64, config: i64, a8_bits: i64, na8_bits: i64) -> i64 {
+    let modes: i64 = vec_get(solver_pack, 0);
+    let num_modes: i64 = vec_get(solver_pack, 1);
+    let triad_pack: i64 = vec_get(solver_pack, 2);
+    let ic_idx: i64 = vec_get(solver_pack, 3);
+    let threshold: f64 = bits_to_f64(vec_get(config, 2));
+    let n_steps: i64 = bits_to_f64(vec_get(config, 3)) as i64;
+
+    let ic_pack: i64 = build_ic_vals(a8_bits, na8_bits);
+    let ux_vals: i64 = vec_get(ic_pack, 0);
+    let uy_vals: i64 = vec_get(ic_pack, 1);
+
+    let state: i64 = vzeros(3 * num_modes);
+    apply_ic(state, ic_idx, ux_vals, uy_vals);
+
+    var step: i64 = 0;
+    while step < n_steps {
+        step_3d(state, modes, num_modes, triad_pack, config);
+
+        if step % 100 == 99 {
+            let omega: f64 = compute_enstrophy(state, modes, num_modes);
+            if omega > threshold {
+                return 1;
+            }
+            if omega > 1000000000000000.0 {
+                return 1;
+            }
+        }
+        step = step + 1;
+    }
+    0
+}
+
+fn find_astar(solver_pack: i64, config: i64) -> f64 {
+    var a_lo: f64 = 0.1;
+    var a_hi: f64 = 0.2;
+
+    // Compute IC bits for a_lo
+    var a8: f64 = a_lo / 8.0;
+    var a8_bits: i64 = f64_to_bits(a8);
+    var na8_bits: i64 = f64_to_bits(0.0 - a8);
+
+    let lo_blows: i64 = check_blowup(solver_pack, config, a8_bits, na8_bits);
+    if lo_blows == 1 {
+        return 0.0;
+    }
+
+    var bracket_iter: i64 = 0;
+    while bracket_iter < 20 {
+        a8 = a_hi / 8.0;
+        a8_bits = f64_to_bits(a8);
+        na8_bits = f64_to_bits(0.0 - a8);
+        let hi_blows: i64 = check_blowup(solver_pack, config, a8_bits, na8_bits);
+        if hi_blows == 1 {
+            bracket_iter = 100;
+        } else {
+            a_lo = a_hi;
+            a_hi = a_hi * 2.0;
+            bracket_iter = bracket_iter + 1;
+        }
+    }
+
+    var iter: i64 = 0;
+    while iter < 12 {
+        let a_mid: f64 = 0.5 * (a_lo + a_hi);
+        a8 = a_mid / 8.0;
+        a8_bits = f64_to_bits(a8);
+        na8_bits = f64_to_bits(0.0 - a8);
+        let mid_blows: i64 = check_blowup(solver_pack, config, a8_bits, na8_bits);
+        if mid_blows == 1 {
+            a_hi = a_mid;
+        } else {
+            a_lo = a_mid;
+        }
+        iter = iter + 1;
+    }
+
+    0.5 * (a_lo + a_hi)
+}
+
+// ============================================================
+// Section 10: Main
+// ============================================================
+
+fn main() -> i64 {
+    println("============================================================");
+    println("  3D Galerkin Navier-Stokes Solver");
+    println("  Taylor-Green vortex IC, explicit Euler");
+    println("============================================================");
+    println("");
+
+    // Config: nu=0.1, dt=0.001, threshold=10000, n_steps=1000
+    // (larger dt and fewer steps for feasibility in interpreted runtime)
+    let config: i64 = make_config(
+        f64_to_bits(0.1),
+        f64_to_bits(0.001),
+        f64_to_bits(10000.0),
+        f64_to_bits(1000.0)
+    );
+
+    println("Phase 1: Computing A* at small N_max values");
+    println("  nu = 0.1, dt = 0.001, steps = 1000, threshold = 10000");
+    println("");
+
+    // N_max = 2
+    var n_max: i64 = 2;
+    var num_modes: i64 = count_modes(n_max);
+    var modes: i64 = enumerate_modes(n_max);
+    print("  N_max = 2: modes = ");
+    print_i64(num_modes);
+    println("");
+
+    print("  Precomputing triads...");
+    var triad_pack: i64 = precompute_triads(modes, num_modes, n_max);
+    var total_triads: i64 = vec_get(vec_get(triad_pack, 2), num_modes);
+    print(" triads = ");
+    print_i64(total_triads);
+    println("");
+
+    var ic_idx: i64 = precompute_ic_indices(modes, num_modes);
+    var solver_pack: i64 = vec_new();
+    vec_push(solver_pack, modes);
+    vec_push(solver_pack, num_modes);
+    vec_push(solver_pack, triad_pack);
+    vec_push(solver_pack, ic_idx);
+
+    print("  Binary search for A*...");
+    var astar: f64 = find_astar(solver_pack, config);
+    print(" A*(2) = ");
+    print_f64(astar);
+    println("");
+    println("");
+
+    // N_max = 3
+    n_max = 3;
+    num_modes = count_modes(n_max);
+    modes = enumerate_modes(n_max);
+    print("  N_max = 3: modes = ");
+    print_i64(num_modes);
+    println("");
+
+    print("  Precomputing triads...");
+    triad_pack = precompute_triads(modes, num_modes, n_max);
+    total_triads = vec_get(vec_get(triad_pack, 2), num_modes);
+    print(" triads = ");
+    print_i64(total_triads);
+    println("");
+
+    ic_idx = precompute_ic_indices(modes, num_modes);
+    solver_pack = vec_new();
+    vec_push(solver_pack, modes);
+    vec_push(solver_pack, num_modes);
+    vec_push(solver_pack, triad_pack);
+    vec_push(solver_pack, ic_idx);
+
+    print("  Binary search for A*...");
+    astar = find_astar(solver_pack, config);
+    print(" A*(3) = ");
+    print_f64(astar);
+    println("");
+    println("");
+
+    // N_max = 4 (mode/triad count only — A* search too slow in interpreted runtime)
+    n_max = 4;
+    num_modes = count_modes(n_max);
+    print("  N_max = 4: modes = ");
+    print_i64(num_modes);
+    print(" (A* search skipped — too slow for interpreted runtime)");
+    println("");
+    // To run A* at N_max=4, uncomment and use a compiled (non-interpreted) build:
+    // modes = enumerate_modes(n_max);
+    // triad_pack = precompute_triads(modes, num_modes, n_max);
+    // ic_idx = precompute_ic_indices(modes, num_modes);
+    // solver_pack = vec_new();
+    // vec_push(solver_pack, modes);
+    // vec_push(solver_pack, num_modes);
+    // vec_push(solver_pack, triad_pack);
+    // vec_push(solver_pack, ic_idx);
+    // astar = find_astar(solver_pack, config);
+    println("");
+
+    // ---- Phase 2: Energy conservation test ----
+    println("Phase 2: Energy conservation test (nu=0, N_max=2, 100 steps)");
+
+    n_max = 2;
+    num_modes = count_modes(n_max);
+    modes = enumerate_modes(n_max);
+    triad_pack = precompute_triads(modes, num_modes, n_max);
+    ic_idx = precompute_ic_indices(modes, num_modes);
+
+    let state_ec: i64 = vzeros(3 * num_modes);
+
+    // Build IC for amplitude=1.0: a8=0.125, na8=-0.125
+    let a8_ec: i64 = f64_to_bits(0.125);
+    let na8_ec: i64 = f64_to_bits(0.0 - 0.125);
+    let ic_vals: i64 = build_ic_vals(a8_ec, na8_ec);
+    apply_ic(state_ec, ic_idx, vec_get(ic_vals, 0), vec_get(ic_vals, 1));
+
+    let e0: f64 = compute_energy(state_ec, num_modes);
+    let omega0: f64 = compute_enstrophy(state_ec, modes, num_modes);
+
+    print("  E(0)     = ");
+    print_f64(e0);
+    println("");
+    print("  Omega(0) = ");
+    print_f64(omega0);
+    println("");
+
+    // Run 1000 steps with nu = 0
+    let config_inv: i64 = make_config(
+        f64_to_bits(0.0),
+        f64_to_bits(0.0001),
+        f64_to_bits(10000.0),
+        f64_to_bits(100.0)
+    );
+    var ec_step: i64 = 0;
+    while ec_step < 100 {
+        step_3d(state_ec, modes, num_modes, triad_pack, config_inv);
+        ec_step = ec_step + 1;
+    }
+
+    let e_final: f64 = compute_energy(state_ec, num_modes);
+    let omega_final: f64 = compute_enstrophy(state_ec, modes, num_modes);
+
+    print("  E(T)     = ");
+    print_f64(e_final);
+    println("");
+    print("  Omega(T) = ");
+    print_f64(omega_final);
+    println("");
+
+    let e_drift: f64 = bits_to_f64(abs_f64(f64_to_bits(e_final - e0)));
+    var e_rel: f64 = 0.0;
+    if e0 > 0.0000001 {
+        e_rel = e_drift / e0;
+    }
+    print("  |E(T) - E(0)| = ");
+    print_f64(e_drift);
+    println("");
+    print("  Relative drift = ");
+    print_f64(e_rel);
+    println("");
+
+    if e_rel < 0.01 {
+        println("  PASS: Energy conserved to < 1%");
+    } else {
+        println("  WARN: Energy drift > 1% (expected for explicit Euler)");
+    }
+    println("");
+
+    // ---- Phase 3: Summary ----
+    println("Phase 3: Summary");
+    println("------------------------------------------------------------");
+    var nn: i64 = 2;
+    while nn <= 4 {
+        let nm: i64 = count_modes(nn);
+        print("  N_max = ");
+        print_i64(nn);
+        print(": ");
+        print_i64(nm);
+        println(" modes");
+        nn = nn + 1;
+    }
+    println("");
+
+    // ---- Phase 4: Divergence-free verification ----
+    println("Phase 4: Divergence-free verification (IC at N_max=2)");
+    n_max = 2;
+    num_modes = count_modes(n_max);
+    modes = enumerate_modes(n_max);
+    ic_idx = precompute_ic_indices(modes, num_modes);
+
+    let state_div: i64 = vzeros(3 * num_modes);
+    let ic_vals2: i64 = build_ic_vals(a8_ec, na8_ec);
+    apply_ic(state_div, ic_idx, vec_get(ic_vals2, 0), vec_get(ic_vals2, 1));
+
+    var max_div: f64 = 0.0;
+    var di: i64 = 0;
+    while di < num_modes {
+        let dkx: f64 = get_kx(modes, di) as f64;
+        let dky: f64 = get_ky(modes, di) as f64;
+        let dkz: f64 = get_kz(modes, di) as f64;
+        let dux: f64 = state_get_ux(state_div, di);
+        let duy: f64 = state_get_uy(state_div, di);
+        let duz: f64 = state_get_uz(state_div, di);
+        let div_val: f64 = dkx * dux + dky * duy + dkz * duz;
+        let abs_div: f64 = bits_to_f64(abs_f64(f64_to_bits(div_val)));
+        if abs_div > max_div {
+            max_div = abs_div;
+        }
+        di = di + 1;
+    }
+    print("  max |k . u_hat| = ");
+    print_f64(max_div);
+    println("");
+    if max_div < 0.0000000001 {
+        println("  PASS: IC is divergence-free");
+    } else {
+        println("  WARN: IC has non-zero divergence");
+    }
+
+    println("");
+    println("============================================================");
+    println("  3D Galerkin solver complete");
+    println("============================================================");
+
+    0
+}

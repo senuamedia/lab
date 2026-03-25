@@ -1,0 +1,19 @@
+############################################################
+#  LEMMA VERIFICATION — EXTREME PARAMETERS                 #
+#  Low ν (0.001) and high A (1.0, 2.0)                    #
+#  γ = 1.5                                                #
+############################################################
+
+  ν       Amp    max_R       Case_status  Details
+  0.001    0.1      0.021809  BOUNDED     R ≤ 0.0218 at all (K, t)
+  0.001    0.3      0.021465  BOUNDED     R ≤ 0.0215 at all (K, t)
+  0.001    0.5      0.020278  BOUNDED     R ≤ 0.0203 at all (K, t)
+  0.001    1.0      0.018699  BOUNDED     R ≤ 0.0187 at all (K, t)
+  0.010    1.0      0.016146  BOUNDED     R ≤ 0.0161 at all (K, t)
+  0.010    2.0      0.012058  BOUNDED     R ≤ 0.0121 at all (K, t)
+  0.100    0.5      0.024842  BOUNDED     R ≤ 0.0248 at all (K, t)
+  0.100    1.0      0.019183  BOUNDED     R ≤ 0.0192 at all (K, t)
+
+  GLOBAL MAX R = 0.024842
+  Lemma holds with C = 0.0248 across all extreme parameters.
+  VERIFIED

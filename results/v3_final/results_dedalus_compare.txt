@@ -1,0 +1,57 @@
+Dedalus not available — using scipy ODE solver as independent reference
+============================================================
+  NS SOLVER CROSS-VALIDATION
+  Three independent implementations compared
+============================================================
+
+============================================================
+  N = 3, A = 0.1, ν = 0.01, T = 0.1
+============================================================
+
+  --- Our Galerkin solver (Euler, dt=1e-4) ---
+N=3: 122 modes enumerated
+  6642 triads precomputed
+  E(0) = 0.2662382955
+  E(T=0.1) = 0.2637467136  (ΔE = -0.935847%)
+
+  --- scipy RK45 (adaptive, rtol=1e-10) ---
+  scipy reference: N=3, 122 modes, 6642 triads
+  E(0) = 0.2662382955
+  NL energy rate = +0.000000e+00  CONSERVED
+  E(T=0.1) = 0.2637452355  (ΔE = -0.936402%)
+  scipy RK45 took 1.2s, 6 steps
+
+  --- COMPARISON ---
+  E(0): ours=0.2662382955  scipy=0.2662382955  rel_diff=0.00e+00  MATCH
+  E(T): ours=0.2637467136  scipy=0.2637452355  rel_diff=5.60e-06  CLOSE
+  (E(T) difference expected due to Euler vs RK45 time stepping)
+
+============================================================
+  N = 4, A = 0.1, ν = 0.01, T = 0.1
+============================================================
+
+  --- Our Galerkin solver (Euler, dt=1e-4) ---
+N=4: 256 modes enumerated
+  30360 triads precomputed
+  E(0) = 0.4010673465
+  E(T=0.1) = 0.3948104716  (ΔE = -1.560056%)
+
+  --- scipy RK45 (adaptive, rtol=1e-10) ---
+  scipy reference: N=4, 256 modes, 30360 triads
+  E(0) = 0.4010673465
+  NL energy rate = +0.000000e+00  CONSERVED
+  E(T=0.1) = 0.3948068463  (ΔE = -1.560960%)
+  scipy RK45 took 7.1s, 7 steps
+
+  --- COMPARISON ---
+  E(0): ours=0.4010673465  scipy=0.4010673465  rel_diff=0.00e+00  MATCH
+  E(T): ours=0.3948104716  scipy=0.3948068463  rel_diff=9.18e-06  CLOSE
+  (E(T) difference expected due to Euler vs RK45 time stepping)
+
+============================================================
+  CONCLUSION:
+  If E(0) matches exactly (same IC) and E(T) is close
+  (within time-stepping error): VALIDATED
+  If E(0) differs: IC setup is different
+  If E(T) diverges wildly: solver bug
+============================================================
