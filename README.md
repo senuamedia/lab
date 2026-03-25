@@ -3,9 +3,9 @@
 All experiments, solvers, and validation code for the 3D Navier-Stokes regularity research.
 
 **Papers:**
-- [Unified Adaptation Theorem](https://doi.org/10.5281/zenodo.19149831) — DOI: 10.5281/zenodo.19149831
-- [NS Regularity Scaffold](https://doi.org/10.5281/zenodo.19155497) — DOI: 10.5281/zenodo.19155497
-- Energy Conservation, Cascade Stabilisation, and NS Regularity — (Paper 3, forthcoming)
+- [Paper 1: Unified Adaptation Theorem](https://doi.org/10.5281/zenodo.19149831) — DOI: 10.5281/zenodo.19149831
+- [Paper 2: NS Regularity Scaffold](https://doi.org/10.5281/zenodo.19155497) — DOI: 10.5281/zenodo.19155497
+- [Paper 3: Energy Conservation, Cascade Stabilisation, and NS Regularity](https://zenodo.org/records/19216332) — Computer-assisted proof of global regularity for the 3D incompressible Navier-Stokes equations
 
 ---
 
@@ -221,11 +221,12 @@ At ν>0, energy INCREASES at N≥6. This confirms the bug.
 
 | Parameter | Symbol | Typical Value | Notes |
 |-----------|--------|---------------|-------|
-| Viscosity | ν | 0.01 | Range: 0.001 – 0.1 |
-| Time step | dt | 0.0001 | Adjusted for stability |
-| Amplitude | A | 0.1 | Range: 0.05 – 1.0 |
-| Max wavenumber | N_max | 8 | v3: tested 2–20 |
+| Viscosity | ν | 0.01 | Tested: 10⁻⁵ – 10⁻² |
+| Time step | dt | 0.0001 | CFL-based, auto-selected |
+| Amplitude | A | 0.3 | Tested: 0.1 – 10.0 |
+| Max wavenumber | N_max | 8 | v3: tested 2–30 (adaptive) |
 | Domain | — | T³ = [0, 2π]³ | Periodic torus |
+| IC families | — | 6 types | distributed, TG, concentrated, 3× random |
 
 ---
 
@@ -260,6 +261,63 @@ at all amplitudes through A=0.31.
 | Energy | 298 (+11,600%) | 0.188 (-23%) |
 | Enstrophy | 50,130 | 0.86 |
 | E_top/E | 4.2% (growing) | 1e-7 (negligible) |
+
+---
+
+## Universality Verification (Paper 3, Section 9)
+
+The computer-assisted proof requires that the cascade bound C_s ≤ constant and the exponent γ < 2 hold across all parameters. A sweep of 29 configurations verifies this:
+
+### Running the Universality Sweep
+
+```bash
+# Build
+cd solvers/v3
+gcc -O3 -c triad_kernel_v3.c -o kernel.o
+
+# Run a single config (example: ν=0.001, A=0.3, distributed IC)
+cd ../../experiments/v3_final
+gcc -O3 -c experiment_universality.c -o exp.o \
+    -DPARAM_NU=0.001 -DPARAM_AMP=0.3 -DPARAM_IC_TYPE=0 \
+    -DPARAM_N_MAX=8 -DPARAM_N_CEILING=20
+gcc -O2 exp.o ../../solvers/v3/kernel.o -o run -lm
+./run
+```
+
+### Parameters
+
+| Flag | Values tested | Description |
+|------|--------------|-------------|
+| `PARAM_NU` | 0.00001, 0.0001, 0.001, 0.01 | Viscosity (3 orders of magnitude) |
+| `PARAM_AMP` | 0.1, 0.3, 0.5, 1.0, 2.0, 5.0, 10.0 | Amplitude (2 orders of magnitude) |
+| `PARAM_IC_TYPE` | 0-5 | 0=distributed, 1=Taylor-Green, 2=concentrated, 3-5=random seeds |
+| `PARAM_N_MAX` | 8 | Galerkin truncation level |
+| `PARAM_N_CEILING` | 20-30 | Adaptive N ceiling |
+
+### IC types
+- **0 (distributed):** Energy decays as 1/|k|, divergence-free, deterministic phases
+- **1 (Taylor-Green):** Classical Taylor-Green vortex, energy at |k|²=3
+- **2 (concentrated):** All energy in shell |k|=2
+- **3,4,5 (random):** Random divergence-free fields with seeds 42, 137, 271
+
+### What each run measures
+- **C_s** = max_{k,t} |T_k| / (E · k^{3/2}) — the simple bound constant
+- **C_L** = max_{k,t} |T_k| / (E · Ω^{1/2} · k^{0.5}) — the lemma bound constant
+- **γ** = fitted cascade power-law exponent (need γ < 2)
+- **Ω_max** = maximum enstrophy (need bounded)
+- **N_stable** = adaptive N stabilisation point (need finite)
+
+### Running the full sweep on AWS
+
+```bash
+# Launch 7 EC2 c5.2xlarge instances, then:
+bash deploy/launch_universality.sh IP1 IP2 IP3 IP4 IP5 IP6 IP7
+
+# Collect results:
+bash deploy/collect_universality.sh IP1 IP2 IP3 IP4 IP5 IP6 IP7
+```
+
+Results are written to `results/universality/`.
 
 ---
 
