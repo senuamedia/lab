@@ -1,6 +1,22 @@
-# Senuamedia Lab — Navier-Stokes Regularity Experiments
+# Senuamedia Lab — Scaffold Array Diagnostics for PDEs
 
-All experiments, solvers, and validation code for the 3D Navier-Stokes regularity research.
+Multi-perspective diagnostic framework applied to fundamental equations in fluid dynamics. The scaffold array methodology measures the same system from 26 perspectives simultaneously and uses cross-perspective contraction ratios to diagnose convergence, stability, and numerical artefacts.
+
+## Domain Spaces
+
+```
+domains/
+├── navier-stokes/     # 3D NS regularity (Paper 3) — ν > 0, cascade stabilisation
+├── euler/             # 3D Euler blow-up question (Paper 4) — ν = 0, inviscid cascade
+├── mhd/               # Magnetohydrodynamics (planned) — coupled NS + Maxwell
+├── sqg/               # Surface quasi-geostrophic (planned) — 2D analogue of 3D NS
+└── uat/               # Unified Adaptation Theorem (Paper 1) — convergence framework
+```
+
+## Legacy Structure
+
+The root directory contains the original flat experiment files from Papers 1-3.
+New work uses the `domains/` structure.
 
 **Papers:**
 - [Paper 1: Unified Adaptation Theorem](https://doi.org/10.5281/zenodo.19149831) — DOI: 10.5281/zenodo.19149831
