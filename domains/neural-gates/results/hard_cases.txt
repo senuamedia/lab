@@ -1,0 +1,92 @@
+################################################################
+#  NEURAL GATE — HARD CASE DIAGNOSTICS                        #
+################################################################
+
+============================================================
+  EXP 1: XOR DATA (single gate cannot solve)
+============================================================
+
+  η=0.0010   L(0)=0.6941 → L(T)=0.6888  ||∇||=0.019225  OK
+  η=0.0100   L(0)=0.6941 → L(T)=0.6872  ||∇||=0.000368  OK
+  η=0.1000   L(0)=0.6941 → L(T)=0.6872  ||∇||=0.000000  OK
+  η=0.3000   L(0)=0.6941 → L(T)=0.6872  ||∇||=0.000000  OK
+  η=1.0000   L(0)=0.6941 → L(T)=0.6872  ||∇||=0.000000  OK
+
+  Contraction ratios:
+  Array             max_ρ   Status
+  Loss              0.6214  PASS
+  Weight norm       0.6171  PASS
+  Gradient norm     0.6212  PASS
+  Activ mean        0.6281  PASS
+  Activ var         0.6999  PASS
+
+  γ (at η=0.1000) = -9.1896  DECAYING
+
+============================================================
+  EXP 2: CONCENTRIC CIRCLES (nonlinear boundary)
+============================================================
+
+  η=0.0010   L(0)=0.6926 → L(T)=0.6868  ||∇||=0.016890  OK
+  η=0.0100   L(0)=0.6926 → L(T)=0.6860  ||∇||=0.000160  OK
+  η=0.1000   L(0)=0.6926 → L(T)=0.6860  ||∇||=0.000000  OK
+  η=0.3000   L(0)=0.6926 → L(T)=0.6860  ||∇||=0.000000  OK
+  η=1.0000   L(0)=0.6926 → L(T)=0.6860  ||∇||=0.000000  OK
+
+  Contraction ratios:
+  Array             max_ρ   Status
+  Loss              0.6265  PASS
+  Weight norm       0.6180  PASS
+  Gradient norm     0.6253  PASS
+  Activ mean        0.6280  PASS
+  Activ var         0.6169  PASS
+
+  γ (at η=0.1000) = -9.1518  DECAYING
+
+============================================================
+  EXP 3: LINEAR DATA, EXTREME η (should diverge at high η)
+============================================================
+
+  η=1.0000   L(0)=0.7026 → L(T)=0.0568  ||∇||=0.003125  OK
+  η=3.0000   L(0)=0.7026 → L(T)=0.0388  ||∇||=0.001491  OK
+  η=10.0000  L(0)=0.7026 → L(T)=0.0259  ||∇||=0.000650  OK
+  η=30.0000  L(0)=0.7026 → L(T)=0.0182  ||∇||=0.000311  OK
+  η=100.0000 L(0)=0.7026 → L(T)=0.0119  ||∇||=0.000144  OK
+
+  Contraction ratios:
+  Array             max_ρ   Status
+  Loss              1.6258  FAIL
+  Weight norm       1.8523  FAIL
+  Gradient norm     1.8501  FAIL
+  Activ mean        3.1358  FAIL
+  Activ var         0.8477  PASS
+
+  γ (at η=10.0000) = -0.6720  DECAYING
+
+============================================================
+  EXP 4: LINEAR DATA, STANDARD η (baseline — should pass)
+============================================================
+
+  η=0.0010   L(0)=0.7026 → L(T)=0.5007  ||∇||=0.164189  OK
+  η=0.0100   L(0)=0.7026 → L(T)=0.2101  ||∇||=0.041061  OK
+  η=0.1000   L(0)=0.7026 → L(T)=0.0909  ||∇||=0.007840  OK
+  η=0.3000   L(0)=0.7026 → L(T)=0.0627  ||∇||=0.003779  OK
+  η=1.0000   L(0)=0.7026 → L(T)=0.0414  ||∇||=0.001690  OK
+
+  Contraction ratios:
+  Array             max_ρ   Status
+  Loss              0.7410  PASS
+  Weight norm       2.1631  FAIL
+  Gradient norm     0.6370  PASS
+  Activ mean        0.6317  PASS
+  Activ var         1.0930  FAIL
+
+  γ (at η=0.1000) = -0.6868  DECAYING
+
+################################################################
+#  COMPARISON: Does the scaffold produce different patterns?   #
+################################################################
+
+  If the scaffold gives the SAME pattern for all four cases,
+  it's not a useful diagnostic. If the patterns DIFFER,
+  the scaffold discriminates failure modes.
+
