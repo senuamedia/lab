@@ -1,0 +1,10 @@
+Stage 1: Training sieve to 200M...
+Stage 2: Wave prediction...
+Predicted reversal at 10^8.31
+Stage 3: Segmented sieve to 1.00e+11...
+[17.8% — x=1.78e+10 — 63s]
+[35.0% — x=3.50e+10 — 124s]
+[51.5% — x=5.15e+10 — 185s]
+[67.4% — x=6.74e+10 — 246s]
+[82.9% — x=8.29e+10 — 307s]
+[98.1% — x=9.81e+10 — 368s]

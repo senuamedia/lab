@@ -1,0 +1,14 @@
+{
+  "conjecture": "pi(29,9) vs pi(29,1)",
+  "q": 29, "a": 1, "b": 9,
+  "verify_limit": 100000000000,
+  "train_bias": 269,
+  "train_reversals": 169,
+  "found_in_training": true,
+  "first_reversal": 50000,
+  "first_reversal_log10": 4.6990,
+  "predicted_log10": 4.6990,
+  "error_pct": 0.0,
+  "status": "SOLVED_IN_TRAINING",
+  "time_seconds": 3
+}

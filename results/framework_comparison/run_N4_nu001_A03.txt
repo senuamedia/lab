@@ -1,0 +1,63 @@
+##############################################################
+#  FRAMEWORK COMPARISON: v2 (no -i) vs v3 (correct -i)       #
+#                                                            #
+#  Same IC, same (nu,A,N,dt,T). Only difference: -i factor.  #
+#  Tests 4 published analytical frameworks.                   #
+##############################################################
+
+Setup: N=4, 256 modes, 30360 triads
+Parameters: nu=0.0100, A=0.30, dt=0.000100, T=0.50, Lambda=2
+
+Initial: E=1.831419, Omega=11.520000
+
+=== v2 (no -i) ===
+  E(T)      = 136.249610  (ratio E/E0 = 74.395633)
+  Omega(T)  = 1474.420317  (ratio Om/Om0 = 127.987875)
+  NL rate   = +3.408012e+03  (must be 0 for energy conservation)
+  sum T_K   = +3.408012e+03  (must be 0 for zero-sum)
+  Low-freq vorticity (|k|<=2): 4.280931
+  Spectral variance (Sig - Om^2/E): 1.489871e+03
+  Shells diffusion-dominated: 0 / 4
+  Max |T_K|/diffusion ratio: 426.3533
+
+=== v3 (correct -i) ===
+  E(T)      = 1.715988  (ratio E/E0 = 0.936972)
+  Omega(T)  = 12.055518  (ratio Om/Om0 = 1.046486)
+  NL rate   = +6.028164e-17  (must be 0 for energy conservation)
+  sum T_K   = +2.636780e-16  (must be 0 for zero-sum)
+  Low-freq vorticity (|k|<=2): 0.383288
+  Spectral variance (Sig - Om^2/E): 3.796959e+01
+  Shells diffusion-dominated: 0 / 4
+  Max |T_K|/diffusion ratio: 13.1909
+
+##############################################################
+#  FRAMEWORK VERDICT TABLE                                   #
+##############################################################
+
+Diagnostic                                  v2 (no -i)       v3 (-i)
+----------------------------------------  ------------  ------------
+Energy rate sum Re(u*.NL)                    +3.41e+03     +6.03e-17
+Shell zero-sum (sum T_K)                     +3.41e+03     +2.64e-16
+Energy ratio E(T)/E(0)                       74.395633      0.936972
+Enstrophy ratio Om(T)/Om(0)                   127.9879        1.0465
+Low-freq vorticity (Bradshaw-Grujic)          4.280931      0.383288
+Spectral variance (Sig-Om^2/E)              1.4899e+03    3.7970e+01
+Shells diffusion > |transfer|                      0/4           0/4
+Max |T_K|/diffusion (Grujic depletion)        426.3533       13.1909
+
+##############################################################
+#  PASS / FAIL SUMMARY                                       #
+##############################################################
+
+Framework criterion                                v2      v3
+---------------------------------------------  ------  ------
+Bradshaw-Grujic: low-freq omega bounded          FAIL    PASS
+Cheskidov-Shvydkoy: finite K_d (Om bounded)      FAIL    PASS
+Grujic: diffusion dominates all shells           FAIL    FAIL
+Energy zero-sum: |sum T_K| < 1e-10               FAIL    PASS
+Energy conservation: |NL rate| < 1e-10           FAIL    PASS
+
+Conclusion: the -i factor is the sole difference between
+v2 and v3. Every framework diagnostic that PASSES with v3
+and FAILS with v2 identifies a property that depends on
+the energy conservation structure created by -i.

@@ -1,0 +1,15 @@
+{
+  "conjecture": "pi(24,17) vs pi(24,1)",
+  "q": 24, "a": 1, "b": 17,
+  "verify_limit": 100000000000,
+  "train_bias": 1243,
+  "train_reversals": 0,
+  "waves": 30,
+  "dc": 37.6606,
+  "predicted_log10": 8.3392,
+  "first_reversal": null,
+  "status": "NOT_FOUND",
+  "searched_to": 100000000000,
+  "final_bias": 18176,
+  "time_seconds": 376
+}

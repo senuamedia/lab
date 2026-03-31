@@ -1,0 +1,17 @@
+{
+  "conjecture": "pi(19,3) vs pi(19,1)",
+  "q": 19, "a": 1, "b": 3,
+  "verify_limit": 100000000000,
+  "train_bias": 459,
+  "train_reversals": 0,
+  "waves": 30,
+  "dc": 22.6978,
+  "predicted_log10": 8.4152,
+  "first_reversal": 329300001,
+  "first_reversal_log10": 8.5176,
+  "error_pct": 1.22,
+  "total_reversals": 168,
+  "status": "SOLVED",
+  "final_bias": 9425,
+  "time_seconds": 377
+}

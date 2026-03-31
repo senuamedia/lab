@@ -1,0 +1,18 @@
+VALIDATED NUMBERS (Python, March 31 2026)
+Using 2,001,052 Odlyzko zeros, exact |zeta'| for first 30, estimate for rest.
+
+Mertens S_M(2M) = 4.125
+Liouville S_L(2M) = 616,900
+Skewes S_pi(2M) = 0.488
+Chebyshev S_psi(2M) = 8.251
+Divisor S_D(2M) = 1.392
+Squarefree S_Q(2M) = 2.140
+
+Mertens crosses 1.0: between K=1000 and K=3000
+Chebyshev crosses 1.0: between K=100 and K=300
+Squarefree crosses 1.0: between K=10000 and K=30000
+Divisor crosses 1.0: between K=100000 and K=300000
+
+Mertens fit: S = -0.923 + 0.096 * log^(3/2)(gamma), RMS = 0.028
+Skewes fit: S = -0.583 + 0.286 * sqrt(log gamma)
+Skewes crosses 1.0: gamma ≈ 2.2e13, N ≈ 1.0e14

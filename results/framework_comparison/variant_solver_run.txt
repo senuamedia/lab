@@ -1,0 +1,91 @@
+##############################################################
+#  V3 VARIANT SOLVER — Independent Implementation            #
+#                                                            #
+#  Architecture differences from primary v3:                  #
+#    - No precomputed triads (direct O(N^3) summation)        #
+#    - Hash-based mode lookup (vs linear scan)                #
+#    - RK4 integrator (vs Lie-Trotter splitting)              #
+#    - Flat 2D array storage (vs interleaved 1D)              #
+#  Same mathematics: 3D Galerkin NS with correct -i factor.  #
+##############################################################
+
+=== N=2 (32 modes) ===
+
+  nu=0.0100, A=0.30, dt=0.000100, T=0.2000
+  Initial: E=0.72750000, Om=1.44000000
+  NL rate(0) = +0.0000e+00, max|k.u|(0) = 0.0000e+00
+  Final:   E=0.72176567, Om=1.42776636
+  E(T)/E(0) = 0.99211776
+  Om(T)/Om(0) = 0.99150441
+  NL rate(T) = +4.3368e-19
+  max|k.u|(T) = 3.2067e-16
+  Energy DECREASING [OK] (ratio 0.992118)
+  Enstrophy BOUNDED [OK]
+
+  nu=0.0010, A=0.30, dt=0.000100, T=0.2000
+  Initial: E=0.72750000, Om=1.44000000
+  NL rate(0) = +0.0000e+00, max|k.u|(0) = 0.0000e+00
+  Final:   E=0.72692405, Om=1.44032743
+  E(T)/E(0) = 0.99920832
+  Om(T)/Om(0) = 1.00022738
+  NL rate(T) = +1.6480e-17
+  max|k.u|(T) = 2.5023e-16
+  Energy DECREASING [OK] (ratio 0.999208)
+  Enstrophy BOUNDED [OK]
+
+=== N=3 (122 modes) ===
+
+  nu=0.0100, A=0.30, dt=0.000100, T=0.2000
+  Initial: E=1.34100000, Om=5.49000000
+  NL rate(0) = +0.0000e+00, max|k.u|(0) = 0.0000e+00
+  Final:   E=1.31921344, Om=5.42356022
+  E(T)/E(0) = 0.98375350
+  Om(T)/Om(0) = 0.98789804
+  NL rate(T) = +1.8041e-16
+  max|k.u|(T) = 5.1127e-16
+  Energy DECREASING [OK] (ratio 0.983754)
+  Enstrophy BOUNDED [OK]
+
+  nu=0.0010, A=0.30, dt=0.000100, T=0.2000
+  Initial: E=1.34100000, Om=5.49000000
+  NL rate(0) = +0.0000e+00, max|k.u|(0) = 0.0000e+00
+  Final:   E=1.33879849, Om=5.53802951
+  E(T)/E(0) = 0.99835831
+  Om(T)/Om(0) = 1.00874854
+  NL rate(T) = -8.3267e-17
+  max|k.u|(T) = 9.8542e-16
+  Energy DECREASING [OK] (ratio 0.998358)
+  Enstrophy BOUNDED [OK]
+
+=== N=4 (256 modes) ===
+
+  nu=0.0100, A=0.30, dt=0.000100, T=0.2000
+  Initial: E=1.83141946, Om=11.52000000
+  NL rate(0) = +0.0000e+00, max|k.u|(0) = 0.0000e+00
+  Final:   E=1.78586473, Om=11.38055069
+  E(T)/E(0) = 0.97512600
+  Om(T)/Om(0) = 0.98789503
+  NL rate(T) = -3.8684e-16
+  max|k.u|(T) = 8.5379e-16
+  Energy DECREASING [OK] (ratio 0.975126)
+  Enstrophy BOUNDED [OK]
+
+  nu=0.0010, A=0.30, dt=0.000100, T=0.2000
+  Initial: E=1.83141946, Om=11.52000000
+  NL rate(0) = +0.0000e+00, max|k.u|(0) = 0.0000e+00
+  Final:   E=1.82678697, Om=11.76909568
+  E(T)/E(0) = 0.99747055
+  Om(T)/Om(0) = 1.02162289
+  NL rate(T) = -2.4113e-16
+  max|k.u|(T) = 5.9965e-16
+  Energy DECREASING [OK] (ratio 0.997471)
+  Enstrophy BOUNDED [OK]
+
+##############################################################
+#  CROSS-VALIDATION SUMMARY                                  #
+#                                                            #
+#  If these values match the primary v3 solver and the       #
+#  Python reference, the results are implementation-         #
+#  independent. Three solvers, three architectures,          #
+#  same mathematics, same conclusions.                       #
+##############################################################

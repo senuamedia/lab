@@ -1,0 +1,15 @@
+{
+  "conjecture": "pi(8,3) vs pi(8,1)",
+  "q": 8, "a": 1, "b": 3,
+  "verify_limit": 100000000000,
+  "train_bias": 1083,
+  "train_reversals": 0,
+  "waves": 30,
+  "dc": 39.0894,
+  "predicted_log10": 8.3314,
+  "first_reversal": null,
+  "status": "NOT_FOUND",
+  "searched_to": 100000000000,
+  "final_bias": 8418,
+  "time_seconds": 375
+}

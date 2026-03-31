@@ -1,0 +1,14 @@
+{
+  "conjecture": "pi(37,2) vs pi(37,1)",
+  "q": 37, "a": 1, "b": 2,
+  "verify_limit": 100000000000,
+  "train_bias": 205,
+  "train_reversals": 333,
+  "found_in_training": true,
+  "first_reversal": 90000,
+  "first_reversal_log10": 4.9542,
+  "predicted_log10": 4.9542,
+  "error_pct": 0.0,
+  "status": "SOLVED_IN_TRAINING",
+  "time_seconds": 2
+}

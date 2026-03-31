@@ -1,0 +1,14 @@
+{
+  "conjecture": "pi(41,2) vs pi(41,1)",
+  "q": 41, "a": 1, "b": 2,
+  "verify_limit": 100000000000,
+  "train_bias": -212,
+  "train_reversals": 74,
+  "found_in_training": true,
+  "first_reversal": 20000,
+  "first_reversal_log10": 4.3010,
+  "predicted_log10": 4.3010,
+  "error_pct": 0.0,
+  "status": "SOLVED_IN_TRAINING",
+  "time_seconds": 2
+}

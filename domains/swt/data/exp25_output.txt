@@ -1,0 +1,405 @@
+=== Experiment 25: Hundred Million Gaps ===
+
+Allocating bit sieve (250 MB)...
+Sieving to 2000000000...
+Sieve complete in 14 seconds.
+
+Streaming through primes and computing Liouville...
+(This will take a while — processing 2 billion integers)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LIOUVILLE L(x)/√x CHECKPOINTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  x            │ L(x)       │ √x         │ L(x)/√x    │ |L/√x| record
+  ─────────────┼────────────┼────────────┼────────────┼──────────────
+        1000000 │       -531 │     1000.0 │   -0.53100  │ *** NEW 0.53100
+        5000000 │      -2293 │     2236.1 │   -1.02546  │ *** NEW 1.02546
+       10000000 │       -843 │     3162.3 │   -0.26658  │         1.02546
+  [1.7% — n=33598979 — 2066266 primes — 75s elapsed — ETA 4389s]
+       50000000 │      -7609 │     7071.1 │   -1.07608  │ *** NEW 1.07608
+  [2.8% — n=55706267 — 3321845 primes — 136s elapsed — ETA 4747s]
+  [3.7% — n=74568614 — 4370459 primes — 197s elapsed — ETA 5087s]
+  [4.6% — n=91635416 — 5306364 primes — 258s elapsed — ETA 5373s]
+      100000000 │      -3885 │    10000.0 │   -0.38850  │         1.07608
+  [5.4% — n=107254001 — 6154657 primes — 319s elapsed — ETA 5629s]
+  [6.1% — n=122093423 — 6954096 primes — 380s elapsed — ETA 5845s]
+  [6.8% — n=135300107 — 7661501 primes — 441s elapsed — ETA 6078s]
+  [7.4% — n=147594582 — 8316701 primes — 502s elapsed — ETA 6300s]
+  [8.0% — n=159372404 — 8941229 primes — 563s elapsed — ETA 6502s]
+  [8.6% — n=172007435 — 9609078 primes — 624s elapsed — ETA 6632s]
+  [9.2% — n=184393477 — 10260988 primes — 685s elapsed — ETA 6745s]
+  [9.8% — n=196638001 — 10903155 primes — 746s elapsed — ETA 6842s]
+      200000000 │     -11127 │    14142.1 │   -0.78680  │         1.07608
+  [10.4% — n=208618309 — 11529327 primes — 807s elapsed — ETA 6930s]
+  [11.0% — n=220562807 — 12151776 primes — 868s elapsed — ETA 7003s]
+  [11.6% — n=231813622 — 12736845 primes — 929s elapsed — ETA 7086s]
+  [12.1% — n=242898554 — 13311639 primes — 990s elapsed — ETA 7162s]
+  [12.7% — n=253866706 — 13879153 primes — 1051s elapsed — ETA 7229s]
+  [13.2% — n=264490517 — 14427555 primes — 1112s elapsed — ETA 7297s]
+  [13.7% — n=274903674 — 14963809 primes — 1173s elapsed — ETA 7361s]
+  [14.3% — n=285388034 — 15502726 primes — 1234s elapsed — ETA 7414s]
+  [14.8% — n=295784617 — 16036287 primes — 1295s elapsed — ETA 7461s]
+  [15.3% — n=306093961 — 16564499 primes — 1356s elapsed — ETA 7504s]
+  [15.8% — n=315991645 — 17070720 primes — 1417s elapsed — ETA 7552s]
+  [16.3% — n=326052518 — 17584090 primes — 1478s elapsed — ETA 7588s]
+  [16.8% — n=335726633 — 18077197 primes — 1539s elapsed — ETA 7629s]
+  [17.3% — n=345542305 — 18576789 primes — 1600s elapsed — ETA 7661s]
+  [17.8% — n=355074769 — 19061332 primes — 1661s elapsed — ETA 7695s]
+  [18.2% — n=364683703 — 19548758 primes — 1722s elapsed — ETA 7722s]
+  [18.7% — n=374166214 — 20029306 primes — 1783s elapsed — ETA 7748s]
+  [19.2% — n=383266916 — 20490895 primes — 1844s elapsed — ETA 7779s]
+  [19.6% — n=392346603 — 20949857 primes — 1905s elapsed — ETA 7806s]
+  [20.1% — n=401549216 — 21414362 primes — 1966s elapsed — ETA 7826s]
+  [20.5% — n=410710088 — 21876535 primes — 2027s elapsed — ETA 7844s]
+  [21.0% — n=419794899 — 22334285 primes — 2088s elapsed — ETA 7860s]
+  [21.4% — n=428815407 — 22788533 primes — 2149s elapsed — ETA 7874s]
+  [21.9% — n=437522425 — 23226084 primes — 2210s elapsed — ETA 7892s]
+  [22.3% — n=446062620 — 23655244 primes — 2271s elapsed — ETA 7911s]
+  [22.7% — n=454676072 — 24087559 primes — 2332s elapsed — ETA 7926s]
+  [23.2% — n=463412288 — 24525691 primes — 2393s elapsed — ETA 7935s]
+  [23.6% — n=472058432 — 24958937 primes — 2454s elapsed — ETA 7943s]
+  [24.0% — n=480616456 — 25387242 primes — 2515s elapsed — ETA 7951s]
+  [24.5% — n=489018806 — 25807154 primes — 2576s elapsed — ETA 7959s]
+  [24.9% — n=497482393 — 26230321 primes — 2637s elapsed — ETA 7964s]
+      500000000 │     -18805 │    22360.7 │   -0.84099  │         1.07608
+  [25.3% — n=505884591 — 26648960 primes — 2698s elapsed — ETA 7968s]
+  [25.7% — n=514218142 — 27064269 primes — 2759s elapsed — ETA 7972s]
+  [26.1% — n=522414122 — 27472671 primes — 2820s elapsed — ETA 7976s]
+  [26.5% — n=529540807 — 27827780 primes — 2881s elapsed — ETA 8000s]
+  [26.8% — n=536540521 — 28176344 primes — 2942s elapsed — ETA 8025s]
+  [27.2% — n=543511423 — 28522677 primes — 3003s elapsed — ETA 8047s]
+  [27.5% — n=550689827 — 28879703 primes — 3064s elapsed — ETA 8064s]
+  [27.9% — n=557599451 — 29223005 primes — 3125s elapsed — ETA 8084s]
+  [28.2% — n=564523873 — 29566637 primes — 3186s elapsed — ETA 8101s]
+  [28.6% — n=571185575 — 29897041 primes — 3247s elapsed — ETA 8122s]
+  [28.9% — n=577563766 — 30213364 primes — 3308s elapsed — ETA 8147s]
+  [29.2% — n=584174008 — 30541071 primes — 3369s elapsed — ETA 8165s]
+  [29.5% — n=590527941 — 30855707 primes — 3430s elapsed — ETA 8187s]
+  [29.8% — n=596531503 — 31153390 primes — 3491s elapsed — ETA 8213s]
+  [30.1% — n=602327557 — 31439974 primes — 3552s elapsed — ETA 8242s]
+  [30.5% — n=609319761 — 31785788 primes — 3613s elapsed — ETA 8246s]
+  [30.8% — n=616318088 — 32131741 primes — 3674s elapsed — ETA 8248s]
+  [31.2% — n=623297058 — 32476080 primes — 3735s elapsed — ETA 8250s]
+  [31.5% — n=629931241 — 32803855 primes — 3796s elapsed — ETA 8256s]
+  [31.8% — n=636582266 — 33131912 primes — 3857s elapsed — ETA 8261s]
+  [32.2% — n=643225162 — 33459521 primes — 3918s elapsed — ETA 8264s]
+  [32.5% — n=650042607 — 33795540 primes — 3979s elapsed — ETA 8263s]
+  [32.8% — n=656699497 — 34123503 primes — 4040s elapsed — ETA 8264s]
+  [33.2% — n=663126724 — 34440198 primes — 4101s elapsed — ETA 8268s]
+  [33.5% — n=669484784 — 34753011 primes — 4162s elapsed — ETA 8271s]
+  [33.8% — n=676719323 — 35108736 primes — 4223s elapsed — ETA 8258s]
+  [34.2% — n=684058799 — 35469384 primes — 4284s elapsed — ETA 8241s]
+  [34.6% — n=691318873 — 35826771 primes — 4345s elapsed — ETA 8225s]
+  [34.9% — n=698604776 — 36184401 primes — 4406s elapsed — ETA 8208s]
+  [35.3% — n=705831727 — 36539304 primes — 4467s elapsed — ETA 8190s]
+  [35.7% — n=713028639 — 36892469 primes — 4528s elapsed — ETA 8173s]
+  [36.0% — n=720103669 — 37239061 primes — 4589s elapsed — ETA 8156s]
+  [36.4% — n=727128205 — 37583625 primes — 4650s elapsed — ETA 8140s]
+  [36.7% — n=734108058 — 37925299 primes — 4711s elapsed — ETA 8124s]
+  [37.1% — n=741056158 — 38265757 primes — 4772s elapsed — ETA 8107s]
+  [37.4% — n=748001602 — 38605519 primes — 4833s elapsed — ETA 8089s]
+  [37.7% — n=754953733 — 38945309 primes — 4894s elapsed — ETA 8071s]
+  [38.1% — n=761869154 — 39283662 primes — 4955s elapsed — ETA 8052s]
+  [38.4% — n=768739007 — 39619208 primes — 5016s elapsed — ETA 8034s]
+  [38.8% — n=775609454 — 39955158 primes — 5077s elapsed — ETA 8015s]
+  [39.1% — n=782454147 — 40289432 primes — 5138s elapsed — ETA 7995s]
+  [39.5% — n=789277955 — 40622913 primes — 5199s elapsed — ETA 7975s]
+  [39.8% — n=796037474 — 40952810 primes — 5260s elapsed — ETA 7955s]
+  [40.1% — n=802666773 — 41276327 primes — 5321s elapsed — ETA 7937s]
+  [40.5% — n=809483998 — 41609084 primes — 5382s elapsed — ETA 7915s]
+  [40.8% — n=816296179 — 41941065 primes — 5443s elapsed — ETA 7893s]
+  [41.2% — n=823071703 — 42271083 primes — 5504s elapsed — ETA 7870s]
+  [41.5% — n=829872858 — 42602218 primes — 5565s elapsed — ETA 7847s]
+  [41.8% — n=836599244 — 42929752 primes — 5626s elapsed — ETA 7824s]
+  [42.2% — n=843172207 — 43249883 primes — 5687s elapsed — ETA 7803s]
+  [42.5% — n=849891139 — 43576704 primes — 5748s elapsed — ETA 7778s]
+  [42.8% — n=856603065 — 43902945 primes — 5809s elapsed — ETA 7754s]
+  [43.2% — n=863200911 — 44223327 primes — 5870s elapsed — ETA 7731s]
+  [43.5% — n=869816949 — 44545011 primes — 5931s elapsed — ETA 7706s]
+  [43.8% — n=876228853 — 44856275 primes — 5992s elapsed — ETA 7685s]
+  [44.1% — n=882674461 — 45169095 primes — 6053s elapsed — ETA 7662s]
+  [44.5% — n=889025306 — 45477229 primes — 6114s elapsed — ETA 7640s]
+  [44.8% — n=895238378 — 45778510 primes — 6175s elapsed — ETA 7620s]
+  [45.0% — n=900873717 — 46051707 primes — 6236s elapsed — ETA 7608s]
+  [45.3% — n=906595225 — 46329105 primes — 6297s elapsed — ETA 7595s]
+  [45.6% — n=912629152 — 46622255 primes — 6358s elapsed — ETA 7575s]
+  [46.0% — n=919054960 — 46933683 primes — 6419s elapsed — ETA 7550s]
+  [46.3% — n=925448991 — 47243388 primes — 6480s elapsed — ETA 7524s]
+  [46.6% — n=931774711 — 47549478 primes — 6541s elapsed — ETA 7499s]
+  [46.9% — n=937870069 — 47844593 primes — 6602s elapsed — ETA 7477s]
+  [47.2% — n=943440833 — 48113910 primes — 6663s elapsed — ETA 7462s]
+  [47.4% — n=948867823 — 48376750 primes — 6724s elapsed — ETA 7449s]
+  [47.7% — n=954387053 — 48643654 primes — 6785s elapsed — ETA 7434s]
+  [48.0% — n=960683172 — 48948518 primes — 6846s elapsed — ETA 7406s]
+  [48.4% — n=967023758 — 49254935 primes — 6907s elapsed — ETA 7378s]
+  [48.7% — n=973321357 — 49559137 primes — 6968s elapsed — ETA 7350s]
+  [49.0% — n=979445636 — 49854867 primes — 7029s elapsed — ETA 7324s]
+  [49.3% — n=985046356 — 50125575 primes — 7090s elapsed — ETA 7305s]
+  [49.5% — n=990719702 — 50399503 primes — 7151s elapsed — ETA 7285s]
+  [49.8% — n=996395863 — 50673593 primes — 7212s elapsed — ETA 7264s]
+     1000000000 │     -25217 │    31622.8 │   -0.79743  │         1.07608
+  [50.1% — n=1002595029 — 50972592 primes — 7273s elapsed — ETA 7235s]
+  [50.4% — n=1008552383 — 51260197 primes — 7334s elapsed — ETA 7210s]
+  [50.7% — n=1014747082 — 51558975 primes — 7395s elapsed — ETA 7180s]
+  [51.0% — n=1020889355 — 51855316 primes — 7456s elapsed — ETA 7151s]
+  [51.4% — n=1027023691 — 52150937 primes — 7517s elapsed — ETA 7121s]
+  [51.7% — n=1033275536 — 52452047 primes — 7578s elapsed — ETA 7090s]
+  [52.0% — n=1039504766 — 52752188 primes — 7639s elapsed — ETA 7058s]
+  [52.3% — n=1045728394 — 53051988 primes — 7700s elapsed — ETA 7027s]
+  [52.6% — n=1051936759 — 53350696 primes — 7761s elapsed — ETA 6995s]
+  [52.9% — n=1058072823 — 53645767 primes — 7822s elapsed — ETA 6963s]
+  [53.2% — n=1064255394 — 53943248 primes — 7883s elapsed — ETA 6931s]
+  [53.5% — n=1070416910 — 54240110 primes — 7944s elapsed — ETA 6899s]
+  [53.8% — n=1076561466 — 54535421 primes — 8005s elapsed — ETA 6866s]
+  [54.1% — n=1082690702 — 54830163 primes — 8066s elapsed — ETA 6834s]
+  [54.4% — n=1088681268 — 55118381 primes — 8127s elapsed — ETA 6803s]
+  [54.7% — n=1094612879 — 55403473 primes — 8188s elapsed — ETA 6773s]
+  [55.0% — n=1100577484 — 55690065 primes — 8249s elapsed — ETA 6741s]
+  [55.3% — n=1106503094 — 55974717 primes — 8310s elapsed — ETA 6710s]
+  [55.6% — n=1112387955 — 56257486 primes — 8371s elapsed — ETA 6680s]
+  [55.9% — n=1118422852 — 56546898 primes — 8432s elapsed — ETA 6646s]
+  [56.2% — n=1124113311 — 56820098 primes — 8493s elapsed — ETA 6618s]
+  [56.5% — n=1129946658 — 57099685 primes — 8554s elapsed — ETA 6587s]
+  [56.8% — n=1135869079 — 57383359 primes — 8615s elapsed — ETA 6554s]
+  [57.1% — n=1141350379 — 57645949 primes — 8676s elapsed — ETA 6527s]
+  [57.3% — n=1146348316 — 57885354 primes — 8737s elapsed — ETA 6506s]
+  [57.6% — n=1151295164 — 58122384 primes — 8798s elapsed — ETA 6486s]
+  [57.8% — n=1155547713 — 58326537 primes — 8859s elapsed — ETA 6474s]
+  [58.0% — n=1159856049 — 58532862 primes — 8920s elapsed — ETA 6461s]
+  [58.2% — n=1164117749 — 58737333 primes — 8981s elapsed — ETA 6449s]
+  [58.4% — n=1168927217 — 58967623 primes — 9042s elapsed — ETA 6429s]
+  [58.6% — n=1172726838 — 59149857 primes — 9103s elapsed — ETA 6422s]
+  [58.9% — n=1178154313 — 59409616 primes — 9164s elapsed — ETA 6393s]
+  [59.2% — n=1183946005 — 59686508 primes — 9225s elapsed — ETA 6358s]
+  [59.5% — n=1189710637 — 59962500 primes — 9286s elapsed — ETA 6325s]
+  [59.8% — n=1195463699 — 60237573 primes — 9347s elapsed — ETA 6290s]
+  [60.1% — n=1201316430 — 60517580 primes — 9408s elapsed — ETA 6255s]
+  [60.4% — n=1207141102 — 60795987 primes — 9469s elapsed — ETA 6219s]
+  [60.6% — n=1212715059 — 61062725 primes — 9530s elapsed — ETA 6187s]
+  [60.9% — n=1218442617 — 61336354 primes — 9591s elapsed — ETA 6152s]
+  [61.2% — n=1224125040 — 61608148 primes — 9652s elapsed — ETA 6118s]
+  [61.5% — n=1229797197 — 61878731 primes — 9713s elapsed — ETA 6083s]
+  [61.8% — n=1235504181 — 62151288 primes — 9774s elapsed — ETA 6048s]
+  [62.1% — n=1241175896 — 62422049 primes — 9835s elapsed — ETA 6013s]
+  [62.3% — n=1246921674 — 62696575 primes — 9896s elapsed — ETA 5977s]
+  [62.6% — n=1252590769 — 62967315 primes — 9957s elapsed — ETA 5941s]
+  [62.9% — n=1258327942 — 63241073 primes — 10018s elapsed — ETA 5905s]
+  [63.2% — n=1264056478 — 63514611 primes — 10079s elapsed — ETA 5868s]
+  [63.5% — n=1269683535 — 63783476 primes — 10140s elapsed — ETA 5832s]
+  [63.8% — n=1275230347 — 64047943 primes — 10201s elapsed — ETA 5798s]
+  [64.0% — n=1280803081 — 64313757 primes — 10262s elapsed — ETA 5762s]
+  [64.3% — n=1286305949 — 64576030 primes — 10323s elapsed — ETA 5728s]
+  [64.6% — n=1291708162 — 64833750 primes — 10384s elapsed — ETA 5694s]
+  [64.9% — n=1297157622 — 65093028 primes — 10445s elapsed — ETA 5659s]
+  [65.1% — n=1302444226 — 65344951 primes — 10506s elapsed — ETA 5627s]
+  [65.4% — n=1307398526 — 65581073 primes — 10567s elapsed — ETA 5598s]
+  [65.6% — n=1312596491 — 65828913 primes — 10628s elapsed — ETA 5566s]
+  [65.9% — n=1318113474 — 66091444 primes — 10689s elapsed — ETA 5530s]
+  [66.2% — n=1323612262 — 66353074 primes — 10750s elapsed — ETA 5493s]
+  [66.4% — n=1328965026 — 66607890 primes — 10811s elapsed — ETA 5459s]
+  [66.7% — n=1334298133 — 66861907 primes — 10872s elapsed — ETA 5424s]
+  [67.0% — n=1339795537 — 67123527 primes — 10933s elapsed — ETA 5387s]
+  [67.3% — n=1345254454 — 67383433 primes — 10994s elapsed — ETA 5351s]
+  [67.5% — n=1350686741 — 67641950 primes — 11055s elapsed — ETA 5314s]
+  [67.8% — n=1356122626 — 67900799 primes — 11116s elapsed — ETA 5278s]
+  [68.1% — n=1361629387 — 68162683 primes — 11177s elapsed — ETA 5240s]
+  [68.4% — n=1367159797 — 68425533 primes — 11238s elapsed — ETA 5202s]
+  [68.6% — n=1372677058 — 68687834 primes — 11299s elapsed — ETA 5164s]
+  [68.9% — n=1378033782 — 68941973 primes — 11360s elapsed — ETA 5127s]
+  [69.2% — n=1383268524 — 69190816 primes — 11421s elapsed — ETA 5092s]
+  [69.4% — n=1388711755 — 69448965 primes — 11482s elapsed — ETA 5054s]
+  [69.7% — n=1394187590 — 69709393 primes — 11543s elapsed — ETA 5016s]
+  [70.0% — n=1399661110 — 69969310 primes — 11604s elapsed — ETA 4977s]
+  [70.3% — n=1405125833 — 70228472 primes — 11665s elapsed — ETA 4938s]
+  [70.5% — n=1410575218 — 70487183 primes — 11726s elapsed — ETA 4900s]
+  [70.8% — n=1416023771 — 70745666 primes — 11787s elapsed — ETA 4861s]
+  [71.1% — n=1421410977 — 71001598 primes — 11848s elapsed — ETA 4823s]
+  [71.3% — n=1426840243 — 71258966 primes — 11909s elapsed — ETA 4784s]
+  [71.6% — n=1432261054 — 71516315 primes — 11970s elapsed — ETA 4745s]
+  [71.9% — n=1437667738 — 71772638 primes — 12031s elapsed — ETA 4706s]
+  [72.2% — n=1443071284 — 72028635 primes — 12092s elapsed — ETA 4667s]
+  [72.4% — n=1448458430 — 72284284 primes — 12153s elapsed — ETA 4628s]
+  [72.7% — n=1453842338 — 72539292 primes — 12214s elapsed — ETA 4588s]
+  [73.0% — n=1459217380 — 72794207 primes — 12275s elapsed — ETA 4549s]
+  [73.2% — n=1464581128 — 73048642 primes — 12336s elapsed — ETA 4510s]
+  [73.5% — n=1469918950 — 73300998 primes — 12397s elapsed — ETA 4471s]
+  [73.8% — n=1475211139 — 73551839 primes — 12458s elapsed — ETA 4432s]
+  [74.0% — n=1480479623 — 73801733 primes — 12519s elapsed — ETA 4393s]
+  [74.3% — n=1485752441 — 74051367 primes — 12580s elapsed — ETA 4354s]
+  [74.6% — n=1491016075 — 74301019 primes — 12641s elapsed — ETA 4315s]
+  [74.8% — n=1496275556 — 74550236 primes — 12702s elapsed — ETA 4276s]
+  [75.1% — n=1501529951 — 74798957 primes — 12763s elapsed — ETA 4237s]
+  [75.3% — n=1506781527 — 75047550 primes — 12824s elapsed — ETA 4198s]
+  [75.6% — n=1511999911 — 75294078 primes — 12885s elapsed — ETA 4159s]
+  [75.9% — n=1517228599 — 75541460 primes — 12946s elapsed — ETA 4119s]
+  [76.1% — n=1522436702 — 75787937 primes — 13007s elapsed — ETA 4080s]
+  [76.4% — n=1527623644 — 76033269 primes — 13068s elapsed — ETA 4041s]
+  [76.6% — n=1532836377 — 76279824 primes — 13129s elapsed — ETA 4001s]
+  [76.9% — n=1537910614 — 76519633 primes — 13190s elapsed — ETA 3963s]
+  [77.2% — n=1543035766 — 76761809 primes — 13251s elapsed — ETA 3924s]
+  [77.4% — n=1548183388 — 77005257 primes — 13312s elapsed — ETA 3885s]
+  [77.7% — n=1553342205 — 77249103 primes — 13373s elapsed — ETA 3845s]
+  [77.9% — n=1558503251 — 77492904 primes — 13434s elapsed — ETA 3806s]
+  [78.2% — n=1563670898 — 77736659 primes — 13495s elapsed — ETA 3766s]
+  [78.4% — n=1568813614 — 77979397 primes — 13556s elapsed — ETA 3726s]
+  [78.7% — n=1573937813 — 78221159 primes — 13617s elapsed — ETA 3686s]
+  [79.0% — n=1579067837 — 78463863 primes — 13678s elapsed — ETA 3646s]
+  [79.2% — n=1584207028 — 78706736 primes — 13739s elapsed — ETA 3606s]
+  [79.5% — n=1589330422 — 78948409 primes — 13800s elapsed — ETA 3566s]
+  [79.7% — n=1594413833 — 79188095 primes — 13861s elapsed — ETA 3526s]
+  [80.0% — n=1599225183 — 79415235 primes — 13922s elapsed — ETA 3489s]
+  [80.2% — n=1604129789 — 79646726 primes — 13983s elapsed — ETA 3451s]
+  [80.5% — n=1609109389 — 79881611 primes — 14044s elapsed — ETA 3412s]
+  [80.7% — n=1614121591 — 80117907 primes — 14105s elapsed — ETA 3372s]
+  [81.0% — n=1619203132 — 80357360 primes — 14166s elapsed — ETA 3331s]
+  [81.2% — n=1624251626 — 80595476 primes — 14227s elapsed — ETA 3291s]
+  [81.5% — n=1629302793 — 80833659 primes — 14288s elapsed — ETA 3251s]
+  [81.7% — n=1634401843 — 81074405 primes — 14349s elapsed — ETA 3210s]
+  [82.0% — n=1639495592 — 81314512 primes — 14410s elapsed — ETA 3169s]
+  [82.2% — n=1644549279 — 81552689 primes — 14471s elapsed — ETA 3128s]
+  [82.5% — n=1649578356 — 81789524 primes — 14532s elapsed — ETA 3087s]
+  [82.7% — n=1654652989 — 82028161 primes — 14593s elapsed — ETA 3046s]
+  [83.0% — n=1659688669 — 82265314 primes — 14654s elapsed — ETA 3005s]
+  [83.2% — n=1664706931 — 82501553 primes — 14715s elapsed — ETA 2964s]
+  [83.5% — n=1669755034 — 82739489 primes — 14776s elapsed — ETA 2922s]
+  [83.7% — n=1674786416 — 82976121 primes — 14837s elapsed — ETA 2881s]
+  [84.0% — n=1679798373 — 83212331 primes — 14898s elapsed — ETA 2840s]
+  [84.2% — n=1684762619 — 83446058 primes — 14959s elapsed — ETA 2799s]
+  [84.5% — n=1689752498 — 83681154 primes — 15020s elapsed — ETA 2758s]
+  [84.7% — n=1694760484 — 83916725 primes — 15081s elapsed — ETA 2716s]
+  [85.0% — n=1699730854 — 84150357 primes — 15142s elapsed — ETA 2675s]
+  [85.2% — n=1704684643 — 84383482 primes — 15203s elapsed — ETA 2634s]
+  [85.5% — n=1709591159 — 84614660 primes — 15264s elapsed — ETA 2593s]
+  [85.7% — n=1714528776 — 84846679 primes — 15325s elapsed — ETA 2552s]
+  [86.0% — n=1719359813 — 85074115 primes — 15386s elapsed — ETA 2511s]
+  [86.2% — n=1724012744 — 85293076 primes — 15447s elapsed — ETA 2473s]
+  [86.4% — n=1728698714 — 85513180 primes — 15508s elapsed — ETA 2434s]
+  [86.7% — n=1733439594 — 85735908 primes — 15569s elapsed — ETA 2394s]
+  [86.9% — n=1738405415 — 85969110 primes — 15630s elapsed — ETA 2352s]
+  [87.2% — n=1743350456 — 86201601 primes — 15691s elapsed — ETA 2310s]
+  [87.4% — n=1748272597 — 86432666 primes — 15752s elapsed — ETA 2268s]
+  [87.7% — n=1753186979 — 86663771 primes — 15813s elapsed — ETA 2226s]
+  [87.9% — n=1758121689 — 86895594 primes — 15874s elapsed — ETA 2184s]
+  [88.1% — n=1762935535 — 87121727 primes — 15935s elapsed — ETA 2143s]
+  [88.4% — n=1767760185 — 87348393 primes — 15996s elapsed — ETA 2101s]
+  [88.6% — n=1772613130 — 87576218 primes — 16057s elapsed — ETA 2060s]
+  [88.9% — n=1777438033 — 87802694 primes — 16118s elapsed — ETA 2018s]
+  [89.1% — n=1782241163 — 88028275 primes — 16179s elapsed — ETA 1977s]
+  [89.3% — n=1786969065 — 88250239 primes — 16240s elapsed — ETA 1936s]
+  [89.6% — n=1791720017 — 88473175 primes — 16301s elapsed — ETA 1895s]
+  [89.8% — n=1796448857 — 88695615 primes — 16362s elapsed — ETA 1854s]
+  [90.1% — n=1801327591 — 88924632 primes — 16423s elapsed — ETA 1811s]
+  [90.3% — n=1805763374 — 89132625 primes — 16484s elapsed — ETA 1773s]
+  [90.5% — n=1810055747 — 89334123 primes — 16545s elapsed — ETA 1736s]
+  [90.7% — n=1814105435 — 89523930 primes — 16606s elapsed — ETA 1702s]
+  [90.9% — n=1818351422 — 89722977 primes — 16667s elapsed — ETA 1665s]
+  [91.1% — n=1821987109 — 89893321 primes — 16728s elapsed — ETA 1634s]
+  [91.3% — n=1826321816 — 90096504 primes — 16789s elapsed — ETA 1597s]
+  [91.5% — n=1830784916 — 90305834 primes — 16850s elapsed — ETA 1557s]
+  [91.8% — n=1835330267 — 90519131 primes — 16911s elapsed — ETA 1517s]
+  [92.0% — n=1839678558 — 90722781 primes — 16972s elapsed — ETA 1479s]
+  [92.2% — n=1844370521 — 90942802 primes — 17033s elapsed — ETA 1437s]
+  [92.5% — n=1849056023 — 91162132 primes — 17094s elapsed — ETA 1395s]
+  [92.7% — n=1853918336 — 91389792 primes — 17155s elapsed — ETA 1352s]
+  [92.9% — n=1858832474 — 91620376 primes — 17216s elapsed — ETA 1307s]
+  [93.2% — n=1864090857 — 91866700 primes — 17277s elapsed — ETA 1260s]
+  [93.5% — n=1869299161 — 92110263 primes — 17338s elapsed — ETA 1212s]
+  [93.7% — n=1874538035 — 92355659 primes — 17399s elapsed — ETA 1165s]
+  [94.0% — n=1879205362 — 92574492 primes — 17460s elapsed — ETA 1122s]
+  [94.2% — n=1883818228 — 92790010 primes — 17521s elapsed — ETA 1081s]
+  [94.4% — n=1888435163 — 93006187 primes — 17582s elapsed — ETA 1039s]
+  [94.7% — n=1893064714 — 93223075 primes — 17643s elapsed — ETA 997s]
+  [94.9% — n=1897736842 — 93441697 primes — 17704s elapsed — ETA 954s]
+  [95.1% — n=1902366703 — 93658509 primes — 17765s elapsed — ETA 912s]
+  [95.3% — n=1906988749 — 93874918 primes — 17826s elapsed — ETA 869s]
+  [95.6% — n=1911588413 — 94090063 primes — 17887s elapsed — ETA 827s]
+  [95.8% — n=1916156926 — 94303853 primes — 17948s elapsed — ETA 785s]
+  [96.0% — n=1920820571 — 94521654 primes — 18009s elapsed — ETA 742s]
+  [96.3% — n=1925552389 — 94742952 primes — 18070s elapsed — ETA 699s]
+  [96.5% — n=1930407153 — 94970036 primes — 18131s elapsed — ETA 654s]
+  [96.8% — n=1935357059 — 95201755 primes — 18192s elapsed — ETA 608s]
+  [97.0% — n=1940295467 — 95432388 primes — 18253s elapsed — ETA 562s]
+  [97.3% — n=1945230103 — 95663114 primes — 18314s elapsed — ETA 516s]
+  [97.5% — n=1950175588 — 95894469 primes — 18375s elapsed — ETA 469s]
+  [97.8% — n=1955117686 — 96125648 primes — 18436s elapsed — ETA 423s]
+  [98.0% — n=1959989771 — 96353401 primes — 18497s elapsed — ETA 378s]
+  [98.2% — n=1964751860 — 96575802 primes — 18558s elapsed — ETA 333s]
+  [98.5% — n=1969385377 — 96792244 primes — 18619s elapsed — ETA 289s]
+  [98.7% — n=1974017289 — 97008848 primes — 18680s elapsed — ETA 246s]
+  [98.9% — n=1978725616 — 97229048 primes — 18741s elapsed — ETA 201s]
+  [99.2% — n=1983683297 — 97460610 primes — 18802s elapsed — ETA 155s]
+  [99.4% — n=1988634569 — 97691781 primes — 18863s elapsed — ETA 108s]
+  [99.7% — n=1993579347 — 97922751 primes — 18924s elapsed — ETA 61s]
+  [99.9% — n=1998407894 — 98148191 primes — 18985s elapsed — ETA 15s]
+     2000000000 │     -23089 │    44721.4 │   -0.51629  │         1.07608
+
+Complete. 98222287 primes found in 19004 seconds.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TABLE 1: H''''/H''' RATIO IN 1964 WINDOWS OF 50000 GAPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Windows: 1964
+  Mean ratio:  1.871831
+  Std dev:     0.001071
+  Min ratio:   1.867779 (window 1606)
+  Max ratio:   1.875628 (window 7)
+  Anomalies (|r - 1.873| > 0.01): 0 / 1964 (0.00%)
+
+  Sample windows:
+  Window │ Ratio  │ Mean gap │ vs 1.873
+  ───────┼────────┼──────────┼─────────
+       0 │ 1.8724 │    12.24 │ -0.0006  
+      98 │ 1.8728 │    18.30 │ -0.0002  
+     196 │ 1.8720 │    18.99 │ -0.0010  
+     294 │ 1.8727 │    19.42 │ -0.0003  
+     392 │ 1.8712 │    19.71 │ -0.0018  
+     490 │ 1.8704 │    19.91 │ -0.0026  
+     588 │ 1.8711 │    20.09 │ -0.0019  
+     686 │ 1.8712 │    20.28 │ -0.0018  
+     784 │ 1.8709 │    20.47 │ -0.0021  
+     882 │ 1.8728 │    20.58 │ -0.0002  
+     980 │ 1.8725 │    20.69 │ -0.0005  
+    1078 │ 1.8707 │    20.69 │ -0.0023  
+    1176 │ 1.8728 │    20.93 │ -0.0002  
+    1274 │ 1.8714 │    20.93 │ -0.0016  
+    1372 │ 1.8715 │    21.04 │ -0.0015  
+    1470 │ 1.8717 │    21.06 │ -0.0013  
+    1568 │ 1.8706 │    21.06 │ -0.0024  
+    1666 │ 1.8719 │    21.29 │ -0.0011  
+    1764 │ 1.8714 │    21.34 │ -0.0016  
+    1862 │ 1.8710 │    21.44 │ -0.0020  
+    1960 │ 1.8721 │    21.44 │ -0.0009  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TABLE 2: RATIO DRIFT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Linear fit: ratio = 1.871958 + -1.30e-07 × window
+  Slope per million gaps: -2.59e-06
+  Drift across full range: -0.000254
+  Verdict: NO DRIFT — ratio is constant ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TABLE 3: LIOUVILLE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Maximum |L(x)/√x|: 1.07608 at x = 50000000
+  Does |L(x)/√x| exceed 1.0? YES — excursion observed
+  Is it growing? Check the checkpoints above.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUMMARY: HUNDRED MILLION GAPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Scale: 98222287 primes up to 2000000000
+  Windows: 1964 × 50000 gaps = 98200000 total
+  Ratio: 1.871831 ± 0.001071
+  Drift: -1.30e-07 per window
+  Anomalies: 0 / 1964
+  Liouville max |L/√x|: 1.07608
+  Time: 19004 seconds
+
+  VERDICT: More yes. Ratio stable across 100M+ gaps.
+  NOTE: Liouville excursion past 1.0 confirmed.
+  This is known behavior, not an RH violation.

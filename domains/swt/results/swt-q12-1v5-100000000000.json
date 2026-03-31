@@ -1,0 +1,15 @@
+{
+  "conjecture": "pi(12,5) vs pi(12,1)",
+  "q": 12, "a": 1, "b": 5,
+  "verify_limit": 100000000000,
+  "train_bias": 878,
+  "train_reversals": 0,
+  "waves": 30,
+  "dc": 39.6260,
+  "predicted_log10": 8.3571,
+  "first_reversal": null,
+  "status": "NOT_FOUND",
+  "searched_to": 100000000000,
+  "final_bias": 21028,
+  "time_seconds": 375
+}
