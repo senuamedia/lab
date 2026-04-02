@@ -110,11 +110,15 @@ experiments/
     ├── experiment_tipping_point.c
     ├── experiment_crossshell_transfer.c
     ├── experiment_scaffold_array.c
-    └── experiment_multi_array.c
+    ├── experiment_multi_array.c
+    ├── experiment_wide_n_convergence.c    # v9: uniform-in-N subcriticality
+    └── experiment_leray_cancellation.c   # v9: geometric reserve measurement
 
 results/
 ├── v2_original/                # 23 result files from v2 solver
 ├── v3_final/                   # Results from corrected v3 solver
+│   ├── wide_n_convergence.txt  # v9: uniform-in-N subcriticality (rho across N=3-10)
+│   └── leray_cancellation.txt  # v9: Leray sin²θ geometric reserve
 ├── universality/               # 16-configuration universality sweep
 └── framework_comparison/       # v2 vs v3 framework diagnostic results
 ```
@@ -241,6 +245,64 @@ gcc -O2 tipping.o ../../solvers/v3/kernel.o -o run_tipping -lm
 ```
 
 **Expected:** All contraction ratios ρ < 1 at every amplitude through A=0.35.
+
+---
+
+## Validation Case: Proof of Life (NS Convergence vs Euler Divergence)
+
+A skeptical researcher can verify in under 10 minutes that:
+1. The v3 solver **converges** (rho < 1) for Navier-Stokes (nu > 0).
+2. The v3 solver **diverges** (rho > 1) for Euler (nu = 0).
+3. The cascade exponent gamma < 0 in **both** cases.
+
+This demonstrates the solver is not "rigged to converge" — it correctly identifies the qualitative boundary between dissipative and conservative dynamics.
+
+### Run the NS convergence test
+
+```bash
+# Build
+gcc -O3 -c solvers/v3/triad_kernel_v3.c -o build/kernel.o
+gcc -O3 experiments/v3_final/experiment_wide_n_convergence.c build/kernel.o -o build/wide_n -lm
+
+# Run (~10 minutes)
+./build/wide_n
+```
+
+**Expected:** All scaffold groups pass (rho < 1) at every amplitude. Contraction ratio decreases with N — adding resolution strengthens regularity.
+
+| A    | Group A (N=3-8) | Group B (N=5-9) | Group C (N=7-10) |
+|------|-----------------|-----------------|------------------|
+| 0.10 | 0.625           | 0.147           | 0.129            |
+| 0.20 | 0.677           | 0.272           | 0.272            |
+| 0.30 | 0.757           | 0.424           | 0.424            |
+
+### Compare with Euler divergence
+
+The companion Euler experiments (Paper 4) show the opposite pattern at nu = 0:
+
+| Diagnostic   | max rho (Euler, nu=0) | max rho (NS, nu=0.01) |
+|-------------|----------------------|----------------------|
+| Energy       | **1.70** (diverging)  | 0.42 (contracting)   |
+| Enstrophy    | **2.36** (diverging)  | 0.48 (contracting)   |
+| Palinstrophy | **3.77** (diverging)  | — |
+| Max shell growth | **4.84** (diverging) | — |
+
+The peak rho = 4.84 occurs at the N=6 to N=8 transition with the standard distributed IC (A=0.3) — the most ordinary initial condition, not an exotic worst case. Adding resolution makes the Euler system *worse*; adding resolution makes the NS system *better*. The scaffold array discriminates.
+
+### The "Broken Euler" test
+
+The v2 solver (missing -i) can be tested against v3 to see the "Broken Euler" effect:
+
+```bash
+# Build with v2 kernel
+gcc -O3 -c solvers/v2/triad_kernel_v2.c -o build/kernel_v2.o
+gcc -O3 experiments/v3_final/experiment_energy_audit.c build/kernel_v2.o -o build/audit_v2 -lm
+
+# Run
+./build/audit_v2
+```
+
+**Expected:** Energy drift of +1% to +15% at nu=0, completely dt-independent. The v2 solver's rho pattern matches Euler divergence (rho > 1), not NS convergence — it was simulating a broken Euler equation while claiming to simulate Navier-Stokes.
 
 ---
 
