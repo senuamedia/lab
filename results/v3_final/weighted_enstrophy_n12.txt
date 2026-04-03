@@ -1,0 +1,20 @@
+############################################################
+#  WEIGHTED ENSTROPHY: Finding the right norm              #
+#                                                          #
+#  Ω_std     = Σ |k|² |û|²              (standard)        #
+#  Ω_inv_η  = Σ (1/η_k) |k|² |û|²      (inverse cascade)#
+#  Ω_cap_η  = Σ min(1,1/η_k) |k|² |û|² (capped)         #
+#  Ω_frac   = Σ D/(D+|T|) |k|² |û|²    (diffusion frac) #
+#  Ω_exp    = Σ exp(-max(0,η-1)) |k|²|û|² (exp suppress) #
+#                                                          #
+#  If ANY weighted norm converges at ALL amplitudes:       #
+#    We've found the function space for the uniform bound  #
+############################################################
+
+  nu=0.0100, dt=0.000050, steps=10000, N_max=12
+
+  Amp    ρ_Ω_std   ρ_Ω_inv_η ρ_Ω_cap_η ρ_Ω_frac  ρ_Ω_exp   
+  -----  ---------- ---------- ---------- ---------- ---------- 
+  0.10     0.179775   0.304785   0.304785   0.299939   0.267689  ← all pass
+  0.20     0.197585   0.127943   0.127943   0.106537   0.135168  ← all pass
+  0.30     0.229518   0.216975   0.216975   0.204871   0.273320  ← all pass

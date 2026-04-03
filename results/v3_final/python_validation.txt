@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File [35m"/Users/rod/code/ns-proof/validation/ns_galerkin_3d.py"[0m, line [35m23[0m, in [35m<module>[0m
+    import numpy as np
+[1;35mModuleNotFoundError[0m: [35mNo module named 'numpy'[0m

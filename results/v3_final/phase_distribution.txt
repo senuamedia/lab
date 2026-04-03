@@ -1,0 +1,46 @@
+################################################################
+#  PHASE DISTRIBUTION & CLT TEST                               #
+#                                                              #
+#  For each shell K, decompose T_K into individual triad       #
+#  contributions and test the CLT prediction:                  #
+#    |T_K| / Σ|contrib_i| ~ 1/√n(K)                           #
+#                                                              #
+#  N=8, A=0.30, nu=0.0100                                      #
+################################################################
+
+  Shell  n(K)      |T_K|(CS)     |T_K|(actual)  Σ|contrib|    |T|/Σ|c|    1/√n      ratio/(1/√n)
+  -----  --------  -----------   -----------   ----------   ---------   -------   ------------
+  1      33396      4.6902e+00    1.8534e-16   4.6902e+00    0.000000   0.00547         0.0000
+  2      103326     1.2828e+01    3.9739e-16   1.2828e+01    0.000000   0.00311         0.0000
+  3      146212     4.9784e+00    2.8830e-17   4.9784e+00    0.000000   0.00262         0.0000
+  4      276906     1.9428e-01    3.4631e-18   1.9428e-01    0.000000   0.00190         0.0000
+  5      394916     4.1196e-02    1.0489e-18   4.1196e-02    0.000000   0.00159         0.0000
+  6      427794     5.1108e-03    1.2366e-19   5.1108e-03    0.000000   0.00153         0.0000
+  7      477840     8.1487e-04    2.4163e-20   8.1487e-04    0.000000   0.00145         0.0000
+  8      218778     6.6200e-05    3.0594e-21   6.6200e-05    0.000000   0.00214         0.0000
+
+  === CLT PREDICTION TEST ===
+
+  If |T_K|/Σ|c| ≈ 1/√n(K):  phases are effectively random → CLT holds.
+  If |T_K|/Σ|c| << 1/√n(K): phases are MORE aligned → stronger cancellation.
+  If |T_K|/Σ|c| >> 1/√n(K): phases are LESS spread → weaker cancellation.
+
+  The ratio (|T|/Σ|c|) / (1/√n) should be ≈ constant if CLT holds.
+  If it decreases with K: extra cancellation beyond CLT at high K.
+  If it increases with K: CLT overestimates cancellation at high K.
+
+################################################################
+#  IMPLICATIONS FOR THE ANALYTICAL BRIDGE:                     #
+#                                                              #
+#  If CLT holds: |T_K| ~ Σ|c| / √n(K)                        #
+#    Since Σ|c| ≤ CS_bound (by definition)                     #
+#    and n(K) ~ K² (from triad count scaling)                  #
+#    → |T_K| ≤ CS_bound / K = CS_bound · K^{-1}              #
+#    → p = 1 in the conjecture r(K) ~ K^{-p}                  #
+#                                                              #
+#  A CLT-type proof would need:                                #
+#    1. The phases of triad contributions are 'spread'         #
+#    2. The contributions are not too correlated               #
+#    3. No single triad dominates the sum                      #
+#  All three are testable from this data.                      #
+################################################################

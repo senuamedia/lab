@@ -1,0 +1,105 @@
+############################################################
+#  CLEAN w_decay TEST                                      #
+#                                                          #
+#  Minimal implementation. One ν, one A, verified output.  #
+#  ν=0.010, ν₀=0.010, A=0.3, λ=2.0                     #
+#  dt=0.000100, update_interval=50, update_dt=0.005000            #
+#  Decay integral: dec_k += excess_k * update_dt           #
+#  Then: dec_k *= exp(-λ * update_dt)                      #
+############################################################
+
+  === T=0.5 (5000 steps, 100 samples) ===
+
+    N=2 step=50  maxη=   3.61  maxDec=  0.0130  Ω_inst=    0.1700  Ω_decay=    2.1570
+    N=2 step=1300  maxη=   4.98  maxDec=  0.3688  Ω_inst=    0.0504  Ω_decay=    1.5460
+    N=2 step=2550  maxη=   6.39  maxDec=  0.8161  Ω_inst=    0.0150  Ω_decay=    1.0540
+    N=2 step=5000  maxη=   8.55  maxDec=  1.7817  Ω_inst=    0.0014  Ω_decay=    0.4484
+    N=8 step=50  maxη= 817.33  maxDec=  4.0816  Ω_inst=    0.1655  Ω_decay=    2.1568
+    N=8 step=1300  maxη=  75.87  maxDec= 21.1884  Ω_inst=    0.0644  Ω_decay=    1.4857
+    N=8 step=2550  maxη=  46.37  maxDec= 22.1104  Ω_inst=    0.0201  Ω_decay=    0.9858
+    N=8 step=5000  maxη=  37.06  maxDec= 20.7767  Ω_inst=    0.0006  Ω_decay=    0.3870
+
+  Pairwise distances:
+  Pair         dist_inst      dist_decay
+  S_2 vs S_3   7.698075e-02  5.318617e-01
+  S_3 vs S_4   5.004041e-03  4.622037e-02
+  S_4 vs S_5   2.546086e-04  3.342517e-03
+  S_5 vs S_6   1.204369e-05  1.894867e-04
+  S_6 vs S_7   1.821885e-06  3.258797e-05
+  S_7 vs S_8   7.647765e-07  1.308455e-05
+
+  Contraction ratios:
+  Ratio            ρ_inst      ρ_decay
+  d(3,4)/d(2,3)      0.065004    0.086903
+  d(4,5)/d(3,4)      0.050881    0.072317
+  d(5,6)/d(4,5)      0.047303    0.056690
+  d(6,7)/d(5,6)      0.151273    0.171980
+  d(7,8)/d(6,7)      0.419772    0.401515
+
+  >>> T=0.5 RESULT: ρ_inst = 0.419772  ρ_decay = 0.401515  ← decay BETTER by 4.3%
+
+  === T=1.0 (10000 steps, 200 samples) ===
+
+    N=2 step=50  maxη=   3.61  maxDec=  0.0130  Ω_inst=    0.1700  Ω_decay=    2.1570
+    N=2 step=2550  maxη=   6.39  maxDec=  0.8161  Ω_inst=    0.0150  Ω_decay=    1.0540
+    N=2 step=5050  maxη=   8.61  maxDec=  1.8014  Ω_inst=    0.0013  Ω_decay=    0.4402
+    N=2 step=10000  maxη=  14.39  maxDec=  4.1022  Ω_inst=    0.0000  Ω_decay=    0.0639
+    N=8 step=50  maxη= 817.33  maxDec=  4.0816  Ω_inst=    0.1655  Ω_decay=    2.1568
+    N=8 step=2550  maxη=  46.37  maxDec= 22.1104  Ω_inst=    0.0201  Ω_decay=    0.9858
+    N=8 step=5050  maxη=  37.05  maxDec= 20.7502  Ω_inst=    0.0005  Ω_decay=    0.3782
+    N=8 step=10000  maxη= 360.17  maxDec= 25.9792  Ω_inst=    0.0000  Ω_decay=    1.8950
+
+  Pairwise distances:
+  Pair         dist_inst      dist_decay
+  S_2 vs S_3   7.703539e-02  8.378494e-01
+  S_3 vs S_4   5.012642e-03  9.054820e-02
+  S_4 vs S_5   2.627447e-04  3.045272e-02
+  S_5 vs S_6   1.283233e-05  1.167894e-03
+  S_6 vs S_7   2.875850e-06  1.045357e-01
+  S_7 vs S_8   5.016281e-02  2.950101e+00
+
+  Contraction ratios:
+  Ratio            ρ_inst      ρ_decay
+  d(3,4)/d(2,3)      0.065069    0.108072
+  d(4,5)/d(3,4)      0.052416    0.336315
+  d(5,6)/d(4,5)      0.048840    0.038351
+  d(6,7)/d(5,6)      0.224110   89.507885
+  d(7,8)/d(6,7)    17442.779101   28.220984
+
+  >>> T=1.0 RESULT: ρ_inst = 17442.779101  ρ_decay = 89.507885  ← decay BETTER by 99.5%
+
+  === T=2.0 (20000 steps, 200 samples) ===
+
+    N=2 step=50  maxη=   3.61  maxDec=  0.0130  Ω_inst=    0.1700  Ω_decay=    2.1570
+    N=2 step=2550  maxη=   6.39  maxDec=  0.8161  Ω_inst=    0.0150  Ω_decay=    1.0540
+    N=2 step=5050  maxη=   8.61  maxDec=  1.8014  Ω_inst=    0.0013  Ω_decay=    0.4402
+    N=2 step=10000  maxη=  14.39  maxDec=  4.1022  Ω_inst=    0.0000  Ω_decay=    0.0639
+    N=8 step=50  maxη= 817.33  maxDec=  4.0816  Ω_inst=    0.1655  Ω_decay=    2.1568
+    N=8 step=2550  maxη=  46.37  maxDec= 22.1104  Ω_inst=    0.0201  Ω_decay=    0.9858
+    N=8 step=5050  maxη=  37.05  maxDec= 20.7502  Ω_inst=    0.0005  Ω_decay=    0.3782
+    N=8 step=10000  maxη= 360.17  maxDec= 25.9792  Ω_inst=    0.0000  Ω_decay=    1.8950
+
+  Pairwise distances:
+  Pair         dist_inst      dist_decay
+  S_2 vs S_3   7.703539e-02  8.378494e-01
+  S_3 vs S_4   5.012642e-03  9.054820e-02
+  S_4 vs S_5   2.627447e-04  3.045272e-02
+  S_5 vs S_6   1.283233e-05  1.167894e-03
+  S_6 vs S_7   2.875850e-06  1.045357e-01
+  S_7 vs S_8   5.016281e-02  2.950101e+00
+
+  Contraction ratios:
+  Ratio            ρ_inst      ρ_decay
+  d(3,4)/d(2,3)      0.065069    0.108072
+  d(4,5)/d(3,4)      0.052416    0.336315
+  d(5,6)/d(4,5)      0.048840    0.038351
+  d(6,7)/d(5,6)      0.224110   89.507885
+  d(7,8)/d(6,7)    17442.779101   28.220984
+
+  >>> T=2.0 RESULT: ρ_inst = 17442.779101  ρ_decay = 89.507885  ← decay BETTER by 99.5%
+
+############################################################
+#  If ρ_decay < ρ_inst at T=2.0: memory genuinely helps.  #
+#  If ρ_decay ≈ ρ_inst: memory makes no difference.       #
+#  If ρ_decay > ρ_inst: memory makes it WORSE.            #
+############################################################

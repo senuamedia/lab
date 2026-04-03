@@ -1,0 +1,20 @@
+# 3D Galerkin A*(N) Results — v2 kernel (corrected)
+# Full 3D NS on T³, exact Fourier coupling, Leray projection
+# nu=0.01, dt=0.0001, steps=5000, threshold=10000
+# Date: 2026-03-22
+
+N_max  Modes   Triads       A*           ΔA*
+2      32      426          1.7674       ---
+3      122     6642         0.8275       -0.9399
+4      256     30360        0.3632       -0.4643
+5      514     122472       0.2809       -0.0823
+6      924     398190       0.1470       -0.1339
+7      1418    939930       0.0861       -0.0609
+8      2108    2079168      PENDING
+
+# Power-law fit (N=2-7): A*(N) = C / N^α
+# α = 2.3597
+# C = 10.0494
+# Predicted A*(8) = 0.0743
+# Critical Sobolev exponent s_c = 0.5
+# Margin: α - s_c = 1.86

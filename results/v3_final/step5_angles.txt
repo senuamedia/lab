@@ -1,0 +1,97 @@
+################################################################
+#  STEP 5: SIX ANGLES                                          #
+#  N=8, A=0.30, nu=0.0100                                      #
+################################################################
+
+  === ANGLE 1: Zero-sum variance bound (Chebyshev) ===
+
+  K     |T_K|       Chebyshev    ratio      improvement over CS
+  ----  ----------  ----------   ---------  -------------------
+  1      1.424e-01   8.107e-01      0.1757               0.0019
+  2      5.828e-01   8.107e-01      0.7189               0.0012
+  3      3.489e-01   8.107e-01      0.4304               0.0017
+  4      3.056e-01   8.107e-01      0.3769               0.0117
+  5      6.505e-02   8.107e-01      0.0802               0.0238
+  6      5.050e-03   8.107e-01      0.0062               0.0948
+  7      6.179e-04   8.107e-01      0.0008               0.2852
+  8      5.794e-05   8.107e-01      0.0001               0.9313
+
+  === ANGLE 4: Wave kernel convolution ===
+
+  d       W(d)         |W(d)|       count
+  ------  -----------  -----------  ------
+   -4     -2.8844e-02   2.8844e-02   4
+   -3     -4.0931e-01   4.0931e-01   5
+   -2     -2.1259e-01   2.1259e-01   6
+   -1     -1.7897e-01   1.7897e-01   7
+   +0     +4.9208e-04   4.9208e-04   8
+   +1     +3.9267e-02   3.9267e-02   7
+   +2     +6.2038e-02   6.2038e-02   6
+   +3     +1.8300e-02   1.8300e-02   5
+   +4     +1.4349e-03   1.4349e-03   4
+
+  ||W||₁ = 9.5125e-01
+  Young's bound: |T_K| ≤ ||W||₁ · max E_S = 9.5125e-01 · 1.2242e+00 = 1.1646e+00
+  Actual max |T_K| = 5.8300e-01
+
+  === ANGLE 5: Per-mode zero-sum bound ===
+
+  K     |T_K|       per-mode bound  ratio       improvement
+  ----  ----------  ---------------  ----------  -----------
+  1      1.424e-01        1.173e+00      0.1214  (per-mode)
+  2      5.828e-01        1.173e+00      0.4967  (per-mode)
+  3      3.489e-01        1.173e+00      0.2974  (per-mode)
+  4      3.056e-01        1.173e+00      0.2604  (per-mode)
+  5      6.505e-02        1.173e+00      0.0554  (per-mode)
+  6      5.050e-03        1.173e+00      0.0043  (per-mode)
+  7      6.179e-04        1.173e+00      0.0005  (per-mode)
+  8      5.794e-05        1.173e+00      0.0000  (per-mode)
+
+  === ANGLE 6: Significant triads (E_S > 1% of E_total) ===
+
+  K     n_total     n_signif    ratio_n     G(K)_full   G(K)_signif  improvement
+  ----  ----------  ----------  ---------   ----------  -----------  -----------
+  1     33396       3186           0.0954     4.06e+03     3.24e+03       0.7987
+  2     103326      10974          0.1062     2.60e+03     2.09e+03       0.8018
+  3     146212      17346          0.1186     2.95e+03     2.39e+03       0.8105
+  4     276906      37380          0.1350     2.69e+04     2.23e+04       0.8293
+  5     394916      59628          0.1510     6.11e+04     5.21e+04       0.8526
+  6     427794      64026          0.1497     2.02e+05     1.74e+05       0.8586
+  7     477840      64552          0.1351     4.97e+05     4.22e+05       0.8484
+  8     218778      25842          0.1181     5.48e+05     4.56e+05       0.8315
+
+  === ANGLE 3: Energy dissipation budget ===
+
+  E(t) = 2.3849, Ω(t) = 11.3926
+  ∫Ω dt budget = E₀/(2ν) = 2.3849/(0.0200) = 119.25
+  If Ω stays at current value: budget lasts 10.47 time units
+  If Ω doubles: budget lasts 5.23 time units
+  Implication: Ω cannot stay large indefinitely.
+  The time-integrated constraint limits how long |T_K| > νK²E_K can persist.
+
+  === ANGLE 2: Effective independent count ===
+
+  K     n_triads    |T_K|       Σ|c_i|      |T|/Σ|c|    effective_n    n_eff/n
+  ----  ----------  ----------  ----------  ---------   -----------    -------
+  1     33396        1.424e-01   8.826e-01     0.1614          38.4     0.0011
+  2     103326       5.828e-01   3.825e+00     0.1524          43.1     0.0004
+  3     146212       3.489e-01   3.205e+00     0.1089          84.3     0.0006
+  4     276906       3.056e-01   8.263e-01     0.3698           7.3     0.0000
+  5     394916       6.505e-02   1.603e-01     0.4058           6.1     0.0000
+  6     427794       5.050e-03   1.364e-02     0.3703           7.3     0.0000
+  7     477840       6.179e-04   1.783e-03     0.3465           8.3     0.0000
+  8     218778       5.794e-05   1.482e-04     0.3911           6.5     0.0000
+
+################################################################
+#  WHICH ANGLE CLOSES THE GAP?                                 #
+#                                                              #
+#  Look for: ratio(actual/bound) close to 1                   #
+#  The tightest bound is the best candidate for Step 5.       #
+#                                                              #
+#  Angle 1 (Chebyshev): uses zero-sum at shell level         #
+#  Angle 4 (convolution): uses wave structure                  #
+#  Angle 5 (per-mode): uses zero-sum at mode level           #
+#  Angle 6 (significant): restricts to energetic triads      #
+#  Angle 3 (dissipation): time-integrated constraint         #
+#  Angle 2 (effective n): measures effective independence     #
+################################################################

@@ -1,0 +1,40 @@
+############################################################
+#  INTERIOR SHELLS: Exclude truncation boundary            #
+#                                                          #
+#  Ω_full  = shells 1..N     (includes boundary pile-up)  #
+#  Ω_trim1 = shells 1..N-1   (exclude top 1)             #
+#  Ω_trim2 = shells 1..N-2   (exclude top 2)             #
+#  Ω_trim3 = shells 1..N-3   (exclude top 3)             #
+#                                                          #
+#  If Ω_trim contracts at ALL (ν, A, T):                  #
+#    Divergence is a truncation artefact, not physics.     #
+############################################################
+
+  ν     Amp    T      ρ_full     ρ_trim1    ρ_trim2    ρ_trim3    Interior?
+  -----  -----  -----  ---------  ---------  ---------  ---------  ---------
+  0.010  0.1    0.5       0.2052     0.0703     0.1287  *3190.3487  YES
+  0.010  0.3    0.5    *  1.0816  *  1.0525     0.6906  *254.4357  YES
+  0.010  0.5    0.5    *  7.4654  *  8.6995  *  7.1003  *113.6624  no
+  0.010  1.0    0.5       0.0000     0.0000     0.0000     0.0000  YES
+  0.010  0.3    1.0    * 36.3169  * 46.2468  * 32.0305  * 98.2567  no
+  0.010  0.3    2.0       0.0000     0.0000     0.0000     0.0000  YES
+  0.010  0.5    1.0       0.0000     0.0000     0.0000     0.0000  YES
+  0.005  0.3    0.5    *  1.1232  *  1.0944     0.7140  *249.1750  YES
+  0.005  0.3    1.0    *370.8708  *463.3215  *250.7418  *516.9551  no
+  0.005  0.5    0.5    *  7.8165  *  9.1421  *  7.4842  *111.9018  no
+  0.010  1.0    1.0       0.0000     0.0000     0.0000     0.0000  YES
+  0.010  2.0    0.5       0.0000     0.0000     0.0000     0.0000  YES
+  0.001  0.3    0.5    *  1.1445  *  1.1158     0.7247  *247.0436  YES
+  0.001  0.5    0.5    *  8.0056  *  9.3729  *  7.6515  *111.0652  no
+
+############################################################
+#  If Interior=YES on every row:                           #
+#    ALL divergence is at the truncation boundary.         #
+#    The interior fluid dynamics CONVERGE.                 #
+#    The limit N→∞ has no boundary → no pile-up → regular #
+#                                                          #
+#  This would mean NS regularity follows from:            #
+#    1. Interior shells converge (computational)           #
+#    2. Boundary effect vanishes as N→∞ (analytical)      #
+#    3. Limit solution inherits interior convergence       #
+############################################################

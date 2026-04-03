@@ -1,0 +1,60 @@
+############################################################
+#  CROSS-SHELL TRANSFER: Accumulation diagnostic           #
+#                                                          #
+#  New arrays between per-shell η and total enstrophy:     #
+#    XFER_ABS  = Σ_k |T_net(k)|  (total redistribution)   #
+#    DIFF_TOT  = Σ_k D_k          (total dissipation)     #
+#    ACCUM_R   = XFER_ABS/DIFF_TOT (accumulation ratio)   #
+#                                                          #
+#  If ACCUM_R converges across N: transfer is bounded      #
+#  If ACCUM_R diverges: cascade overwhelms via accumulation#
+############################################################
+
+  nu=0.0100, dt=0.000100, steps=5000, N_max=6
+
+  Amp    ρ_ENERGY   ρ_ENSTROPHY ρ_SHELL_η ρ_XFER_ABS ρ_DIFF_TOT ρ_ACCUM_R   First_fail
+  -----  ---------- ---------- ---------- ---------- ---------- ----------  ----------
+  0.20     0.185325   0.295594   0.431191   0.236254   0.274694   0.207659  NONE
+  0.25     0.240739   0.376213   0.512003   0.334360   0.359788   0.308396  NONE
+  0.28     0.331730   0.498042   0.532275   0.462586   0.498457   0.409174  NONE
+  0.30     0.409516   0.617204   0.531644   0.573019   0.617177   0.486125  NONE
+  0.32     0.505150   0.764215   0.526655   0.709495   0.763095   0.567499  NONE
+  0.35     0.692439 * 1.052973   0.520098   0.978052 * 1.048157   0.682854  ENSTROPHY
+  0.40   * 1.177233 * 1.801475   0.517752 * 1.675835 * 1.779756   0.774674  ENERGY
+  0.50   * 3.511761 * 5.394843   0.613081 * 5.069230 * 5.224888   0.613305  ENERGY
+
+  === Detailed contraction ratios at A=0.32 ===
+
+  N=2: E=1.151663 Ω=2.521611 maxη=9.5161 |Xfer|=0.553954 Diff=0.058513 Accum=9.4672
+  N=3: E=1.270023 Ω=3.239796 maxη=27.3615 |Xfer|=1.233651 Diff=0.075099 Accum=16.4269
+  N=4: E=1.318147 Ω=3.734071 maxη=34.5138 |Xfer|=1.684285 Diff=0.085358 Accum=19.7321
+  N=5: E=1.336006 Ω=4.049405 maxη=36.8814 |Xfer|=1.951888 Diff=0.091953 Accum=21.2271
+  N=6: E=1.346606 Ω=4.332727 maxη=39.0005 |Xfer|=2.176813 Diff=0.097865 Accum=22.2429
+
+  Pairwise distances:
+  Pair         ENERGY     ENSTROPHY  SHELL_η   XFER_ABS   DIFF_TOT   ACCUM_R    
+  S_2 vs S_3     4.78e-01   2.94e+00   1.37e+03   3.08e+00   6.82e-02   3.81e+01 
+  S_3 vs S_4     1.59e-01   1.62e+00   5.75e+01   1.53e+00   3.40e-02   1.37e+01 
+  S_4 vs S_5     4.72e-02   8.30e-01   3.03e+01   7.19e-01   1.74e-02   4.86e+00 
+  S_5 vs S_6     2.39e-02   6.34e-01   9.69e+00   5.10e-01   1.33e-02   2.76e+00 
+
+  Contraction ratios:
+  Ratio            ENERGY     ENSTROPHY  SHELL_η   XFER_ABS   DIFF_TOT   ACCUM_R    
+  d(3,4)/d(2,3)      0.332067   0.551546   0.042030   0.497114   0.498300   0.358248 
+  d(4,5)/d(3,4)      0.297815   0.511359   0.526655   0.469563   0.511109   0.355880 
+  d(5,6)/d(4,5)      0.505150   0.764215   0.319633   0.709495   0.763095   0.567499 
+
+############################################################
+#  KEY QUESTION:                                           #
+#                                                          #
+#  Does ACCUM_R (accumulation ratio) fail BEFORE or AFTER  #
+#  ENSTROPHY?                                              #
+#                                                          #
+#  If BEFORE: accumulation causes enstrophy divergence.    #
+#  If AFTER: enstrophy diverges for a different reason.    #
+#  If SAME: accumulation IS the enstrophy divergence.      #
+#                                                          #
+#  If ACCUM_R converges where ENSTROPHY diverges:          #
+#    The transfer PATTERN is stable — the problem is       #
+#    the k² weighting in enstrophy, not the physics.       #
+############################################################
