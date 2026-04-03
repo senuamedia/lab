@@ -1,0 +1,44 @@
+################################################################
+#  ||∇ξ|| SENSITIVITY ANALYSIS                                 #
+#                                                              #
+#  B: IC family (distributed, Taylor-Green, concentrated)      #
+#  C: Grid resolution (M = 16, 32, 64)                        #
+#  D: Threshold (5%, 10%, 20%, 50%)                          #
+#                                                              #
+#  N=8, A=0.30, nu=0.0100                                      #
+################################################################
+
+  === TEST B: IC family dependence (M=32, threshold=10%) ===
+
+  IC family       ||∇ξ||(t=0)   ||∇ξ||(t=0.2)   Ω(0)      Ω(0.2)
+  --------------  -----------   -------------   --------  --------
+  Distributed          5.0435          5.0924    11.2824   13.7639
+  Taylor-Green         4.1584          4.1585     0.0084    0.0083
+  Concentrated         4.7940          5.0928    31.4964   44.7964
+
+  === TEST C: Grid resolution (distributed IC, threshold=10%) ===
+
+  Grid    ||∇ξ||(t=0)   ||∇ξ||(t=0.2)
+  ------  -----------   -------------
+  16³          2.5449          2.5462
+  32³          5.0435          5.0924
+  64³          8.7673         10.1845
+
+  === TEST D: Threshold dependence (distributed IC, M=32) ===
+
+  Threshold   ||∇ξ||(t=0)   ||∇ξ||(t=0.2)   #HV(t=0)   #HV(t=0.2)
+  ----------  -----------   -------------   ---------   ----------
+      5%            5.0882          5.0929       32514        31478
+     10%            5.0435          5.0924       30588        25303
+     20%            4.4018          5.0901       21686        10259
+     50%            2.3472          1.6453        3650          914
+
+################################################################
+#  INTERPRETATION:                                             #
+#                                                              #
+#  If ||∇ξ|| varies with IC: it's IC-dependent (geometric).   #
+#  If ||∇ξ|| is constant across ICs: it's universal.          #
+#  If ||∇ξ|| varies with grid: M=32 is insufficient.          #
+#  If ||∇ξ|| varies with threshold: the region def matters.   #
+#  If ||∇ξ|| is stable across all: it's structural.           #
+################################################################

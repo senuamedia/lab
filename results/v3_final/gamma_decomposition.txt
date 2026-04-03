@@ -1,0 +1,43 @@
+################################################################
+#  γ DECOMPOSITION                                             #
+#                                                              #
+#  E: γ as function of IC spectral index α (E_K ~ K^{-2α})   #
+#  F: Shell-by-shell transfer magnitude analysis               #
+#                                                              #
+#  N=8, A=0.30                                               #
+################################################################
+
+  === TEST E: γ vs IC spectral index α ===
+  (IC: û ~ k^{-α}, so E_K ~ K^{2-2α} per mode, K^{4-2α} per shell)
+
+  α       E(0)       Ω(0)       γ (measured)    γ predicted (3/2 - (2α-1)/2)
+  ------  --------   --------   ------------    ---------------------------
+     0.0   11.2824    68.9418        -0.9905    +2.0000
+     0.5    4.9778    27.2562        -1.6714    +1.5000
+     1.0    2.3961    11.2824        -2.4105    +1.0000
+     1.5    1.2896     4.9778        -3.1979    +0.5000
+     2.0    0.7884     2.3961        -4.0335    +0.0000
+     3.0    0.4217     0.7884        -5.8649    -1.0000
+
+  If γ_measured ≈ γ_predicted: Sobolev decay explains γ.
+  If γ_measured << γ_predicted: geometric cancellation dominates.
+  If γ_measured is constant regardless of α: geometry is everything.
+
+  === TEST F: Per-shell |T_K| at each shell (distributed IC, ν=0) ===
+
+  Shell  E_K        |T_K|       |T_K|/E     log(k)   log(|T_K|/E)
+  -----  --------   ---------   --------   ------   ------------
+  1      6.86e-01    2.48e-01   1.04e-01    0.000        -2.2641
+  2      1.21e+00    1.36e+00   5.71e-01    0.693        -0.5601
+  3      4.41e-01    5.12e-01   2.15e-01    1.099        -1.5392
+  4      5.20e-04    5.20e-02   2.18e-02    1.386        -3.8264
+  5      2.06e-04    1.96e-02   8.21e-03    1.609        -4.8026
+  6      4.35e-05    4.10e-03   1.72e-03    1.792        -6.3660
+  7      5.27e-06    5.34e-04   2.24e-04    1.946        -8.4035
+  8      3.07e-07    4.20e-05   1.76e-05    2.079       -10.9471
+
+################################################################
+#  The slope of log(|T_K|/E) vs log(k) is γ.                  #
+#  Compare with sin²θ = 2/3 (Leray factor) and the spectral   #
+#  decay E_K to identify the dominant source of cancellation.  #
+################################################################

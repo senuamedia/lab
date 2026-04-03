@@ -1,0 +1,45 @@
+################################################################
+#  p ↔ q SWAP SYMMETRY TEST                                    #
+#                                                              #
+#  For each triad (p,q,k): compare c(p,q) with c(q,p).       #
+#  If antisymmetric: c(p,q) ≈ -c(q,p) → forced cancellation. #
+#                                                              #
+#  N=8, A=0.30                                               #
+################################################################
+
+  === Global p↔q swap statistics ===
+
+  Total unordered pairs:     1039335
+  Opposite sign (antisym):   564487 (54.3%)
+  Same sign:                 474848 (45.7%)
+
+  Σ|c(p,q) + c(q,p)| / Σ(|c(p,q)| + |c(q,p)|) = 0.744526
+  → Pair cancellation: 25.5%
+  → If this = 1.0: perfect antisymmetry (c(p,q) = -c(q,p))
+  → If this = 0.0: no antisymmetry (c(p,q) = c(q,p))
+
+  === Per-shell swap statistics ===
+
+  Shell  pairs      antisym%   pair_cancel%
+  -----  --------   --------   -----------
+  1      16676        42.2%        23.3%
+  2      51647        41.3%        24.0%
+  3      73071        44.9%        25.6%
+  4      138419       49.1%        34.2%
+  5      197440       52.8%        29.8%
+  6      213845       57.1%        27.7%
+  7      238851       59.6%        28.8%
+  8      109386       60.9%        28.7%
+
+################################################################
+#  If antisym% ≈ 50% AND pair_cancel ≈ 100%:                  #
+#    → c(p,q) ≈ -c(q,p) — swap is antisymmetric.             #
+#    → Every triad has a partner with opposite sign.           #
+#    → The 50/50 sign balance is STRUCTURAL.                  #
+#    → The cancellation δ > 0 is PROVABLE from this symmetry. #
+#                                                              #
+#  If antisym% ≈ 50% BUT pair_cancel << 100%:                 #
+#    → The swap DOES flip signs but magnitudes differ.        #
+#    → Cancellation is partial, not complete.                  #
+#    → δ > 0 still holds but depends on magnitude balance.    #
+################################################################

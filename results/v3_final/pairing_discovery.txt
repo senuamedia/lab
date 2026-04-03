@@ -1,0 +1,44 @@
+################################################################
+#  PAIRING DISCOVERY                                           #
+#                                                              #
+#  1. Conjugate: (p,q,k) vs (-p,-q,-k)                       #
+#  2. Scale-dependent cancellation vs triad count              #
+#                                                              #
+#  N=8, A=0.30                                               #
+################################################################
+
+  === TEST 1: Conjugate pairing (p,q,k) vs (-p,-q,-k) ===
+
+  Conjugate pairs found:   1039376
+  Near-exact antisymmetric (|c+c'|/|c|+|c'| < 0.01): 8 (0.0%)
+  Pair cancellation:       0.0%
+  Avg |c+c'|/(|c|+|c'|):  0.999933
+
+  → WEAK conjugate antisymmetry.
+
+  === TEST 2: Cancellation ratio vs triad count per shell ===
+
+  Shell  triads      |T_K|/Σ|c|    n(K)       1/√n(K)    |T|/Σ|c| × √n
+  -----  ----------  ----------    --------    -------    -----------
+  1      33396         0.161372    33396       0.00547        29.4900
+  2      103326        0.152378    103326      0.00311        48.9810
+  3      146212        0.108886    146212      0.00262        41.6356
+  4      276906        0.369769    276906      0.00190       194.5792
+  5      394916        0.405821    394916      0.00159       255.0272
+  6      427794        0.370340    427794      0.00153       242.2244
+  7      477840        0.346472    477840      0.00145       239.5024
+  8      218778        0.391069    218778      0.00214       182.9173
+
+  If |T|/Σ|c| × √n ≈ constant: CLT-type cancellation (phase diversity ~ √n).
+  If |T|/Σ|c| × √n decreases with K: STRONGER than CLT at high K.
+  If |T|/Σ|c| × √n increases with K: WEAKER than CLT at high K.
+
+################################################################
+#  SYNTHESIS:                                                   #
+#                                                              #
+#  If conjugate antisymmetry holds:                            #
+#    c(p,q,k) = -c(-p,-q,-k) is provable from û_{-k}=conj(û_k)#
+#    This pairs every triad with a sign-flipped partner.       #
+#    The 50/50 balance follows algebraically.                   #
+#    δ > 0 is then a theorem, not a computation.              #
+################################################################

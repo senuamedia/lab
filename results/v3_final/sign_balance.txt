@@ -1,0 +1,46 @@
+################################################################
+#  SIGN BALANCE OF TRIAD CONTRIBUTIONS                         #
+#                                                              #
+#  For each mode k: how balanced are + and - contributions?    #
+#  balance = min(S_pos, S_neg) / max(S_pos, S_neg)            #
+#  balance > 0 → cancellation exists                          #
+#  balance → 1 → maximum cancellation (equal + and -)         #
+#                                                              #
+#  N=8, A=0.30                                               #
+################################################################
+
+  === Per-shell sign balance ===
+
+  Shell  modes   S_pos       S_neg       |T_K|       balance    min_bal   %pos
+  -----  ------  ----------  ----------  ----------  --------   -------   -----
+  1      18      3.7007e-01  5.1249e-01  1.4242e-01    0.7221    0.4599    50.8%
+  2      62      1.6211e+00  2.2039e+00  5.8284e-01    0.7355    0.2289    49.9%
+  3      98      1.7768e+00  1.4278e+00  3.4894e-01    0.8036    0.2034    49.9%
+  4      210     5.6594e-01  2.6039e-01  3.0555e-01    0.4601    0.2181    49.8%
+  5      350     1.1266e-01  4.7618e-02  6.5045e-02    0.4227    0.1776    49.2%
+  6      450     9.3427e-03  4.2929e-03  5.0498e-03    0.4595    0.1796    49.9%
+  7      602     1.2007e-03  5.8276e-04  6.1791e-04    0.4854    0.2694    50.5%
+  8      318     1.0305e-04  4.5107e-05  5.7938e-05    0.4377    0.2253    50.8%
+
+  === Global summary ===
+
+  All modes have both + and - contributions: YES
+  Number of one-sided modes: 0
+  Global minimum balance (min over all modes): 0.177642
+  (balance = min(S+,S-)/max(S+,S-) at each mode)
+
+  → Every mode with triads has both + and - contributions.
+  → The minimum balance ratio is 0.1776.
+  → This means |T_k| < 0.6983 × Σ|c_i| at EVERY mode.
+  → δ ≥ 0.3017 uniformly.
+
+################################################################
+#  If balance > 0 at every mode:                               #
+#    → The signed sum ALWAYS partially cancels.                #
+#    → |T_K| < Σ|c_i| strictly.                               #
+#    → The minimum balance gives a uniform δ > 0.             #
+#                                                              #
+#  The ANALYTICAL question: can we prove that for any          #
+#  divergence-free û on Z³, the Im part of the trilinear      #
+#  coupling always has mixed signs at each mode?               #
+################################################################

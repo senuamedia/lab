@@ -1,0 +1,51 @@
+################################################################
+#  CANCELLATION ANATOMY                                        #
+#                                                              #
+#  Decompose the γ gap into per-shell and inter-shell          #
+#  cancellation sources.                                       #
+#  N=8, A=0.30, nu=0.0100                                      #
+################################################################
+
+  === TEST G: Per-shell cancellation ===
+
+  Shell  E_K        T_K (signed)  |T_K|       CS bound     |T_K|/CS    log ratio
+  -----  --------   -----------   ---------   ----------   --------   ---------
+  1      6.86e-01     -2.48e-01    2.48e-01     4.76e+00     0.0520     -1.2836
+  2      1.21e+00     -1.36e+00    1.36e+00     1.56e+01     0.0876     -1.0576
+  3      4.41e-01     -5.12e-01    5.12e-01     1.77e+01     0.0290     -1.5379
+  4      5.20e-04     +5.20e-02    5.20e-02     9.93e-01     0.0523     -1.2811
+  5      2.06e-04     +1.96e-02    1.96e-02     9.35e-01     0.0209     -1.6790
+  6      4.35e-05     +4.10e-03    4.10e-03     6.03e-01     0.0068     -2.1674
+  7      5.27e-06     +5.34e-04    5.34e-04     2.81e-01     0.0019     -2.7210
+  8      3.07e-07     +4.20e-05    4.20e-05     8.76e-02     0.0005     -3.3195
+
+  === TEST H: Inter-shell cancellation ===
+
+  Stretching S = Σ K² T_K:       -8.8045e+00
+  Absolute  S_abs = Σ K² |T_K|:    1.1799e+01
+  Cancellation ratio |S|/S_abs:      0.746197
+  Zero-sum check Σ T_K:           -2.0455e+00  (should be ~0)
+
+  === TEST I: Effective γ comparison ===
+
+  γ from actual |T_K|:                     -2.4105
+  γ from Cauchy-Schwarz bound (no Leray):  -1.4581
+  γ from CS × 2/3 (with Leray):           -1.4581
+  γ from Lemma 9.5 (α=1):                 +1.0000
+
+  Gap analysis:
+    CS bound → actual:     -0.9524  (total geometric + phase cancellation)
+    Leray factor alone:    -0.0000  (from sin²θ = 2/3)
+    Phase cancellation:    -0.9524  (the remaining gap)
+
+################################################################
+#  INTERPRETATION:                                             #
+#                                                              #
+#  |T_K|/CS << 1 at high K: per-shell phase cancellation.     #
+#  |S|/S_abs << 1: inter-shell cancellation from Σ T_K = 0.   #
+#  Phase cancellation >> Leray factor: -i is the key.         #
+#                                                              #
+#  If phase cancellation scales as K^{-p}:                     #
+#    γ_effective = γ_CS - p                                    #
+#    Need to prove p > 0 analytically to close the bridge.    #
+################################################################
