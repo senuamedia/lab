@@ -1,0 +1,66 @@
+################################################################
+#  SYMBOLIC VERIFICATION OF THE -i FACTOR                      #
+#                                                              #
+#  Question: which prefactor c in NL_k = c·Σ(û_p·q)·P_k(û_q)  #
+#  makes Σ_k Re(conj(u_k)·NL_k) = 0 identically?              #
+#                                                              #
+#  Testing a minimal triad (p, q, k) with p+q=k.              #
+#  Symbolic computation in sympy (not numerical).             #
+################################################################
+
+================================================================
+  Testing four candidate prefactors:
+================================================================
+
+  Prefactor = -i  (correct NS)
+  Total Σ_k Re(conj(u_k)·NL_k) = 0
+  ✓ ENERGY CONSERVED: identity holds identically
+
+  Prefactor = +i  (wrong sign)
+  Total Σ_k Re(conj(u_k)·NL_k) = 0
+  ✓ ENERGY CONSERVED: identity holds identically
+
+  Prefactor =  1  (v2 bug: no i)
+  Total Σ_k Re(conj(u_k)·NL_k) = 2*uk_z_i*up_y_i*uq_z_r + 2*uk_z_i*up_y_r*uq_z_i + 2*uk_z_i*up_z_i*uq_x_r + 2*uk_z_i*up_z_r*uq_x_i - 2*uk_z_r*up_y_i*uq_z_i + 2*uk_z_r*up_y_r*uq_z_r - 2*uk_z_r*up_z_i*uq_x_i + 2*uk_z_r*up_z_r*uq_x_r
+  ✗ NOT CONSERVED: residual = 2*uk_z_i*up_y_i*uq_z_r + 2*uk_z_i*up_y_r*uq_z_i + 2*uk_z_i*up_z_i*uq_x_r + 2*uk_z_i*up_z_r*uq_x_i - 2*uk_z_r*up_y_i*uq_z_i + 2*uk_z_r*up_y_r*uq_z_r - 2*uk_z_r*up_z_i*uq_x_i + 2*uk_z_r*up_z_r*uq_x_r
+
+  Prefactor = -1  (real, wrong sign)
+  Total Σ_k Re(conj(u_k)·NL_k) = -2*uk_z_i*up_y_i*uq_z_r - 2*uk_z_i*up_y_r*uq_z_i - 2*uk_z_i*up_z_i*uq_x_r - 2*uk_z_i*up_z_r*uq_x_i + 2*uk_z_r*up_y_i*uq_z_i - 2*uk_z_r*up_y_r*uq_z_r + 2*uk_z_r*up_z_i*uq_x_i - 2*uk_z_r*up_z_r*uq_x_r
+  ✗ NOT CONSERVED: residual = -2*uk_z_i*up_y_i*uq_z_r - 2*uk_z_i*up_y_r*uq_z_i - 2*uk_z_i*up_z_i*uq_x_r - 2*uk_z_i*up_z_r*uq_x_i + 2*uk_z_r*up_y_i*uq_z_i - 2*uk_z_r*up_y_r*uq_z_r + 2*uk_z_r*up_z_i*uq_x_i - 2*uk_z_r*up_z_r*uq_x_r
+
+================================================================
+  SUMMARY
+================================================================
+
+  Prefactor                Energy conserved?
+  ----------------------   -----------------
+  -i  (correct NS)         YES ✓
+  +i  (wrong sign)         YES ✓
+   1  (v2 bug: no i)       NO  ✗
+  -1  (real, wrong sign)   NO  ✗
+
+################################################################
+#  SYMBOLIC FINDINGS (single-triad level)                      #
+#                                                              #
+#  For a single isolated triad (p, q, k) with p+q=k:           #
+#                                                              #
+#  Imaginary prefactors (+i or -i): Σ Re(conj·NL) ≡ 0         #
+#    The trilinear form is skew-Hermitian when multiplied     #
+#    by an imaginary constant.                                #
+#                                                              #
+#  Real prefactors (+1 or -1): nonzero polynomial residual   #
+#    in the Fourier coefficients. The symmetric part of the  #
+#    trilinear form survives.                                #
+#                                                              #
+#  See prefactor_test.c for a complementary numerical test:   #
+#  with full conjugate symmetry (û_{-k} = conj(û_k)), the     #
+#  symmetric residuals cancel across k and -k contributions,  #
+#  so the global sum is zero for any prefactor. Without       #
+#  conjugate symmetry (or with real-storage v2 architecture),  #
+#  real prefactors produce observable energy injection.        #
+#                                                              #
+#  The -i factor is derived from Fourier analysis as a        #
+#  theorem (∂_j → i·k_j, convolution, NS sign convention),    #
+#  not chosen to enforce energy conservation.                 #
+################################################################
+

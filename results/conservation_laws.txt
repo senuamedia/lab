@@ -1,0 +1,39 @@
+################################################################
+#  NS INVARIANTS CHECK: all four identities simultaneously     #
+#                                                              #
+#  (1) Divergence-free:     max |k·û_k|                        #
+#  (2) Conjugate symmetry:  max |û_{-k} - conj(û_k)|           #
+#  (3) Energy identity:     |dE/dt + 2νΩ| / (2νΩ)              #
+#  (4) Energy bound:        E(t) ≤ E(0)                        #
+#                                                              #
+#  Params: N=6, ν=0.010, A=0.30, dt=0.0001, steps=1000        #
+################################################################
+
+  step    t       E(t)        Ω(t)       max|k·û|    max conj err  |dE/dt+2νΩ|/rel
+  ----   -----   ----------  ---------   ---------   ------------  ---------------
+  0      0.0000  2.396145e+00  1.128e+01   0.000e+00   0.000e+00     (init)
+  100    0.0100  2.393910e+00  1.128e+01   2.777e-16   6.397e-18     9.311e-03 (E<=E0)
+  200    0.0200  2.391675e+00  1.128e+01   5.274e-16   1.651e-17     9.291e-03 (E<=E0)
+  300    0.0300  2.389438e+00  1.131e+01   5.613e-16   6.288e-17     9.262e-03 (E<=E0)
+  400    0.0400  2.387194e+00  1.134e+01   7.217e-16   5.985e-17     9.225e-03 (E<=E0)
+  500    0.0500  2.384942e+00  1.139e+01   6.111e-16   5.551e-17     9.179e-03 (E<=E0)
+  600    0.0600  2.382678e+00  1.146e+01   6.662e-16   6.158e-17     9.126e-03 (E<=E0)
+  700    0.0700  2.380400e+00  1.153e+01   8.352e-16   7.806e-17     9.065e-03 (E<=E0)
+  800    0.0800  2.378106e+00  1.162e+01   9.445e-16   7.459e-17     8.997e-03 (E<=E0)
+  900    0.0900  2.375792e+00  1.173e+01   8.766e-16   7.980e-17     8.922e-03 (E<=E0)
+  1000   0.1000  2.373456e+00  1.185e+01   1.144e-15   7.980e-17     8.842e-03 (E<=E0)
+
+  === INVARIANT SUMMARY ===
+
+  (1) Divergence-free:       max|k·û_k|       = 1.144e-15   PASS (< 1e-12)
+  (2) Conjugate symmetry:    max|û_{-k}-conj(û_k)| = 7.980e-17   PASS (< 1e-12)
+  (3) Energy identity:       max|dE/dt+2νΩ|/rel = 9.311e-03   PASS (Euler O(dt))
+  (4) Energy bound:          E(t) ≤ E(0)?      violations = 0   PASS
+
+################################################################
+#  All four NS invariants preserved by the v3 solver.          #
+#                                                              #
+#  Divergence-free and conjugate symmetry hold to machine      #
+#  precision. Energy identity holds to O(dt) (Euler            #
+#  truncation). Energy bound E(t) ≤ E(0) holds at every step.  #
+################################################################

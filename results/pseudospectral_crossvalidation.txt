@@ -1,0 +1,124 @@
+################################################################
+#  CROSS-VALIDATION: Triad Enumeration vs FFT Pseudospectral  #
+#                                                              #
+#  Two architecturally different NS solvers, same IC, same    #
+#  (ν, Δt, T). Expected: agreement to Euler truncation        #
+#  precision (~1e-5 for dt=1e-4, T=0.01).                    #
+#                                                              #
+#  This demonstrates the -i factor is correctly applied in    #
+#  both architectures (explicit in triad, embedded in FFT).   #
+################################################################
+
+================================================================
+  N = 3  (Galerkin modes)
+  M = 12  (FFT grid = 12^3 = 1728 points)
+  A = 0.1, α = 1.0, ν = 0.01, Δt = 0.0001, steps = 100
+  Final time: T = 0.01
+================================================================
+
+N=3: 122 modes enumerated
+  6642 triads precomputed
+  Initial energy:
+    Galerkin (triad):     E = 0.2662382955
+    Pseudospectral (FFT): E = 0.2662382955
+    Difference:           0.00e+00
+
+  Nonlinear energy rate Σ Re(conj(û)·NL):
+    Galerkin (triad):     0.000000e+00
+    Pseudospectral (FFT): -9.326948e-18
+  (both should be ~0 at machine precision)
+
+  Evolving 100 steps (exact diffusion + Euler NL, dt=0.0001)...
+
+  Final energy at T = 0.01:
+    Galerkin (triad):     E = 0.2659878777
+    Pseudospectral (FFT): E = 0.2659878777
+    Relative difference:  2.09e-16
+
+  Per-mode comparison at T = 0.01:
+    Max |û_k^(triad) - û_k^(FFT)|:  1.94e-16
+    L2 norm of difference:          6.40e-16
+    Relative L2:                    8.77e-16
+
+  ✓ PASS: solvers agree within Euler truncation precision
+================================================================
+
+================================================================
+  N = 4  (Galerkin modes)
+  M = 16  (FFT grid = 16^3 = 4096 points)
+  A = 0.1, α = 1.0, ν = 0.01, Δt = 0.0001, steps = 100
+  Final time: T = 0.01
+================================================================
+
+N=4: 256 modes enumerated
+  30360 triads precomputed
+  Initial energy:
+    Galerkin (triad):     E = 0.4010673465
+    Pseudospectral (FFT): E = 0.4010673465
+    Difference:           5.55e-17
+
+  Nonlinear energy rate Σ Re(conj(û)·NL):
+    Galerkin (triad):     0.000000e+00
+    Pseudospectral (FFT): 2.499486e-18
+  (both should be ~0 at machine precision)
+
+  Evolving 100 steps (exact diffusion + Euler NL, dt=0.0001)...
+
+  Final energy at T = 0.01:
+    Galerkin (triad):     E = 0.4004362591
+    Pseudospectral (FFT): E = 0.4004362591
+    Relative difference:  0.00e+00
+
+  Per-mode comparison at T = 0.01:
+    Max |û_k^(triad) - û_k^(FFT)|:  6.94e-18
+    L2 norm of difference:          8.89e-18
+    Relative L2:                    9.94e-18
+
+  ✓ PASS: solvers agree within Euler truncation precision
+================================================================
+
+================================================================
+  N = 4  (Galerkin modes)
+  M = 16  (FFT grid = 16^3 = 4096 points)
+  A = 0.2, α = 0.5, ν = 0.01, Δt = 0.0001, steps = 100
+  Final time: T = 0.01
+================================================================
+
+N=4: 256 modes enumerated
+  30360 triads precomputed
+  Initial energy:
+    Galerkin (triad):     E = 4.2934209979
+    Pseudospectral (FFT): E = 4.2934209979
+    Difference:           0.00e+00
+
+  Nonlinear energy rate Σ Re(conj(û)·NL):
+    Galerkin (triad):     0.000000e+00
+    Pseudospectral (FFT): -7.047596e-17
+  (both should be ~0 at machine precision)
+
+  Evolving 100 steps (exact diffusion + Euler NL, dt=0.0001)...
+
+  Final energy at T = 0.01:
+    Galerkin (triad):     E = 4.2855582598
+    Pseudospectral (FFT): E = 4.2855582598
+    Relative difference:  0.00e+00
+
+  Per-mode comparison at T = 0.01:
+    Max |û_k^(triad) - û_k^(FFT)|:  2.78e-17
+    L2 norm of difference:          4.98e-17
+    Relative L2:                    1.70e-17
+
+  ✓ PASS: solvers agree within Euler truncation precision
+================================================================
+
+################################################################
+#  BOTH ARCHITECTURES ARE CORRECT:                             #
+#                                                              #
+#  - Triad enumeration: applies -i explicitly after the sum   #
+#  - FFT pseudospectral: i embedded in derivative kernel      #
+#                                                              #
+#  The v2 bug was specific to the triad-enumeration           #
+#  architecture with real Fourier coefficients. FFT-based     #
+#  solvers (Dedalus, Tarang) do not have this failure mode.   #
+################################################################
+
