@@ -129,7 +129,7 @@ int main(void) {
     printf("#  If it decays: bootstrap closes. No circularity.            #\n");
     printf("################################################################\n\n");
 
-    for (int ai = 0; ai < 3; ai++) {
+    for (int ai = 0; ai < 1; ai++) {  /* amps[] has 1 element */
         for (int vi = 0; vi < 2; vi++) {
             double amp = amps[ai];
             double nu = nus[vi];
