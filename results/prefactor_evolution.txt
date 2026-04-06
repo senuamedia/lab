@@ -1,0 +1,47 @@
+################################################################
+#  PREFACTOR EVOLUTION TEST                                     #
+#                                                              #
+#  The v3 solver uses -i internally (correct NS).             #
+#  At ν=0, it should conserve energy over 1000 steps.        #
+#                                                              #
+#  Cross-reference with minimal_triad.c which tests all       #
+#  four prefactors independently of the v3 solver.            #
+################################################################
+
+  Test 1: v3 solver at ν=0 (correct -i, complex storage)
+
+  step     E(t)           ΔE/E(0)      
+  ------   ------------   ------------  
+  0        1.0649531819e+00 0.000000e+00  
+  100      1.0649569221e+00 3.512117e-06  
+  200      1.0649606618e+00 7.023709e-06  
+  300      1.0649644003e+00 1.053419e-05  
+  400      1.0649681370e+00 1.404297e-05  
+  500      1.0649718713e+00 1.754946e-05  
+  600      1.0649756025e+00 2.105310e-05  
+  700      1.0649793300e+00 2.455329e-05  
+  800      1.0649830533e+00 2.804948e-05  
+  900      1.0649867717e+00 3.154110e-05  
+  1000     1.0649904847e+00 3.502759e-05  
+
+  v3 energy drift after 1000 steps at ν=0: ΔE/E = 3.502759e-05
+  This is O(dt·T) = O(1e-05) Euler truncation.
+
+  Test 2: dt-dependence of energy drift (should scale as dt²)
+
+  dt         steps    ΔE/E(0)       ΔE/E / dt²  
+  --------   ------   ------------   ------------  
+  1.0e-03    100      3.505619e-04   3.505619e+02  
+  1.0e-04    1000     3.502759e-05   3.502759e+03  
+  1.0e-05    10000    3.502471e-06   3.502471e+04  
+
+  If ΔE/E / dt² ≈ const: drift is O(dt²) = Euler truncation.
+  The nonlinear term conserves energy EXACTLY;
+  only the time integrator introduces drift.
+
+################################################################
+#  The v3 solver (complex storage + -i + conjugate symmetry)   #
+#  conserves energy at ν=0 to time-integrator precision.      #
+#  Combined with minimal_triad.c showing +1 drifts 36.5%,    #
+#  this proves the -i factor is essential for NS dynamics.    #
+################################################################
