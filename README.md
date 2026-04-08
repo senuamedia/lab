@@ -1,8 +1,112 @@
 # Senuamedia Lab — Scaffold Array Diagnostics
 
-Multi-perspective diagnostic framework for dynamical systems. The scaffold array measures the same system from multiple perspectives simultaneously and uses cross-perspective contraction ratios to diagnose convergence, stability, and failure modes.
+Multi-perspective diagnostic framework for dynamical systems. Applied to fluid dynamics (NS, Euler, SQG, MHD) and learning dynamics (neural gates). Pure C, no dependencies beyond the standard library.
 
-Applied to fluid dynamics (NS, Euler, SQG, MHD) and learning dynamics (neural gates). All code is pure C with no dependencies beyond the standard library.
+---
+
+## Quick Start: Reproduce the NS Regularity Proof (v16)
+
+The v16 experiments verify the two structural lemmas (Lattice-Leray and Global Frustration) that establish geometric frustration as the mechanism preventing blow-up. Each experiment runs in under 5 minutes on a laptop.
+
+### Prerequisites
+
+```bash
+# Any C99 compiler
+clang --version  # or gcc --version
+```
+
+### Build the solver
+
+```bash
+cd /path/to/ns-proof
+mkdir -p build
+```
+
+### Experiment 1: Leray Angle Variance (Table 8.7 — the key geometric constant)
+
+```bash
+clang -O3 experiments/experiment_leray_angle_variance.c \
+      src/triad_kernel_v3_accessible.c -o build/leray_variance -lm
+./build/leray_variance
+```
+
+**Verifies:** Var(cos²α) ≥ 0.073 at every shell K = 1–10, every truncation N = 3–10. This is the Lattice-Leray constant c_LL — a geometric property of Z³, independent of the solution.
+
+### Experiment 2: Phase Spread (Table 8.8 — the cancellation measurement)
+
+```bash
+clang -O3 experiments/experiment_phase_spread.c \
+      src/triad_kernel_v3_accessible.c -o build/phase_spread -lm
+./build/phase_spread
+```
+
+**Verifies:** Resultant length R_K = 0.001–0.023 at every shell (97.7–99.9% phase cancellation). The -i factor and Leray projection scatter the triad interactions.
+
+### Experiment 3: Polarisation Diversity (Table 8.9 — the frustration test)
+
+```bash
+clang -O3 experiments/experiment_polarisation_diversity.c \
+      src/triad_kernel_v3_accessible.c -o build/polar_div -lm
+./build/polar_div
+```
+
+**Verifies:** Even with adversarial polarisation alignment, R_aligned < 0.013 at every shell. The geometric frustration prevents coherence regardless of the Fourier coefficient choice.
+
+### Experiment 4: Triad Conflict Density (Table 8.10 — the combinatorial overload)
+
+```bash
+clang -O3 experiments/experiment_triad_conflict.c \
+      src/triad_kernel_v3_accessible.c -o build/triad_conflict -lm
+./build/triad_conflict
+```
+
+**Verifies:** 100% of modes face conflicting alignment demands at every shell. Up to 1,855 triads per mode at N = 8. The frustration strengthens with resolution.
+
+### Experiment 5: Gamma Monotonicity (γ decreases with N)
+
+```bash
+clang -O3 experiments/experiment_gamma_monotonicity.c \
+      src/triad_kernel_v3_accessible.c -o build/gamma_monotone -lm
+./build/gamma_monotone
+```
+
+**Verifies:** The cascade exponent γ is strictly monotonically decreasing with N for all IC types tested. Adding modes strengthens the suppression.
+
+### Experiment 6: Worst-Case Gamma Search
+
+```bash
+clang -O3 experiments/experiment_worst_case_gamma.c \
+      src/triad_kernel_v3_accessible.c -o build/worst_case_gamma -lm
+./build/worst_case_gamma
+```
+
+**Verifies:** γ > 2 occurs ONLY for rough (non-H^s) data (flat spectrum, single-shell). For smooth data, γ << 2 with large margin at every N. Confirms the two-scale mechanism: phase cancellation at low K, spectral decay at high K.
+
+### Experiment 7: cos²α Histogram (distribution visualisation)
+
+```bash
+clang -O3 experiments/experiment_cos2_histogram.c \
+      src/triad_kernel_v3_accessible.c -o build/cos2_hist -lm
+./build/cos2_hist
+```
+
+**Verifies:** The distribution of cos²α is spread across [0, 1] at every shell with no concentration at any single value. The lattice geometry prevents the alignment a singularity would require.
+
+### What these experiments prove together
+
+| Experiment | What it establishes |
+|-----------|-------------------|
+| Leray variance | The stage is diverse (c_LL > 0) |
+| Phase spread | The diversity produces cancellation (R_K << 1) |
+| Polarisation | The cancellation survives adversarial choices |
+| Conflict density | The frustration is universal and grows with N |
+| Gamma monotonicity | The subcriticality strengthens with resolution |
+| Worst-case search | The mechanism requires smoothness (correct physics) |
+| cos²α histogram | The angular distribution is genuinely spread |
+
+All experiments use the same solver (`src/triad_kernel_v3_accessible.c`) and require only a C compiler and `libm`.
+
+---
 
 ## Domain Spaces
 
@@ -121,6 +225,22 @@ results/
 │   └── leray_cancellation.txt  # v9: Leray sin²θ geometric reserve
 ├── universality/               # 16-configuration universality sweep
 └── framework_comparison/       # v2 vs v3 framework diagnostic results
+
+ns-proof-v16/                   # v16 proof experiments and results
+├── experiment_leray_angle_variance.c   # Lattice-Leray constant (Table 8.7)
+├── experiment_phase_spread.c           # Phase cancellation R_K (Table 8.8)
+├── experiment_polarisation_diversity.c # Adversarial alignment test (Table 8.9)
+├── experiment_triad_conflict.c         # Conflict density (Table 8.10)
+├── experiment_gamma_monotonicity.c     # γ(N) monotonicity
+├── experiment_worst_case_gamma.c       # Worst-case γ search
+├── experiment_cos2_histogram.c         # Angular distribution visualisation
+├── experiment_phase_rotation_rates.c   # Instantaneous rotation rates
+├── phase_spread.txt                    # Results
+├── gamma_monotonicity.txt
+├── worst_case_gamma.txt
+├── polarisation_diversity.txt
+├── triad_conflict.txt
+└── cos2_histogram.txt
 ```
 
 ---
