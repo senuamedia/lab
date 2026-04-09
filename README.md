@@ -226,7 +226,7 @@ results/
 ├── universality/               # 16-configuration universality sweep
 └── framework_comparison/       # v2 vs v3 framework diagnostic results
 
-ns-proof-v16/                   # v16 proof experiments and results
+ns-proof-experiments/                   # v16 proof experiments and results
 ├── experiment_leray_angle_variance.c   # Lattice-Leray constant (Table 8.7)
 ├── experiment_phase_spread.c           # Phase cancellation R_K (Table 8.8)
 ├── experiment_polarisation_diversity.c # Adversarial alignment test (Table 8.9)
