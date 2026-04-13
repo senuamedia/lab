@@ -1,8 +1,62 @@
-# Senuamedia Lab — Scaffold Array Diagnostics
+# Senuamedia Lab
 
-Multi-perspective diagnostic framework for dynamical systems. Applied to fluid dynamics (NS, Euler, SQG, MHD) and learning dynamics (neural gates). Pure C, no dependencies beyond the standard library.
+Experimental framework for dynamical systems and fluid dynamics.
 
 ---
+
+## Paper 4: Effective PDE for Shell-Angular Energy and Global Regularity of 3D Navier-Stokes
+
+**Location:** `ns-proof-paper4/`
+
+The latest experiments verify the effective PDE framework for NS regularity. The core finding: angular relaxation scales as K^2 (lattice-point count), vortex stretching scales as K, and K^2 > K at every shell.
+
+### Key experiments
+
+| Experiment | What it does | Key result |
+|---|---|---|
+| `cascade_wave.py` | 3D NS pseudospectral DNS (N=8, 2108 modes, 12 angular bins) | Cascade velocity, enstrophy growth, angular-binned energy |
+| `cascade_wave_2d.py` | 2D NS vorticity-streamfunction DNS (N=64, 8 angular bins) | Inverse energy cascade confirmed, Kraichnan dual cascade |
+| `cascade_wave_1d.py` | 1D Burgers DNS (N=128, complex amplitudes) | Forward cascade, shock formation |
+| `fit_angular_v4.py` | Coupled (E, Omega) angular model with independent enstrophy | **c5 = -0.518 (stretching dissipative), d3 = +0.013 < 2nu = 0.02** |
+
+### Reproduce the key result
+
+```bash
+cd ns-proof-paper4
+
+# Run 3D DNS (~30 min per experiment, 4 experiments)
+python3 experiments/cascade_wave.py
+
+# Run 2D DNS (~40 sec)
+python3 experiments/cascade_wave_2d.py
+
+# Fit the effective PDE (~35 min)
+python3 experiments/fit_angular_v4.py
+```
+
+### Results
+
+- `results/cascade_wave.npz` — 3D data (E_K, Omega_K, complex amplitudes, angular-binned energy)
+- `results/cascade_wave_2d.npz` — 2D data (same observables)
+- `results/fit_angular_v4.log` — fitted coefficients and integration scores
+- `effective-pde-ns-regularity.pdf` — the paper (22 pages)
+
+### Model iteration history
+
+Eight candidate models were tested (v1-v8). Each failure revealed missing physics:
+
+| Version | Model | 2D error | 3D error | Lesson |
+|---|---|---|---|---|
+| v2 | Linear diffusion | 13% | 13% | Cascade is wave-like, not diffusive |
+| v3 | Telegraph (damped wave) | 0.04% | 9% | Angular structure needed for 3D |
+| v5 | Leith nonlinear flux | 0.02% | 38% | Pulse ICs need wave propagation |
+| v4 (final) | Coupled (E, Omega), angular-resolved | 1.8% | 23% | Independent Omega breaks degeneracy |
+
+---
+
+## Paper 3: NS Regularity Proof Chain (v16)
+
+**Location:** `ns-proof-experiments/`, `experiments/`
 
 ## Quick Start: Reproduce the NS Regularity Proof (v16)
 
