@@ -34,9 +34,22 @@ python3 experiments/cascade_wave_2d.py
 python3 experiments/fit_angular_v4.py
 ```
 
+### Higher-N validation (v2)
+
+The `n10_experiment.py` and `n16_experiment.py` scripts run the same cascade experiments at higher resolution to verify convergence of the fitted coefficients. Deploy to AWS with `deploy/launch_n16.sh` (edit N and instance type as needed).
+
+| N | Shells | Modes | Triads | c5 (stretch) | d3 (Omega stretch) | Status |
+|---|---|---|---|---|---|---|
+| 4 | 4 | 256 | 30K | +0.160 | -0.249 | done |
+| 8 | 8 | 2,108 | 2.1M | -0.518 | +0.013 | done |
+| 10 | 10 | 4,168 | 8.1M | pending | pending | running on EC2 |
+
+c5 flips from positive to negative between N=4 and N=8 — precisely when the Triad Graph Saturation Theorem activates (G_K becomes complete for K ≤ 3 at N=8). This sign change IS the regularity transition.
+
 ### Results
 
-- `results/cascade_wave.npz` — 3D data (E_K, Omega_K, complex amplitudes, angular-binned energy)
+- `results/cascade_wave.npz` — 3D data at N=8 (E_K, Omega_K, complex amplitudes, angular-binned energy)
+- `results/cascade_wave_n4.npz` — 3D data at N=4
 - `results/cascade_wave_2d.npz` — 2D data (same observables)
 - `results/fit_angular_v4.log` — fitted coefficients and integration scores
 - `effective-pde-ns-regularity.pdf` — the paper (22 pages)
