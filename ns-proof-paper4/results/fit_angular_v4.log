@@ -1,0 +1,89 @@
+==============================================================================
+ANGULAR v4: COUPLED (E, Omega) — INDEPENDENT ENSTROPHY
+==============================================================================
+
+==============================================================================
+2D: 12 shells
+==============================================================================
+  4 experiments, 8 angular bins, 9 parameters (6 E + 3 Omega)
+
+  Fitting universal (integration-based)...
+    seed 0: loss=3.597062e-03 (new best)
+    seed 3: loss=3.208539e-03 (new best)
+  Universal fit done in 2095.9s
+
+  Coefficients:
+    c1_radial       : -0.001500
+    c2_ang_relax    : -0.007132
+    c3_ang_diff     : +0.006343
+    c4_leith        : -0.011544
+    c5_stretch      : -0.017575
+    c6_EO_coupling  : +0.016890
+    d1_radial       : +0.000498
+    d2_leith        : -0.002485
+    d3_stretch      : -0.001440
+
+  *** CRITICAL: c5_stretch = -0.017575 ***
+  *** This is the TRUE vortex-stretching coefficient ***
+  *** (no longer degenerate with K²E) ***
+
+  Forward integration scores (universal):
+    A: rel_rmse(E_K)=1.7528e-02  angular=1.8365e-02  Omega=2.3849e-03
+    B: rel_rmse(E_K)=1.6316e-02  angular=1.5964e-02  Omega=1.3900e-03
+    C: rel_rmse(E_K)=1.0943e-02  angular=2.5036e-02  Omega=8.9113e-03
+    D: rel_rmse(E_K)=1.1628e-02  angular=2.1570e-02  Omega=3.3508e-02
+
+  Per-experiment fit:
+    A: rE=1.7759e-04 rA=9.7728e-04 rO=3.1199e-04
+      c5_stretch=-0.017283  d3_stretch=-0.000563
+    B: rE=1.7032e-04 rA=3.9223e-03 rO=8.9167e-04
+      c5_stretch=-0.005865  d3_stretch=-0.000083
+    C: rE=9.3697e-03 rA=2.1099e-02 rO=8.4868e-03
+      c5_stretch=-0.195388  d3_stretch=-0.001743
+    D: rE=8.1300e-03 rA=1.9592e-02 rO=2.6979e-02
+      c5_stretch=-0.010513  d3_stretch=-0.002449
+
+==============================================================================
+3D: 8 shells
+==============================================================================
+  4 experiments, 12 angular bins, 9 parameters (6 E + 3 Omega)
+
+  Fitting universal (integration-based)...
+    seed 0: loss=4.625405e+00 (new best)
+    seed 1: loss=4.310253e+00 (new best)
+    seed 2: loss=3.100120e+00 (new best)
+    seed 3: loss=3.100117e+00 (new best)
+  Universal fit done in 641.0s
+
+  Coefficients:
+    c1_radial       : +0.240695
+    c2_ang_relax    : +0.128261
+    c3_ang_diff     : -0.001795
+    c4_leith        : +0.220316
+    c5_stretch      : -0.517655
+    c6_EO_coupling  : +0.233721
+    d1_radial       : +2.000000
+    d2_leith        : +2.000000
+    d3_stretch      : +0.012657
+
+  *** CRITICAL: c5_stretch = -0.517655 ***
+  *** This is the TRUE vortex-stretching coefficient ***
+  *** (no longer degenerate with K²E) ***
+
+  Forward integration scores (universal):
+    A: rel_rmse(E_K)=2.2999e-01  angular=2.3645e-01  Omega=5.1527e-01
+    B: rel_rmse(E_K)=2.1859e-01  angular=2.2784e-01  Omega=3.9790e-01
+    C: rel_rmse(E_K)=7.1820e-01  angular=6.5074e-01  Omega=9.2862e-01
+    D: rel_rmse(E_K)=8.8646e-01  angular=8.8276e-01  Omega=7.1864e-01
+
+  Per-experiment fit:
+    A: rE=2.3469e-01 rA=2.2871e-01 rO=5.1115e-01
+      c5_stretch=-0.516738  d3_stretch=-0.098451
+    B: rE=2.3736e-01 rA=2.2010e-01 rO=3.7064e-01
+      c5_stretch=-0.846029  d3_stretch=-0.169619
+    C: rE=7.0308e-01 rA=6.5653e-01 rO=8.1594e-01
+      c5_stretch=-0.008169  d3_stretch=+1.212385
+    D: rE=4.0672e-01 rA=4.2950e-01 rO=4.0661e-01
+      c5_stretch=-2.000000  d3_stretch=+0.804998
+
+Done.
