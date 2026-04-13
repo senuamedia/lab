@@ -34,6 +34,28 @@ python3 experiments/cascade_wave_2d.py
 python3 experiments/fit_angular_v4.py
 ```
 
+### Run locally: convergence analysis
+
+Verify the c₅ sign flip yourself with no cloud dependencies:
+
+```bash
+cd ns-proof-paper4
+pip install numpy scipy
+
+# Quick test (~4 min, N=4 only):
+python3 experiments/run_convergence_local.py --quick
+
+# Standard run (~1 hr, N=4 and N=6):
+python3 experiments/run_convergence_local.py
+
+# Full local (~5 hrs, includes N=8):
+python3 experiments/run_convergence_local.py --include-n8
+```
+
+Produces a convergence table showing c₅(N) and d₃(N) at each resolution. The key result: c₅ flips from positive to negative between N=4 and N=8, coinciding with the Triad Graph Saturation threshold.
+
+For N ≥ 10, use the AWS deploy scripts (see below).
+
 ### Higher-N validation (v2)
 
 The `n10_experiment.py` and `n16_experiment.py` scripts run the same cascade experiments at higher resolution to verify convergence of the fitted coefficients. Deploy to AWS with `deploy/launch_n16.sh` (edit N and instance type as needed).
