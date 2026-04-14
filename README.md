@@ -64,7 +64,8 @@ The `n10_experiment.py` and `n16_experiment.py` scripts run the same cascade exp
 |---|---|---|---|---|---|---|
 | 4 | 4 | 256 | 30K | +0.160 | -0.249 | done |
 | 8 | 8 | 2,108 | 2.1M | -0.518 | +0.013 | done |
-| 10 | 10 | 4,168 | 8.1M | pending | pending | running on EC2 |
+| 10 | 10 | 4,168 | 8.1M | -0.417 | +1.823 | done |
+| 12 | 12 | 7,152 | 24M | -0.819 | +0.291 | done (all 4 exps) |
 
 c5 flips from positive to negative between N=4 and N=8 — precisely when the Triad Graph Saturation Theorem activates (G_K becomes complete for K ≤ 3 at N=8). This sign change IS the regularity transition.
 

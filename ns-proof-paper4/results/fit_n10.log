@@ -1,0 +1,29 @@
+N=10: 10 shells, K_list=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5), np.int64(6), np.int64(7), np.int64(8), np.int64(9), np.int64(10)]
+12 angular bins
+Fitting N=10 (subsampled)...
+  seed 0: loss=3.1636e+02 (best)
+  seed 2: loss=2.3328e+02 (best)
+  seed 3: loss=2.2926e+02 (best)
+  seed 4: loss=1.5972e+02 (best)
+Subsampled fit: 156s
+
+*** N=10 RESULTS ***
+c5_stretch = -0.417350
+d3_stretch = +1.822748
+c2_ang_relax = +0.466796
+
+All coefficients:
+  c1: +1.131818
+  c2: +0.466796
+  c3: -0.074092
+  c4: -1.829597
+  c5: -0.417350
+  c6: +0.208584
+  d1: +0.488737
+  d2: +1.739184
+  d3: +1.822748
+
+CONVERGENCE CHECKS:
+  1. c5 < 0?  c5 = -0.4173  PASS 
+  2. |c5(10)-c5(8)|/|c5(10)| < 0.3?  |0.101|/|-0.417| = 0.241  PASS
+  3. d3 < 2*nu=0.02?  d3 = +1.8227  FAIL
