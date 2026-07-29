@@ -1,0 +1,22 @@
+[12:13:47] Part 1: synthetic profile validation
+[12:13:49] synthetic regular  slopes  A +2.96  E +3.05  C +4.41
+[12:13:50] synthetic type1    slopes  A +2.80  E +2.85  C +4.18
+[12:13:51] synthetic type2    slopes  A -0.66  E +1.03  C +0.03
+[12:13:51] Part 2: pseudo-spectral NS runs (T^3, 64^3, 2/3-dealiased)
+[12:20:43] synthetic regular  (beta=0.0)  slopes  A +2.96  E +3.12  C +4.49
+[12:20:56] synthetic type1    (beta=0.0)  slopes  A +0.43  E +0.44  C +0.36
+[12:21:22] synthetic type2    (beta=0.25)  slopes  A +0.08  E +0.10  C -0.26
+[12:24:38] synthetic regular  (beta=0.0)  slopes  A +3.39  E +3.39  C +5.09
+[12:25:38] synthetic type1    (beta=0.0)  slopes  A +0.09  E +0.30  C +0.09
+[12:26:47] synthetic type2    (beta=0.5)  slopes  A -0.62  E -0.35  C -1.19
+[12:28:42] NS taylor_green   nu=0.01  t_peak=6.00  max|w|=5.79  slopes A +2.09  E +3.09  C +3.06
+[12:37:48] NS random_seed1   nu=0.008  t_peak=1.35  max|w|=37.38  slopes A +1.76  E +2.62  C +1.79
+[12:46:18] NS random_seed2   nu=0.012  t_peak=0.85  max|w|=33.23  slopes A +1.72  E +2.06  C +1.52
+[12:46:18] done in 1951s; wrote zoom_classification.json
+[12:46:45] Part 1: synthetic profile validation
+[12:47:45] synthetic regular  (beta=0.0)  slopes  A +3.39  E +3.39  C +5.09
+[12:48:25] synthetic type1    (beta=0.0)  slopes  A +0.09  E +0.30  C +0.09
+[12:49:09] synthetic type2    (beta=0.5)  slopes  A -0.62  E -0.35  C -1.19
+[12:49:09] done in 143s; wrote zoom_classification.json
+[13:03:08] NS taylor_green   nu=0.01  t_peak=6.15  max|w|=5.81  slopes A +2.10  E +3.11  C +3.07
+[13:03:08] TG extended run merged into JSON
